@@ -32,6 +32,10 @@ yarn-error.log*
 
 # env files (can opt-in for committing if needed)
 .env*
+!.env.example
+
+# service-account key files. The app reads GOOGLE_PRIVATE_KEY from the environment.
+alfred-*.json
 
 # vercel
 .vercel
