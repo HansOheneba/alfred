@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 
+import { conversationContext, type ConversationContext } from "@/lib/finance/conversation";
 import type { FinanceStore } from "@/lib/finance/store";
 import type { ProcessedUpdateRecord } from "@/lib/finance/types";
 
@@ -14,6 +15,7 @@ type ResultRef = {
   pendingActionId?: string;
   claimToken?: string;
   transactionIds?: string[];
+  context?: ConversationContext;
 };
 
 /**
@@ -98,7 +100,7 @@ export async function claimUpdate(
 export async function completeUpdate(
   store: FinanceStore,
   rowNumber: number,
-  result: { reply: string; pendingActionId?: string; transactionIds?: string[] },
+  result: { reply: string; pendingActionId?: string; transactionIds?: string[]; context?: ConversationContext | null },
   now: Date,
 ): Promise<void> {
   await store.updateProcessedUpdate(rowNumber, {
@@ -108,6 +110,7 @@ export async function completeUpdate(
       reply: result.reply,
       pendingActionId: result.pendingActionId,
       transactionIds: result.transactionIds ?? [],
+      context: result.context ?? undefined,
     }),
   });
 }
@@ -133,6 +136,7 @@ function parseRef(raw: string): ResultRef {
       transactionIds: Array.isArray(record.transactionIds)
         ? record.transactionIds.filter((id): id is string => typeof id === "string")
         : undefined,
+      context: conversationContext(record.context) ?? undefined,
     };
   } catch {
     return {};

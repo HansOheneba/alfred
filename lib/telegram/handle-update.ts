@@ -19,7 +19,8 @@ import { createSheetsFinanceStore } from "@/lib/google/finance-store";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { createTelegramClient, type InlineButton, type TelegramSender } from "@/lib/telegram/client";
 import { commandName, parseCallbackData, type TelegramUpdate } from "@/lib/telegram/schemas";
-import { helpText, userFacingError } from "@/lib/telegram/messages";
+import { applyFollowUp, readConversation } from "@/lib/finance/conversation";
+import { welcomeText, userFacingError } from "@/lib/telegram/messages";
 
 export type HandlerDeps = {
   settings: AppSettings;
@@ -80,11 +81,11 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
 
   const text = message.text.trim();
   if (command === "start" || command === "help") {
-    await deps.telegram.sendMessage(actor.chatId, helpText(profile.timezone));
+    await deps.telegram.sendMessage(actor.chatId, welcomeText());
     return { httpStatus: 200 };
   }
   if (command) {
-    await deps.telegram.sendMessage(actor.chatId, helpText(profile.timezone));
+    await deps.telegram.sendMessage(actor.chatId, "I don't have that command. Tell me what you spent, or ask how your money is looking.");
     return { httpStatus: 200 };
   }
   if (text.length > LIMITS.maxUserTextChars) {
@@ -114,15 +115,21 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
         category: item.category,
         description: item.description.slice(0, 80),
       }));
-    const action = await deps.interpret({
+    const context = await readConversation(deps.store!, String(profile.telegramUserId));
+    const action = applyFollowUp(
       text,
-      timezone: profile.timezone,
-      currency: profile.currency,
-      now: ctx.now,
-      recent,
-    });
+      await deps.interpret({
+        text,
+        timezone: profile.timezone,
+        currency: profile.currency,
+        now: ctx.now,
+        recent,
+        context,
+      }),
+      context,
+    );
     logInfo("interpreted", { updateId: update.update_id, userId: actor.userId, action: action.type });
-    return handleAction(action, ctx);
+    return handleAction(action, { ...ctx, conversation: context });
   });
 }
 
@@ -189,9 +196,9 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     }
     await deps.store!.updatePendingAction(pending.actionId, { status: "processing" });
     const ctx = actionContext(actor, deps, profile, update.update_id);
-    const text = await executeConfirmed(payload.data, ctx);
+    const confirmed = await executeConfirmed(payload.data, ctx);
     await deps.store!.updatePendingAction(pending.actionId, { status: "completed" });
-    return { kind: "text", text };
+    return { kind: "text", text: confirmed.text, context: confirmed.context };
   });
 }
 
@@ -249,6 +256,7 @@ async function withClaim(
       {
         reply: delivery.text,
         pendingActionId: delivery.kind === "confirm" ? delivery.actionId : undefined,
+        context: delivery.context,
       },
       deps.now(),
     );

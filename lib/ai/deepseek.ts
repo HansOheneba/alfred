@@ -3,6 +3,7 @@ import { z } from "zod";
 import { buildSystemPrompt, type RecentTransaction } from "@/lib/ai/prompts";
 import { LIMITS, type DeepSeekSettings } from "@/lib/config";
 import { AiError } from "@/lib/errors";
+import type { ConversationContext } from "@/lib/finance/conversation";
 import { zonedYmd } from "@/lib/finance/dates";
 import { parseModelOutput, type FinanceAction } from "@/lib/finance/schemas";
 
@@ -25,6 +26,7 @@ export type InterpretRequest = {
   currency: string;
   now: Date;
   recent: RecentTransaction[];
+  context?: ConversationContext | null;
 };
 
 export async function interpretMessage(
@@ -38,6 +40,7 @@ export async function interpretMessage(
     timezone: request.timezone,
     currency: request.currency,
     recent: request.recent,
+    context: request.context,
   });
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);
   let first = "";

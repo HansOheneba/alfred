@@ -49,6 +49,7 @@ const rangeFields = {
   start_date: isoDateSchema.nullable().optional(),
   end_date: isoDateSchema.nullable().optional(),
   category: z.string().min(1).max(40).nullable().optional(),
+  continue_previous: z.boolean().optional(),
 };
 
 const changesSchema = z

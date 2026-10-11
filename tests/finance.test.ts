@@ -82,7 +82,6 @@ describe("summaries and budgets", () => {
       },
     );
     expect(reply.kind === "text" && reply.text).toContain("GH₵5.00 over");
-    expect(reply.kind === "text" && reply.text).toContain("not a bank balance");
     const income = totalsByCurrency(inRange(own, { userId: "42", range: { start: "2026-10-01", end: "2026-10-31" }, type: "income" }));
     expect(netByCurrency(income, totalsByCurrency(spent))[0]?.minor).toBe(45500);
   });
@@ -180,10 +179,10 @@ describe("writes", () => {
         createActionId: () => "actionid1234",
       },
     );
-    expect(reply).toEqual({
-      kind: "text",
-      text: "Logged GH₵45.00 Lunch (Food) for today.\nYou've spent GH₵45.00 so far this month.",
-    });
+    expect(reply.kind).toBe("text");
+    expect(reply.kind === "text" ? reply.text : "").toBe(
+      "Recorded: GH₵45.00 — Food\nToday · Expense\n\nYour spending for the month is now GH₵45.00.",
+    );
   });
 });
 

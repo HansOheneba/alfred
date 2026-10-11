@@ -157,7 +157,7 @@ describe("studio console", () => {
       { userId: 42, decision: "confirm", actionId: again.actionId! },
       deps,
     );
-    expect(confirmed.text).toContain("Deleted");
+    expect(confirmed.text).toContain("Removed");
     const after = await store.listTransactions("42");
     expect(after).toHaveLength(1);
     expect(after[0]?.status).toBe("deleted");

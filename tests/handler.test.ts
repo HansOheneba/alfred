@@ -40,7 +40,7 @@ describe("telegram handler", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]?.category).toBe("Food");
     expect(telegram.sent[0]?.text).toBe(
-      "Logged GH₵45.00 Lunch (Food) for today.\nYou've spent GH₵45.00 so far this month.",
+      "Recorded: GH₵45.00 — Food\nToday · Expense\n\nYour spending for the month is now GH₵45.00.",
     );
     expect(telegram.sent[1]?.text).toBe(telegram.sent[0]?.text);
   });
@@ -132,7 +132,7 @@ describe("telegram handler", () => {
       deps,
     );
     expect((await store.listTransactions("42"))[0]?.status).toBe("deleted");
-    expect(telegram.edits.at(-1)?.text).toContain("Deleted from your totals");
+    expect(telegram.edits.at(-1)?.text).toContain("Removed");
     deps.interpret = async () => ({
       type: "get_spending_summary",
       period: "this_month",
@@ -140,7 +140,7 @@ describe("telegram handler", () => {
       category: "Food",
     });
     await runUpdate(textUpdate(42, 42, "How much did I spend on food this month?"), deps);
-    expect(telegram.sent.at(-1)?.text).toContain("No matching expenses");
+    expect(telegram.sent.at(-1)?.text).toContain("haven't recorded any Food spending");
   });
 });
 

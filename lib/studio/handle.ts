@@ -8,6 +8,7 @@ import { pendingPayloadSchema } from "@/lib/finance/schemas";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { userFacingError } from "@/lib/telegram/messages";
+import { applyFollowUp, readConversation, type ConversationContext } from "@/lib/finance/conversation";
 import { logError, logInfo } from "@/lib/log";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 
@@ -20,6 +21,7 @@ export type StudioTurn =
 export type StudioResult = {
   text: string;
   actionId?: string;
+  context?: ConversationContext;
 };
 
 export type StudioDeps = {
@@ -85,7 +87,7 @@ export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Pro
   await completeUpdate(
     deps.store,
     claim.rowNumber,
-    { reply: result.text, pendingActionId: result.actionId },
+    { reply: result.text, pendingActionId: result.actionId, context: result.context },
     deps.now(),
   );
   return result;
@@ -106,18 +108,24 @@ async function answerText(text: string, ctx: ActionContext, deps: StudioDeps): P
       category: item.category,
       description: item.description.slice(0, 80),
     }));
-  const action = await deps.interpret({
+  const context = await readConversation(deps.store, userId);
+  const action = applyFollowUp(
     text,
-    timezone: ctx.profile.timezone,
-    currency: ctx.profile.currency,
-    now: ctx.now,
-    recent,
-  });
+    await deps.interpret({
+      text,
+      timezone: ctx.profile.timezone,
+      currency: ctx.profile.currency,
+      now: ctx.now,
+      recent,
+      context,
+    }),
+    context,
+  );
   logInfo("studio_interpreted", { userId: ctx.profile.telegramUserId, action: action.type });
-  const delivery = await handleAction(action, ctx);
+  const delivery = await handleAction(action, { ...ctx, conversation: context });
   return delivery.kind === "confirm"
-    ? { text: delivery.text, actionId: delivery.actionId }
-    : { text: delivery.text };
+    ? { text: delivery.text, actionId: delivery.actionId, context: delivery.context }
+    : { text: delivery.text, context: delivery.context };
 }
 
 async function answerDecision(
@@ -153,9 +161,9 @@ async function answerDecision(
     return { text: "That confirmation is no longer valid. Nothing was changed." };
   }
   await ctx.store.updatePendingAction(pending.actionId, { status: "processing" });
-  const text = await executeConfirmed(payload.data, ctx);
+  const confirmed = await executeConfirmed(payload.data, ctx);
   await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
-  return { text };
+  return { text: confirmed.text, context: confirmed.context };
 }
 
 export function createStudioDeps(settings: StudioSettings): StudioDeps {

@@ -1,5 +1,6 @@
 import type { UserProfile } from "@/lib/config";
 import { normalizeCategory } from "@/lib/finance/categories";
+import type { ConversationContext } from "@/lib/finance/conversation";
 import {
   formatDisplayDate,
   formatRange,
@@ -36,20 +37,21 @@ import {
   formatBudgetLine,
   formatCategoryLines,
   formatGoal,
-  formatLogged,
   formatMoneyAmount,
   formatMoneyLines,
   formatRangeLabel,
+  formatSaved,
   formatWriteResult,
   helpText,
   oneLine,
   safeClarification,
+  spokenPeriod,
   unknownCategoryMessage,
 } from "@/lib/telegram/messages";
 
 export type Delivery =
-  | { kind: "text"; text: string }
-  | { kind: "confirm"; text: string; actionId: string };
+  | { kind: "text"; text: string; context?: ConversationContext }
+  | { kind: "confirm"; text: string; actionId: string; context?: ConversationContext };
 
 export type ActionContext = {
   profile: UserProfile;
@@ -61,12 +63,13 @@ export type ActionContext = {
   pendingTtlMs: number;
   createId: () => string;
   createActionId: () => string;
+  conversation?: ConversationContext | null;
 };
 
 export async function handleAction(action: FinanceAction, ctx: ActionContext): Promise<Delivery> {
   switch (action.type) {
     case "help":
-      return { kind: "text", text: helpText(ctx.profile.timezone) };
+      return { kind: "text", text: helpText() };
     case "clarify":
       return { kind: "text", text: safeClarification(action.question) };
     case "create_transaction":
@@ -96,7 +99,10 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
   }
 }
 
-export async function executeConfirmed(payload: PendingPayload, ctx: ActionContext): Promise<string> {
+export async function executeConfirmed(
+  payload: PendingPayload,
+  ctx: ActionContext,
+): Promise<{ text: string; context?: ConversationContext }> {
   const userId = String(ctx.profile.telegramUserId);
   if (payload.type === "create_transaction") {
     const result = await writeTransactions({
@@ -107,29 +113,29 @@ export async function executeConfirmed(payload: PendingPayload, ctx: ActionConte
       createId: ctx.createId,
       now: ctx.now,
     });
-    return loggedReply(ctx, result);
+    return { text: await loggedReply(ctx, result), context: savedContext(ctx, result.succeeded) };
   }
   if (payload.type === "delete_transaction") {
     const transactions = await ctx.store.listTransactions(userId);
     const target = transactions.find((item) => item.transactionId === payload.transactionId);
-    if (!target) return "I couldn't find that transaction. Nothing was changed.";
-    if (target.status === "deleted") return "That transaction was already removed from your totals.";
+    if (!target) return { text: "I couldn't find that transaction. Nothing was changed." };
+    if (target.status === "deleted") return { text: "That transaction was already removed from your totals." };
     await ctx.store.updateTransaction(userId, target.transactionId, { status: "deleted" });
-    return `Deleted from your totals:\n${oneLine({ ...target, status: "deleted" })}\nThe row is still in the sheet.`;
+    return { text: `Removed ${formatMoneyAmount(target.amount, target.currency)} ${target.description} from your totals.` };
   }
   const transactions = await ctx.store.listTransactions(userId);
   const target = transactions.find((item) => item.transactionId === payload.transactionId && item.status === "active");
-  if (!target) return "I couldn't find that active transaction. Nothing was changed.";
+  if (!target) return { text: "I couldn't find that active transaction. Nothing was changed." };
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const nextType = payload.changes.transactionType ?? target.type;
   let category = payload.changes.category ?? target.category;
   if (payload.changes.category || payload.changes.transactionType) {
     const normalized = normalizeCategory(category, nextType);
-    if (!normalized) return unknownCategoryMessage(nextType);
+    if (!normalized) return { text: unknownCategoryMessage(nextType) };
     category = normalized;
   }
   if (payload.changes.date && !isSaneTransactionDate(payload.changes.date, today)) {
-    return "That date isn't one I can store. Nothing was changed.";
+    return { text: "That date isn't one I can store. Nothing was changed." };
   }
   const updated = await ctx.store.updateTransaction(userId, target.transactionId, {
     amount: payload.changes.amount,
@@ -138,7 +144,16 @@ export async function executeConfirmed(payload: PendingPayload, ctx: ActionConte
     date: payload.changes.date,
     transactionType: payload.changes.transactionType,
   });
-  return `Updated:\n${oneLine(updated)}`;
+  return {
+    text: `Updated ${formatMoneyAmount(updated.amount, updated.currency)} ${updated.description} (${updated.category}).`,
+    context: queryContext(
+      { start: updated.transactionDate, end: updated.transactionDate },
+      updated.category,
+      null,
+      updated.transactionId,
+      "correction",
+    ),
+  };
 }
 
 async function createTransactions(
@@ -168,7 +183,7 @@ async function createTransactions(
     createId: ctx.createId,
     now: ctx.now,
   });
-  return { kind: "text", text: await loggedReply(ctx, result) };
+  return { kind: "text", text: await loggedReply(ctx, result), context: savedContext(ctx, result.succeeded) };
 }
 
 async function loggedReply(
@@ -177,39 +192,50 @@ async function loggedReply(
 ): Promise<string> {
   if (result.succeeded.length === 0) return formatWriteResult(result);
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
-  const lines = [formatLogged(result.succeeded, today), await monthPosition(ctx, today)];
-  if (result.failed.length > 0) lines.push(formatWriteResult({ succeeded: [], failed: result.failed }));
-  return lines.filter(Boolean).join("\n");
+  const lines = [formatSaved(result.succeeded, today)];
+  if (result.succeeded.some((item) => item.type === "expense")) {
+    const month = await monthSpendLine(ctx, today);
+    if (month) lines.push("", month);
+  }
+  if (result.failed.length > 0) {
+    lines.push("", "Not saved:");
+    result.failed.forEach((item) => lines.push(`- ${item.description}: ${item.message}`));
+  }
+  return lines.join("\n");
 }
 
-async function monthPosition(ctx: ActionContext, today: string): Promise<string> {
-  const userId = String(ctx.profile.telegramUserId);
-  const year = Number(today.slice(0, 4));
-  const month = Number(today.slice(5, 7));
-  const range = monthRange(year, month);
-  const transactions = await ctx.store.listTransactions(userId);
-  const income = inRange(transactions, { userId, range, type: "income" });
-  const expenses = inRange(transactions, { userId, range, type: "expense" });
-  const spent = totalsByCurrency(expenses);
-  const earned = totalsByCurrency(income);
-  const currency = spent[0]?.currency ?? earned[0]?.currency ?? ctx.profile.currency;
-  const spentMinor = spent.find((item) => item.currency === currency)?.minor ?? 0;
-  const earnedMinor = earned.find((item) => item.currency === currency)?.minor ?? 0;
-  const spentText = formatMinor(spentMinor, currency);
-  const position =
-    earnedMinor > 0
-      ? `You've spent ${spentText} so far — ${formatMinor(earnedMinor - spentMinor, currency)} left of ${formatMinor(earnedMinor, currency)}.`
-      : `You've spent ${spentText} so far this month.`;
-  const budgets = await ctx.store.listBudgets(userId);
-  const notes = budgets.flatMap((budget) => {
-    if (!budget.period.startsWith(today.slice(0, 7)) || budget.currency !== currency) return [];
-    const math = budgetMath(budget, transactions);
-    if (math.spentMinor < math.budgetMinor) return [];
-    return [
-      `${budget.category} is ${formatMinor(math.spentMinor, currency)} against its ${formatMinor(math.budgetMinor, currency)} goal.`,
-    ];
-  });
-  return [position, ...notes].join(" ");
+async function monthSpendLine(ctx: ActionContext, today: string): Promise<string | null> {
+  try {
+    const year = Number(today.slice(0, 4));
+    const month = Number(today.slice(5, 7));
+    const range = monthRange(year, month);
+    const expenses = inRange(await ctx.store.listTransactions(String(ctx.profile.telegramUserId)), {
+      userId: String(ctx.profile.telegramUserId),
+      range,
+      type: "expense",
+    });
+    const spent = totalsByCurrency(expenses).find((item) => item.currency === ctx.profile.currency);
+    if (!spent) return null;
+    return `Your spending for the month is now ${formatMinor(spent.minor, spent.currency)}.`;
+  } catch {
+    return null;
+  }
+}
+
+function savedContext(ctx: ActionContext, succeeded: TransactionRecord[]): ConversationContext | undefined {
+  const latest = succeeded[succeeded.length - 1];
+  if (!latest) return undefined;
+  const today = zonedYmd(ctx.now, ctx.profile.timezone);
+  const range = monthRange(Number(today.slice(0, 4)), Number(today.slice(5, 7)));
+  return {
+    rangeStart: range.start,
+    rangeEnd: range.end,
+    category: latest.category,
+    detail: "total",
+    summaryKind: "record",
+    transactionId: latest.transactionId,
+    pendingActionId: null,
+  };
 }
 
 async function spendingSummary(
@@ -222,9 +248,9 @@ async function spendingSummary(
   const category = action.category ? normalizeCategory(action.category, "expense") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
   const transactions = await ctx.store.listTransactions(String(ctx.profile.telegramUserId));
-  const detail = action.detail ?? (category ? "total" : "by_category");
+  const detail = action.detail ?? "total";
   if (detail === "comparison") {
-    return { kind: "text", text: comparisonText(transactions, ctx, resolved.range, category) };
+    return remember(comparisonText(transactions, ctx, resolved.range, category), queryContext(resolved.range, category, "comparison", null));
   }
   const rows = inRange(transactions, {
     userId: String(ctx.profile.telegramUserId),
@@ -232,25 +258,38 @@ async function spendingSummary(
     type: "expense",
     category: category ?? undefined,
   });
-  if (detail !== "largest") {
-    return { kind: "text", text: await spokenSpend(ctx, resolved.range, rows, category, today) };
-  }
-  const label = category === "Savings" ? "Saved" : category ? `Spent on ${category}` : "Spent";
-  const lines = [`${label} (${formatRangeLabel(resolved.range)}):`, formatMoneyLines(totalsByCurrency(rows), "No matching expenses.")];
   if (detail === "largest") {
+    const label = category === "Savings" ? "Saved" : category ? `Spent on ${category}` : "Spent";
+    const lines = [`${label} (${formatRangeLabel(resolved.range)}):`, formatMoneyLines(totalsByCurrency(rows), "No matching expenses.")];
     const top = largestExpenses(rows, 5);
     lines.push("", top.length ? "Biggest expenses:" : "No expenses in that range.");
     top.forEach((item, index) => lines.push(`${index + 1}. ${oneLine(item)}`));
+    return remember(lines.join("\n"), queryContext(resolved.range, category, "largest", rows[0]?.transactionId ?? null));
   }
-  if (category === "Savings") {
-    const goals = await ctx.store.listSavingsGoals(String(ctx.profile.telegramUserId));
-    if (goals.length > 0) {
-      lines.push("", "Savings goals (recorded progress, not account balances):");
-      goals.forEach((goal) => lines.push(formatGoal(goal)));
-    }
-  }
-  lines.push("", BALANCE_DISCLAIMER);
-  return { kind: "text", text: lines.join("\n") };
+  const text = await spokenSpend(ctx, resolved.range, rows, category, today, detail);
+  return remember(text, queryContext(resolved.range, category, detail === "by_category" ? "by_category" : "total", rows.length === 1 ? rows[0].transactionId : null));
+}
+
+function queryContext(
+  range: DateRange,
+  category: string | null,
+  detail: ConversationContext["detail"],
+  transactionId: string | null,
+  summaryKind: ConversationContext["summaryKind"] = "spending",
+): ConversationContext {
+  return {
+    rangeStart: range.start,
+    rangeEnd: range.end,
+    category,
+    detail,
+    summaryKind,
+    transactionId,
+    pendingActionId: null,
+  };
+}
+
+function remember(text: string, context: ConversationContext): Delivery {
+  return { kind: "text", text, context };
 }
 
 async function spokenSpend(
@@ -259,29 +298,46 @@ async function spokenSpend(
   rows: TransactionRecord[],
   category: string | null,
   today: string,
+  detail: "total" | "by_category",
 ): Promise<string> {
-  const month = monthRange(Number(today.slice(0, 4)), Number(today.slice(5, 7)));
-  const isThisMonth = range.start === month.start && range.end === month.end;
-  if (!category && isThisMonth) {
-    const position = await monthPosition(ctx, today);
-    const categories = formatCategoryLines(totalsByCategory(rows));
-    return categories.length === 0 ? position : [position, "", ...categories].join("\n");
+  const period = spokenPeriod(range, today);
+  if (detail === "by_category" && !category) {
+    const groups = totalsByCategory(rows);
+    if (groups.length === 0) return `You haven't recorded any spending ${period}.`;
+    if (groups.length === 1) {
+      const only = groups[0];
+      const names = [...new Set(rows.map((item) => item.description))].slice(0, 5);
+      const listed = names.length > 0 ? `\n${names.map((name) => `- ${name}`).join("\n")}` : "";
+      return `All recorded spending ${period} is ${only.category}: ${formatMinor(only.minor, only.currency)}.${listed}`;
+    }
+    const lines = groups.map((group) => `${group.category}: ${formatMinor(group.minor, group.currency)}`);
+    return [`Spending ${period}:`, ...lines].join("\n");
   }
-  const when = formatRangeLabel(range);
-  if (rows.length === 0) return `No matching expenses for ${when}.`;
-  const head = category
-    ? `${formatMoneyLines(totalsByCurrency(rows), "No matching expenses.")} on ${category} for ${when}.`
-    : `${formatMoneyLines(totalsByCurrency(rows), "No matching expenses.")} for ${when}.`;
-  const lines = rows
-    .slice(0, 8)
-    .map((item) => `- ${formatMoneyAmount(item.amount, item.currency)} ${item.description} (${formatDisplayDate(item.transactionDate)})`);
-  const extra = rows.length > 8 ? [`And ${rows.length - 8} more.`] : [];
-  const parts = [head, ...lines, ...extra];
-  if (category === "Savings") {
-    const goals = await ctx.store.listSavingsGoals(String(ctx.profile.telegramUserId));
-    if (goals.length > 0) parts.push("", ...goals.map((goal) => formatGoal(goal)));
+  if (rows.length === 0) {
+    return category
+      ? `You haven't recorded any ${category} spending ${period}.`
+      : `You haven't recorded any spending ${period}.`;
   }
-  return parts.join("\n");
+  const currency = rows.find((item) => item.currency === ctx.profile.currency)?.currency ?? rows[0].currency;
+  const minor = totalsByCurrency(rows).find((item) => item.currency === currency)?.minor ?? 0;
+  const money = formatMinor(minor, currency);
+  const head = category ? `You've spent ${money} on ${category} ${period}.` : `You've spent ${money} ${period}.`;
+  if (!category && period === "this month") {
+    const income = inRange(await ctx.store.listTransactions(String(ctx.profile.telegramUserId)), {
+      userId: String(ctx.profile.telegramUserId),
+      range,
+      type: "income",
+    });
+    const earned = totalsByCurrency(income).find((item) => item.currency === currency)?.minor ?? 0;
+    if (earned > 0) {
+      return `${head} That leaves ${formatMinor(earned - minor, currency)} of ${formatMinor(earned, currency)}.`;
+    }
+  }
+  if (category && rows.length > 1 && rows.length <= 6) {
+    const lines = rows.map((item) => `- ${formatMoneyAmount(item.amount, item.currency)} ${item.description}`);
+    return [head, ...lines].join("\n");
+  }
+  return head;
 }
 
 function comparisonText(
@@ -338,16 +394,18 @@ async function incomeSummary(
     type: "income",
     category: category ?? undefined,
   });
-  const label = category ? `${category} income` : "Income";
-  return {
-    kind: "text",
-    text: [
-      `${label} (${formatRangeLabel(resolved.range)}):`,
-      formatMoneyLines(totalsByCurrency(rows), "No matching income."),
-      "",
-      BALANCE_DISCLAIMER,
-    ].join("\n"),
-  };
+  const period = spokenPeriod(resolved.range, today);
+  if (rows.length === 0) {
+    const empty = category
+      ? `You haven't recorded any ${category} income ${period}.`
+      : `You haven't recorded any income ${period}.`;
+    return remember(empty, queryContext(resolved.range, category, "total", null, "income"));
+  }
+  const currency = rows.find((item) => item.currency === ctx.profile.currency)?.currency ?? rows[0].currency;
+  const minor = totalsByCurrency(rows).find((item) => item.currency === currency)?.minor ?? 0;
+  const money = formatMinor(minor, currency);
+  const text = category ? `You've received ${money} in ${category} ${period}.` : `You've received ${money} ${period}.`;
+  return remember(text, queryContext(resolved.range, category, "total", rows.length === 1 ? rows[0].transactionId : null, "income"));
 }
 
 async function overview(
@@ -453,6 +511,7 @@ async function budgetStatus(
 ): Promise<Delivery> {
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const period = action.period ?? today.slice(0, 7);
+  const periodPhrase = period === today.slice(0, 7) ? "this month" : period;
   const category = action.category ? normalizeCategory(action.category, "expense") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
   const userId = String(ctx.profile.telegramUserId);
@@ -460,13 +519,25 @@ async function budgetStatus(
     (budget) => budget.period === period && (!category || budget.category === category),
   );
   if (budgets.length === 0) {
-    return { kind: "text", text: `No ${category ? `${category} ` : ""}budget is set for ${period}.` };
+    const missing = category
+      ? `There's no ${category} budget set for ${periodPhrase}.`
+      : `There's no budget set for ${periodPhrase}.`;
+    return { kind: "text", text: missing };
   }
   const transactions = await listOwn(ctx);
-  const lines = [`Budgets for ${period}:`];
-  budgets.forEach((budget) => lines.push(formatBudgetLine(budget, budgetMath(budget, transactions))));
-  lines.push("", BALANCE_DISCLAIMER);
-  return { kind: "text", text: lines.join("\n") };
+  if (budgets.length === 1) {
+    const budget = budgets[0];
+    const math = budgetMath(budget, transactions);
+    const text =
+      math.remainingMinor < 0
+        ? `You're ${formatMinor(Math.abs(math.remainingMinor), budget.currency)} over your ${budget.category} budget for ${periodPhrase}.`
+        : `You have ${formatMinor(math.remainingMinor, budget.currency)} left in your ${budget.category} budget for ${periodPhrase}.`;
+    const range = monthRange(Number(period.slice(0, 4)), Number(period.slice(5, 7)));
+    return remember(text, queryContext(range, budget.category, "total", null, "budget"));
+  }
+  const lines = budgets.map((budget) => formatBudgetLine(budget, budgetMath(budget, transactions)));
+  const range = monthRange(Number(period.slice(0, 4)), Number(period.slice(5, 7)));
+  return remember(lines.join("\n"), queryContext(range, category, "total", null, "budget"));
 }
 
 async function createGoal(
@@ -526,8 +597,9 @@ async function correctTransaction(
   ctx: ActionContext,
 ): Promise<Delivery> {
   const transactions = await listOwn(ctx);
+  const transactionId = action.transaction_id ?? (action.description_query ? null : ctx.conversation?.transactionId ?? null);
   const matches = findCandidates(transactions, {
-    transactionId: action.transaction_id,
+    transactionId,
     descriptionQuery: action.description_query,
   });
   if (matches.length === 0) return { kind: "text", text: "I couldn't find one matching transaction." };
@@ -566,12 +638,25 @@ async function correctTransaction(
     "",
     "Confirm or cancel.",
   ].join("\n");
-  return saveConfirmation(ctx, text, {
+  const delivery = await saveConfirmation(ctx, text, {
     type: "correct_transaction",
     originUpdateId: String(ctx.updateId),
     transactionId: target.transactionId,
     changes,
   });
+  if (delivery.kind !== "confirm") return delivery;
+  return {
+    ...delivery,
+    context: {
+      rangeStart: target.transactionDate,
+      rangeEnd: target.transactionDate,
+      category: target.category,
+      detail: null,
+      summaryKind: "correction",
+      transactionId: target.transactionId,
+      pendingActionId: delivery.actionId,
+    },
+  };
 }
 
 async function deleteTransaction(

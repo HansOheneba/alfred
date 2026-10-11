@@ -1,12 +1,18 @@
 import { AuthError, AiError, ConfigError, DatabaseError, SheetsError } from "@/lib/errors";
 import { categoryList } from "@/lib/finance/categories";
-import { addDays, formatDisplayDate, formatRange, type DateRange } from "@/lib/finance/dates";
+import { addDays, formatDisplayDate, formatRange, monthRange, type DateRange } from "@/lib/finance/dates";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import type { BudgetRecord, SavingsGoalRecord, TransactionRecord } from "@/lib/finance/types";
 import type { BudgetMath } from "@/lib/finance/budgets";
 
 export const BALANCE_DISCLAIMER =
   "This is calculated from recorded transactions. It is not a bank balance.";
+
+export const WELCOME_TEXT = `Hey! I'm Alfred, your personal finance assistant.
+
+Tell me what you spend, what you earn, or ask me how your money is looking. I'll keep track of it for you.
+
+For example: 'Spent GH₵200 on food yesterday.'`;
 
 export function userFacingError(error: unknown): string {
   if (error instanceof SheetsError) {
@@ -41,26 +47,12 @@ export function userFacingError(error: unknown): string {
   return "Something went wrong before I could finish. If I didn't confirm a result, it wasn't saved.";
 }
 
-export function helpText(timeZone: string): string {
-  return [
-    "I can track spending and income in this chat.",
-    "",
-    "Try:",
-    "• I spent GH₵45 on lunch",
-    "• I received GH₵500 salary",
-    "• How much have I spent this week?",
-    "• How much did I spend on food this month?",
-    "• What is my total income this month?",
-    "• Set my food budget to GH₵1,200 this month",
-    "• How much of my food budget remains?",
-    "• Give me a financial summary for September",
-    "• Change the lunch expense to GH₵55",
-    "• Delete the duplicate transaction",
-    "• Undo my last expense",
-    "",
-    `Weeks start on Monday. Dates use ${timeZone}.`,
-    BALANCE_DISCLAIMER,
-  ].join("\n");
+export function welcomeText(): string {
+  return WELCOME_TEXT;
+}
+
+export function helpText(): string {
+  return WELCOME_TEXT;
 }
 
 export function safeClarification(question: string): string {
@@ -80,18 +72,45 @@ export function oneLine(transaction: TransactionRecord): string {
   return `${formatDisplayDate(transaction.transactionDate)} · ${kind} · ${formatMoneyAmount(transaction.amount, transaction.currency)} · ${transaction.category} · ${transaction.description}`;
 }
 
-export function formatLogged(transactions: TransactionRecord[], today: string): string {
-  if (transactions.length === 0) return "Nothing was recorded.";
-  const lines = transactions.map((transaction) => {
-    const when = transaction.transactionDate === today
-      ? "today"
-      : transaction.transactionDate === addDays(today, -1)
-        ? "yesterday"
-        : formatDisplayDate(transaction.transactionDate);
-    return `${formatMoneyAmount(transaction.amount, transaction.currency)} ${transaction.description} (${transaction.category}) for ${when}`;
+function whenLabel(date: string, today: string): string {
+  if (date === today) return "Today";
+  if (date === addDays(today, -1)) return "Yesterday";
+  return formatDisplayDate(date);
+}
+
+export function formatSaved(transactions: TransactionRecord[], today: string): string {
+  if (transactions.length === 1) {
+    const item = transactions[0];
+    const money = formatMoneyAmount(item.amount, item.currency);
+    const when = whenLabel(item.transactionDate, today);
+    if (item.type === "income") return `Recorded: ${money} — ${item.category}\nIncome · ${when}`;
+    return `Recorded: ${money} — ${item.category}\n${when} · Expense`;
+  }
+  const lines = transactions.map((item) => {
+    const when = whenLabel(item.transactionDate, today);
+    const kind = item.type === "income" ? "Income" : "Expense";
+    return `- ${formatMoneyAmount(item.amount, item.currency)} — ${item.category} · ${when} · ${kind}`;
   });
-  if (lines.length === 1) return `Logged ${lines[0]}.`;
-  return `Logged:\n${lines.map((line) => `- ${line}`).join("\n")}`;
+  return `Recorded:\n${lines.join("\n")}`;
+}
+
+export function spokenPeriod(range: DateRange, today: string): string {
+  if (range.start === today && range.end === today) return "today";
+  const yesterday = addDays(today, -1);
+  if (range.start === yesterday && range.end === yesterday) return "yesterday";
+  const current = monthRange(Number(today.slice(0, 4)), Number(today.slice(5, 7)));
+  if (range.start === current.start && range.end === current.end) return "this month";
+  if (range.start.endsWith("-01")) {
+    const month = Number(range.start.slice(5, 7));
+    const year = Number(range.start.slice(0, 4));
+    const full = monthRange(year, month);
+    if (range.end === full.end) {
+      const name = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"][month - 1];
+      return `in ${name}`;
+    }
+  }
+  if (range.start === range.end) return `on ${formatDisplayDate(range.start)}`;
+  return `from ${formatDisplayDate(range.start)} to ${formatDisplayDate(range.end)}`;
 }
 
 export function formatRecorded(transaction: TransactionRecord): string {
@@ -111,7 +130,9 @@ export function formatWriteResult(result: {
     return formatRecorded(result.succeeded[0]);
   }
   const lines: string[] = [];
-  if (result.succeeded.length > 0) {
+  if (result.succeeded.length === 0) {
+    lines.push("Nothing was saved.");
+  } else {
     lines.push(`Recorded ${result.succeeded.length}:`);
     result.succeeded.forEach((transaction, index) => {
       lines.push(`${index + 1}. ${oneLine(transaction)}`);
