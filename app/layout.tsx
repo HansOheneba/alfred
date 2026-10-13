@@ -14,7 +14,7 @@ const geistMono = Geist_Mono({
 
 export const metadata: Metadata = {
   title: "Alfred",
-  description: "A private Telegram assistant for personal finance records.",
+  description: "A personal finance assistant for the website and Telegram.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {

@@ -62,9 +62,14 @@ export type StudioSettings = {
   confirmTransactions: "auto" | "always";
 };
 
+export type CommunicationPreference = "concise" | "detailed";
+
 export type UserProfile = {
-  telegramUserId: number;
+  profileId: string;
+  telegramUserId: number | null;
   spreadsheetId: string;
   currency: string;
   timezone: string;
+  preferredName: string;
+  communicationPreference: CommunicationPreference;
 };

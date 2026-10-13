@@ -97,8 +97,8 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async appendProcessedUpdate(row) {
       const inserted = await query<{ id: string }>(
         settings,
-        `insert into public.processed_updates (update_id, user_id, status, result_reference, processed_at)
-         values ($1, $2, $3, $4, $5)
+        `insert into public.processed_updates (update_id, user_id, owner_id, status, result_reference, processed_at)
+         values ($1, $2::text, $2::text::uuid, $3, $4, $5)
          returning id`,
         [row.updateId, row.userId, row.status, row.resultReference, row.processedAt],
       );
@@ -131,7 +131,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       await query(
         settings,
         `update public.processed_updates
-         set user_id = $2, status = $3, result_reference = $4, processed_at = $5
+         set user_id = $2::text, owner_id = $2::text::uuid, status = $3, result_reference = $4, processed_at = $5
          where id = $1`,
         [rowNumber, next.userId, next.status, next.resultReference, next.processedAt],
       );
@@ -141,10 +141,10 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async listTransactions(userId) {
       const rows = await query<TransactionRow>(
         settings,
-        `select id, transaction_id, created_at, transaction_date::text, user_id, type, amount::text, currency,
+        `select id, transaction_id, created_at, transaction_date::text, coalesce(owner_id::text, user_id) as user_id, type, amount::text, currency,
                 category, description, payment_method, notes, status, updated_at, source_update_id
          from public.transactions
-         where user_id = $1
+         where owner_id = $1::uuid
          order by transaction_date, id`,
         [userId],
       );
@@ -154,10 +154,10 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async findTransactionsBySource(userId, sourceUpdateId) {
       const rows = await query<TransactionRow>(
         settings,
-        `select id, transaction_id, created_at, transaction_date::text, user_id, type, amount::text, currency,
+        `select id, transaction_id, created_at, transaction_date::text, coalesce(owner_id::text, user_id) as user_id, type, amount::text, currency,
                 category, description, payment_method, notes, status, updated_at, source_update_id
          from public.transactions
-         where user_id = $1 and source_update_id = $2`,
+         where owner_id = $1::uuid and source_update_id = $2`,
         [userId, sourceUpdateId],
       );
       return rows.map(transactionFrom);
@@ -167,9 +167,9 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       const inserted = await query<{ id: string }>(
         settings,
         `insert into public.transactions (
-           transaction_id, created_at, transaction_date, user_id, type, amount, currency, category,
+           transaction_id, created_at, transaction_date, user_id, owner_id, type, amount, currency, category,
            description, payment_method, notes, status, updated_at, source_update_id
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
+         ) values ($1,$2,$3,$4::text,$4::text::uuid,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)
          returning id`,
         [
           row.transactionId,
@@ -196,7 +196,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async updateTransaction(userId, transactionId, patch) {
       const current = await query<TransactionRow>(
         settings,
-        `select id, transaction_id, created_at, transaction_date::text, user_id, type, amount::text, currency,
+        `select id, transaction_id, created_at, transaction_date::text, coalesce(owner_id::text, user_id) as user_id, type, amount::text, currency,
                 category, description, payment_method, notes, status, updated_at, source_update_id
          from public.transactions
          where transaction_id = $1`,
@@ -209,7 +209,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
         settings,
         `update public.transactions
          set amount = $3, category = $4, description = $5, transaction_date = $6, type = $7, status = $8, updated_at = $9
-         where transaction_id = $1 and user_id = $2`,
+         where transaction_id = $1 and owner_id = $2::uuid`,
         [
           transactionId,
           userId,
@@ -238,8 +238,8 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
         updated_at: Date;
       }>(
         settings,
-        `select id, budget_id, user_id, period, category, amount::text, currency, created_at, updated_at
-         from public.budgets where user_id = $1 order by id`,
+        `select id, budget_id, coalesce(owner_id::text, user_id) as user_id, period, category, amount::text, currency, created_at, updated_at
+         from public.budgets where owner_id = $1::uuid order by id`,
         [userId],
       );
       return rows.map((row) => ({
@@ -258,10 +258,10 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async saveBudget(row) {
       const saved = await query<{ id: string; created_at: Date }>(
         settings,
-        `insert into public.budgets (budget_id, user_id, period, category, amount, currency, created_at, updated_at)
-         values ($1,$2,$3,$4,$5,$6,$7,$8)
-         on conflict (user_id, period, category, currency)
-         do update set amount = excluded.amount, updated_at = excluded.updated_at
+        `insert into public.budgets (budget_id, user_id, owner_id, period, category, amount, currency, created_at, updated_at)
+         values ($1,$2::text,$2::text::uuid,$3,$4,$5,$6,$7,$8)
+         on conflict (owner_id, period, category, currency)
+         do update set amount = excluded.amount, user_id = excluded.user_id, updated_at = excluded.updated_at
          returning id, created_at`,
         [row.budgetId, row.userId, row.period, row.category, row.amount, row.currency, row.createdAt, row.updatedAt],
       );
@@ -285,10 +285,10 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
         updated_at: Date;
       }>(
         settings,
-        `select id, goal_id, user_id, name, target_amount::text, current_amount::text, currency, target_date,
+        `select id, goal_id, coalesce(owner_id::text, user_id) as user_id, name, target_amount::text, current_amount::text, currency, target_date,
                 status, created_at, updated_at
          from public.savings_goals
-         where user_id = $1 and status <> 'deleted'
+         where owner_id = $1::uuid and status <> 'deleted'
          order by id`,
         [userId],
       );
@@ -299,8 +299,8 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       const inserted = await query<{ id: string }>(
         settings,
         `insert into public.savings_goals (
-           goal_id, user_id, name, target_amount, current_amount, currency, target_date, status, created_at, updated_at
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+           goal_id, user_id, owner_id, name, target_amount, current_amount, currency, target_date, status, created_at, updated_at
+         ) values ($1,$2::text,$2::text::uuid,$3,$4,$5,$6,$7,$8,$9,$10)
          returning id`,
         [
           row.goalId,
@@ -335,7 +335,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
         updated_at: Date;
       }>(
         settings,
-        `select id, goal_id, user_id, name, target_amount::text, current_amount::text, currency, target_date,
+        `select id, goal_id, coalesce(owner_id::text, user_id) as user_id, name, target_amount::text, current_amount::text, currency, target_date,
                 status, created_at, updated_at
          from public.savings_goals where goal_id = $1`,
         [goalId],
@@ -355,7 +355,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
         settings,
         `update public.savings_goals
          set name = $3, target_amount = $4, current_amount = $5, target_date = $6, status = $7, updated_at = $8
-         where goal_id = $1 and user_id = $2`,
+         where goal_id = $1 and owner_id = $2::uuid`,
         [goalId, userId, next.name, next.targetAmount, next.currentAmount, next.targetDate, next.status, next.updatedAt],
       );
       return next;
@@ -364,8 +364,8 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async listPendingActions(userId) {
       const rows = await query<PendingRow>(
         settings,
-        `select id, action_id, user_id, chat_id, action_type, payload_json, status, expires_at, created_at
-         from public.pending_actions where user_id = $1 order by id`,
+        `select id, action_id, coalesce(owner_id::text, user_id) as user_id, chat_id, action_type, payload_json, status, expires_at, created_at
+         from public.pending_actions where owner_id = $1::uuid order by id`,
         [userId],
       );
       return rows.map(pendingFrom);
@@ -374,7 +374,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async getPendingAction(actionId) {
       const rows = await query<PendingRow>(
         settings,
-        `select id, action_id, user_id, chat_id, action_type, payload_json, status, expires_at, created_at
+        `select id, action_id, coalesce(owner_id::text, user_id) as user_id, chat_id, action_type, payload_json, status, expires_at, created_at
          from public.pending_actions where action_id = $1`,
         [actionId],
       );
@@ -385,8 +385,8 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       const inserted = await query<{ id: string }>(
         settings,
         `insert into public.pending_actions (
-           action_id, user_id, chat_id, action_type, payload_json, status, expires_at, created_at
-         ) values ($1,$2,$3,$4,$5,$6,$7,$8)
+           action_id, user_id, owner_id, chat_id, action_type, payload_json, status, expires_at, created_at
+         ) values ($1,$2::text,$2::text::uuid,$3,$4,$5,$6,$7,$8)
          returning id`,
         [row.actionId, row.userId, row.chatId, row.actionType, row.payloadJson, row.status, row.expiresAt, row.createdAt],
       );
@@ -398,7 +398,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     async updatePendingAction(actionId, patch) {
       const current = await query<PendingRow>(
         settings,
-        `select id, action_id, user_id, chat_id, action_type, payload_json, status, expires_at, created_at
+        `select id, action_id, coalesce(owner_id::text, user_id) as user_id, chat_id, action_type, payload_json, status, expires_at, created_at
          from public.pending_actions where action_id = $1`,
         [actionId],
       );

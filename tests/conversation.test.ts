@@ -6,10 +6,13 @@ import { WELCOME_TEXT } from "@/lib/telegram/messages";
 import { expense, harness, runUpdate, settings, textUpdate, NOW } from "./helpers";
 
 const profile = {
+  profileId: "42",
   telegramUserId: 42,
   spreadsheetId: "sheet-configured-on-the-server-001",
   currency: "GHS",
   timezone: "Africa/Accra",
+  preferredName: "",
+  communicationPreference: "concise" as const,
 };
 
 describe("Alfred conversation", () => {
@@ -247,5 +250,38 @@ describe("Alfred conversation", () => {
       },
     );
     expect(missing.kind === "text" ? missing.text : "").toBe("There's no Transport budget set for this month.");
+  });
+
+  it("answers what the current month was spent on with categories", async () => {
+    const { deps, store, telegram } = harness();
+    await store.appendTransaction(expense());
+    await store.appendTransaction(
+      expense({
+        transactionId: "3f2a1c4e-1111-4111-8111-111111111130",
+        amount: "20.00",
+        category: "Transport",
+        description: "Trotro",
+        sourceUpdateId: "seed:month-transport",
+      }),
+    );
+    deps.interpret = async () => ({ type: "get_spending_summary", period: "this_month", detail: "total" });
+    await runUpdate(textUpdate(21, 42, "How much have I spent this month?"), deps);
+    await runUpdate(textUpdate(22, 42, "What have I spent it on?"), deps);
+    expect(telegram.sent[0]?.text).toBe("You've spent GH₵65.00 this month.");
+    expect(telegram.sent[1]?.text).toContain("Food: GH₵45.00");
+    expect(telegram.sent[1]?.text).toContain("Transport: GH₵20.00");
+    expect(telegram.sent[1]?.text).not.toBe(telegram.sent[0]?.text);
+  });
+
+  it("says when only one category was recorded", async () => {
+    const { deps, store, telegram } = harness();
+    await store.appendTransaction(expense());
+    deps.interpret = async () => ({ type: "get_spending_summary", period: "this_month", detail: "total" });
+    await runUpdate(textUpdate(23, 42, "How much have I spent this month?"), deps);
+    await runUpdate(textUpdate(24, 42, "What have I spent it on?"), deps);
+    expect(telegram.sent[1]?.text).toContain("All recorded spending this month is Food: GH₵45.00.");
+    expect(telegram.sent[1]?.text).toContain("Nothing else is recorded.");
+    expect(telegram.sent[1]?.text).toContain("Lunch");
+    expect(telegram.sent[1]?.text).not.toContain("Transport");
   });
 });

@@ -13,9 +13,12 @@ export function authorizeUser(
   if (!Number.isSafeInteger(telegramUserId)) return null;
   if (!settings.authorizedUserIds.includes(telegramUserId)) return null;
   return {
+    profileId: String(telegramUserId),
     telegramUserId,
     spreadsheetId: settings.google?.spreadsheetId ?? "",
     currency: settings.currency,
     timezone: settings.timezone,
+    preferredName: "",
+    communicationPreference: "concise",
   };
 }

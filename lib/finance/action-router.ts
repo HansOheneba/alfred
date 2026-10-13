@@ -103,7 +103,7 @@ export async function executeConfirmed(
   payload: PendingPayload,
   ctx: ActionContext,
 ): Promise<{ text: string; context?: ConversationContext }> {
-  const userId = String(ctx.profile.telegramUserId);
+  const userId = ctx.profile.profileId;
   if (payload.type === "create_transaction") {
     const result = await writeTransactions({
       store: ctx.store,
@@ -177,7 +177,7 @@ async function createTransactions(
   }
   const result = await writeTransactions({
     store: ctx.store,
-    userId: String(ctx.profile.telegramUserId),
+    userId: ctx.profile.profileId,
     drafts: normalized.drafts,
     sourcePrefix: `update:${ctx.updateId}`,
     createId: ctx.createId,
@@ -209,8 +209,8 @@ async function monthSpendLine(ctx: ActionContext, today: string): Promise<string
     const year = Number(today.slice(0, 4));
     const month = Number(today.slice(5, 7));
     const range = monthRange(year, month);
-    const expenses = inRange(await ctx.store.listTransactions(String(ctx.profile.telegramUserId)), {
-      userId: String(ctx.profile.telegramUserId),
+    const expenses = inRange(await ctx.store.listTransactions(ctx.profile.profileId), {
+      userId: ctx.profile.profileId,
       range,
       type: "expense",
     });
@@ -247,13 +247,13 @@ async function spendingSummary(
   if (!resolved.ok) return { kind: "text", text: resolved.message };
   const category = action.category ? normalizeCategory(action.category, "expense") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
-  const transactions = await ctx.store.listTransactions(String(ctx.profile.telegramUserId));
+  const transactions = await ctx.store.listTransactions(ctx.profile.profileId);
   const detail = action.detail ?? "total";
   if (detail === "comparison") {
     return remember(comparisonText(transactions, ctx, resolved.range, category), queryContext(resolved.range, category, "comparison", null));
   }
   const rows = inRange(transactions, {
-    userId: String(ctx.profile.telegramUserId),
+    userId: ctx.profile.profileId,
     range: resolved.range,
     type: "expense",
     category: category ?? undefined,
@@ -308,7 +308,7 @@ async function spokenSpend(
       const only = groups[0];
       const names = [...new Set(rows.map((item) => item.description))].slice(0, 5);
       const listed = names.length > 0 ? `\n${names.map((name) => `- ${name}`).join("\n")}` : "";
-      return `All recorded spending ${period} is ${only.category}: ${formatMinor(only.minor, only.currency)}.${listed}`;
+      return `All recorded spending ${period} is ${only.category}: ${formatMinor(only.minor, only.currency)}. Nothing else is recorded.${listed}`;
     }
     const lines = groups.map((group) => `${group.category}: ${formatMinor(group.minor, group.currency)}`);
     return [`Spending ${period}:`, ...lines].join("\n");
@@ -323,8 +323,8 @@ async function spokenSpend(
   const money = formatMinor(minor, currency);
   const head = category ? `You've spent ${money} on ${category} ${period}.` : `You've spent ${money} ${period}.`;
   if (!category && period === "this month") {
-    const income = inRange(await ctx.store.listTransactions(String(ctx.profile.telegramUserId)), {
-      userId: String(ctx.profile.telegramUserId),
+    const income = inRange(await ctx.store.listTransactions(ctx.profile.profileId), {
+      userId: ctx.profile.profileId,
       range,
       type: "income",
     });
@@ -346,7 +346,7 @@ function comparisonText(
   range: DateRange,
   category: string | null,
 ): string {
-  const userId = String(ctx.profile.telegramUserId);
+  const userId = ctx.profile.profileId;
   const previous = shiftRangeBack(range);
   const currentRows = inRange(transactions, { userId, range, type: "expense", category: category ?? undefined });
   const previousRows = inRange(transactions, {
@@ -389,7 +389,7 @@ async function incomeSummary(
   const category = action.category ? normalizeCategory(action.category, "income") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("income") };
   const rows = inRange(await listOwn(ctx), {
-    userId: String(ctx.profile.telegramUserId),
+    userId: ctx.profile.profileId,
     range: resolved.range,
     type: "income",
     category: category ?? undefined,
@@ -415,7 +415,7 @@ async function overview(
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const resolved = resolveRange(action, today);
   if (!resolved.ok) return { kind: "text", text: resolved.message };
-  const userId = String(ctx.profile.telegramUserId);
+  const userId = ctx.profile.profileId;
   const transactions = await listOwn(ctx);
   const income = inRange(transactions, { userId, range: resolved.range, type: "income" });
   const expenses = inRange(transactions, { userId, range: resolved.range, type: "expense" });
@@ -464,7 +464,7 @@ async function history(
     return { kind: "text", text: "I don't know that category for income or expenses." };
   }
   const rows = inRange(await listOwn(ctx), {
-    userId: String(ctx.profile.telegramUserId),
+    userId: ctx.profile.profileId,
     range: resolved.range,
     category: category ?? undefined,
     type,
@@ -491,7 +491,7 @@ async function setBudget(
   const timestamp = ctx.now.toISOString();
   const saved = await ctx.store.saveBudget({
     budgetId: ctx.createId(),
-    userId: String(ctx.profile.telegramUserId),
+    userId: ctx.profile.profileId,
     period,
     category,
     amount: action.amount,
@@ -514,7 +514,7 @@ async function budgetStatus(
   const periodPhrase = period === today.slice(0, 7) ? "this month" : period;
   const category = action.category ? normalizeCategory(action.category, "expense") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
-  const userId = String(ctx.profile.telegramUserId);
+  const userId = ctx.profile.profileId;
   const budgets = (await ctx.store.listBudgets(userId)).filter(
     (budget) => budget.period === period && (!category || budget.category === category),
   );
@@ -547,7 +547,7 @@ async function createGoal(
   const timestamp = ctx.now.toISOString();
   const goal = await ctx.store.appendSavingsGoal({
     goalId: ctx.createId(),
-    userId: String(ctx.profile.telegramUserId),
+    userId: ctx.profile.profileId,
     name: action.name.trim(),
     targetAmount: action.target_amount,
     currentAmount: action.current_amount ?? "0.00",
@@ -567,7 +567,7 @@ async function updateGoal(
   action: Extract<FinanceAction, { type: "update_savings_goal" }>,
   ctx: ActionContext,
 ): Promise<Delivery> {
-  const goals = await ctx.store.listSavingsGoals(String(ctx.profile.telegramUserId));
+  const goals = await ctx.store.listSavingsGoals(ctx.profile.profileId);
   const matches = matchGoals(goals, { goalId: action.goal_id, name: action.name });
   if (matches.length === 0) return { kind: "text", text: "I couldn't find that savings goal." };
   if (matches.length > 1) {
@@ -722,7 +722,7 @@ async function saveConfirmation(
 ): Promise<Delivery> {
   const parsed = pendingPayloadSchema.safeParse(payload);
   if (!parsed.success) return { kind: "text", text: "I couldn't prepare that confirmation. Nothing was changed." };
-  const userId = String(ctx.profile.telegramUserId);
+  const userId = ctx.profile.profileId;
   const existing = await ctx.store.listPendingActions(userId);
   const open = existing.find((action) => {
     if (action.status !== "pending" || Date.parse(action.expiresAt) <= ctx.now.getTime()) return false;
@@ -764,5 +764,5 @@ function resolveRange(
 }
 
 async function listOwn(ctx: ActionContext): Promise<TransactionRecord[]> {
-  return ctx.store.listTransactions(String(ctx.profile.telegramUserId));
+  return ctx.store.listTransactions(ctx.profile.profileId);
 }

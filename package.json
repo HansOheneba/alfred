@@ -10,10 +10,13 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "seed:users": "tsx scripts/seed-users.ts",
     "setup:webhook": "tsx scripts/set-webhook.ts",
     "telegram:user-ids": "tsx scripts/print-telegram-user-ids.ts"
   },
   "dependencies": {
+    "@supabase/ssr": "0.12.7",
+    "@supabase/supabase-js": "2.117.3",
     "next": "16.4.0",
     "pg": "^8.23.1",
     "react": "19.3.0",

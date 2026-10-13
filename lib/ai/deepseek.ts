@@ -27,6 +27,11 @@ export type InterpretRequest = {
   now: Date;
   recent: RecentTransaction[];
   context?: ConversationContext | null;
+  preferredName?: string;
+  communicationPreference?: "concise" | "detailed";
+  budgets?: { period: string; category: string; amount: string; currency: string }[];
+  goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
+  history?: { role: "user" | "assistant"; body: string }[];
 };
 
 export async function interpretMessage(
@@ -41,6 +46,11 @@ export async function interpretMessage(
     currency: request.currency,
     recent: request.recent,
     context: request.context,
+    preferredName: request.preferredName,
+    communicationPreference: request.communicationPreference,
+    budgets: request.budgets,
+    goals: request.goals,
+    history: request.history,
   });
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);
   let first = "";

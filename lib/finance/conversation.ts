@@ -1,3 +1,4 @@
+import { EXPENSE_CATEGORIES } from "@/lib/finance/categories";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import type { ProcessedUpdateRecord } from "@/lib/finance/types";
@@ -73,9 +74,19 @@ function mentionsNewPeriod(text: string): boolean {
 }
 
 function isBreakdownRequest(text: string): boolean {
+  const value = text.toLowerCase().replace(/['’]/g, "");
+  if (/\b(breakdown|by categor|other categor|where else did i|anything else i spent|break (it|that|this) down)\b/.test(value)) {
+    return true;
+  }
+  if (/\bwhat else\b/.test(value) && /\b(spend|spent|money|categor|that|those)\b/.test(value)) return true;
+  if (/\b(spent|spend) it on\b/.test(value)) return true;
+  if (/\bwhere did (it|that|the money) go\b/.test(value)) return true;
+  return /\b(what|where)\b/.test(value) && /\b(spent|spend|spending)\b/.test(value) && /\b(on|categor(?:y|ies))\b/.test(value);
+}
+
+function categoryMentioned(text: string): string | null {
   const value = text.toLowerCase();
-  if (/\b(breakdown|by categor|other categor|where else did i|anything else i spent)\b/.test(value)) return true;
-  return /\bwhat else\b/.test(value) && /\b(spend|spent|money|categor|that|those)\b/.test(value);
+  return EXPENSE_CATEGORIES.find((category) => new RegExp(`\\b${category.toLowerCase()}\\b`).test(value)) ?? null;
 }
 
 function hasExplicitRange(action: {
@@ -92,35 +103,36 @@ export function applyFollowUp(
   action: FinanceAction,
   context: ConversationContext | null,
 ): FinanceAction {
+  if (isBreakdownRequest(text)) {
+    const named = categoryMentioned(text);
+    if (!mentionsNewPeriod(text) && context) {
+      return {
+        type: "get_spending_summary",
+        detail: named ? "total" : "by_category",
+        continue_previous: true,
+        period: null,
+        month: null,
+        year: null,
+        start_date: context.rangeStart,
+        end_date: context.rangeEnd,
+        category: named,
+      };
+    }
+    if (action.type === "get_spending_summary") {
+      return { ...action, category: named, detail: named ? "total" : "by_category" };
+    }
+  }
   if (action.type === "get_spending_summary" && action.continue_previous && context && !hasExplicitRange(action)) {
+    const detail = action.detail === "largest" || action.detail === "comparison" ? action.detail : (action.detail ?? "by_category");
     return {
       ...action,
-      detail: action.detail ?? "by_category",
+      detail,
       period: null,
       month: null,
       year: null,
       start_date: context.rangeStart,
       end_date: context.rangeEnd,
     };
-  }
-  if (!isBreakdownRequest(text)) return action;
-
-  const category = action.type === "get_spending_summary" ? (action.category ?? null) : null;
-  if (!mentionsNewPeriod(text) && context) {
-    return {
-      type: "get_spending_summary",
-      detail: category ? "total" : "by_category",
-      continue_previous: true,
-      period: null,
-      month: null,
-      year: null,
-      start_date: context.rangeStart,
-      end_date: context.rangeEnd,
-      category,
-    };
-  }
-  if (action.type === "get_spending_summary") {
-    return { ...action, detail: category ? (action.detail ?? "total") : "by_category" };
   }
   return action;
 }

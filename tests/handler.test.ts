@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { LIMITS } from "@/lib/config";
 import { POST } from "@/app/api/telegram/webhook/route";
+import { UNLINKED_TEXT } from "@/lib/telegram/messages";
 import { expense, harness, runUpdate, settings, textUpdate, NOW } from "./helpers";
 
 describe("telegram handler", () => {
@@ -9,7 +10,7 @@ describe("telegram handler", () => {
     const { deps, telegram, interpret } = harness();
     const result = await runUpdate(textUpdate(1, 7, "I spent GH₵45 on lunch"), deps);
     expect(result.httpStatus).toBe(200);
-    expect(telegram.sent[0]?.text).toBe("This bot is private.");
+    expect(telegram.sent[0]?.text).toBe(UNLINKED_TEXT);
     expect(interpret.calls).toBe(0);
   });
 

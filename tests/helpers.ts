@@ -1,4 +1,5 @@
-import type { AppSettings } from "@/lib/config";
+import { MemoryAccountDirectory } from "@/lib/accounts/directory";
+import type { AppSettings, UserProfile } from "@/lib/config";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import type { NewTransaction } from "@/lib/finance/store";
 import { SlidingWindowRateLimiter } from "@/lib/security/rate-limit";
@@ -19,6 +20,19 @@ export function settings(overrides: Partial<AppSettings> = {}): AppSettings {
     timezone: "Africa/Accra",
     currency: "GHS",
     confirmTransactions: "auto",
+    ...overrides,
+  };
+}
+
+export function profile(id = 42, overrides: Partial<UserProfile> = {}): UserProfile {
+  return {
+    profileId: String(id),
+    telegramUserId: id,
+    spreadsheetId: "sheet-configured-on-the-server-001",
+    currency: "GHS",
+    timezone: "Africa/Accra",
+    preferredName: "",
+    communicationPreference: "concise",
     ...overrides,
   };
 }
@@ -102,6 +116,11 @@ export function harness(overrides: Partial<HandlerDeps> = {}): {
     },
     now: () => NOW,
     rateLimiter: new SlidingWindowRateLimiter(20, 60_000),
+    accounts: MemoryAccountDirectory.fromIds(overrides.settings?.authorizedUserIds ?? [42], {
+      currency: "GHS",
+      timezone: "Africa/Accra",
+      communicationPreference: "concise",
+    }),
     createId: () => `3f2a1c4e-1111-4111-8111-${String(sequence++).padStart(12, "0")}`,
     createActionId: () => "actionid1234",
     ...overrides,

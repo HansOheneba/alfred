@@ -9,10 +9,13 @@ import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { expense, NOW, settings } from "./helpers";
 
 const profile = {
+  profileId: "42",
   telegramUserId: 42,
   spreadsheetId: "sheet-configured-on-the-server-001",
   currency: "GHS",
   timezone: "Africa/Accra",
+  preferredName: "",
+  communicationPreference: "concise" as const,
 };
 
 describe("summaries and budgets", () => {

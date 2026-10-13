@@ -8,6 +8,9 @@ import type { BudgetMath } from "@/lib/finance/budgets";
 export const BALANCE_DISCLAIMER =
   "This is calculated from recorded transactions. It is not a bank balance.";
 
+export const UNLINKED_TEXT =
+  "This Telegram account isn't linked yet. Sign in on the website, save this Telegram ID in Settings, then message me again.";
+
 export const WELCOME_TEXT = `Hey! I'm Alfred, your personal finance assistant.
 
 Tell me what you spend, what you earn, or ask me how your money is looking. I'll keep track of it for you.

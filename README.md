@@ -1,8 +1,10 @@
 # Alfred
 
-Alfred is a personal finance assistant that works through Telegram. An authorized user can log expenses and income, ask for summaries, set budgets, track savings goals, and correct or delete records. There is no separate web app for entering data.
+Alfred is a personal finance assistant for Telegram and the website. A signed-in user can log expenses and income, ask for summaries, set budgets, track savings goals, and correct or delete records. Both interfaces use the same ledger.
 
-The homepage only says the bot is running. It does not show financial records.
+Telegram access comes from the Telegram ID saved on that user's account. The ID can be edited in Settings until the first private message arrives from it. After that message, the ID is locked.
+
+Website sign-in emails a one-time code through Resend. A password is optional and can be added later in Settings.
 
 ## How a message is handled
 
@@ -31,7 +33,13 @@ Copy `.env.example` to `.env`. Do not commit `.env`. None of these variables use
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Service account email |
 | `GOOGLE_PRIVATE_KEY` | PEM private key. In Vercel, store newlines as `\n` |
 | `GOOGLE_SHEETS_SPREADSHEET_ID` | Id from the spreadsheet URL |
-| `AUTHORIZED_TELEGRAM_USER_IDS` | Comma-separated numeric Telegram user ids |
+| `AUTHORIZED_TELEGRAM_USER_IDS` | Optional fallback only when Supabase is not configured |
+| `NEXT_PUBLIC_SUPABASE_URL` | Supabase project URL used by the browser |
+| `NEXT_PUBLIC_SUPABASE_ANON_KEY` | Public anon key. Never put the service-role key here |
+| `SUPABASE_SERVICE_ROLE_KEY` | Server-only key for seeding accounts and creating sign-in codes |
+| `RESEND_API_KEY` | Resend API key used to email sign-in codes |
+| `RESEND_FROM_EMAIL` | Verified From address, such as `Alfred <alfred@example.com>` |
+| `CRON_SECRET` | Bearer token for `GET /api/cron/reminders` |
 | `APP_TIMEZONE` | Default `Africa/Accra` |
 | `DEFAULT_CURRENCY` | Default `GHS` |
 | `CONFIRM_TRANSACTIONS` | `auto` or `always` |
@@ -99,7 +107,7 @@ npm run telegram:user-ids
 
 `/id` replies with the sender's numeric id and no financial data. It works even when that id is not authorized yet. `getUpdates` returns nothing after a webhook is set; delete the webhook first if you use the script.
 
-3. Put that numeric id in `AUTHORIZED_TELEGRAM_USER_IDS`. Usernames are not accepted.
+3. Sign in on the website and save that numeric id in Settings. Usernames are not accepted. The id locks after the first private message from it.
 4. Deploy the app so `https://<your-domain>/api/telegram/webhook` is public HTTPS.
 5. Register the webhook:
 
@@ -167,7 +175,7 @@ Initial expense categories: Food, Transport, Utilities, Subscriptions, Savings, 
 
 ## Change the user or spreadsheet
 
-1. Change `AUTHORIZED_TELEGRAM_USER_IDS` and redeploy. Removing an id blocks that person immediately.
+1. Change the Telegram ID in Settings before the first message locks it. After it locks, that ID stays on the account.
 2. To use another spreadsheet, share it with the same service account, set `GOOGLE_SHEETS_SPREADSHEET_ID`, run `npm run setup:sheets`, and redeploy.
 3. Several authorized ids can share one spreadsheet. Rows are filtered by `user_id`, so they do not see each other's totals. A later user directory can map each Telegram id to its own spreadsheet id inside `authorizeUser` without letting a message pick the sheet.
 
@@ -176,7 +184,7 @@ Initial expense categories: Food, Transport, Utilities, Subscriptions, Savings, 
 - [ ] `GET /api/health` returns `status: ok` and no secrets
 - [ ] A request without the webhook secret returns 401
 - [ ] `/id` returns only the numeric user id
-- [ ] An id that is not in `AUTHORIZED_TELEGRAM_USER_IDS` gets "This bot is private."
+- [ ] A Telegram id that is not saved on an account gets the linking message. `/id` still returns only the numeric id.
 - [ ] "I spent GH₵45 on lunch" creates one Transactions row and the bot confirms the amount, category, description, and date
 - [ ] Sending the same update again does not create a second row
 - [ ] "How much have I spent this week?" matches the active rows for Monday–Sunday
@@ -187,7 +195,7 @@ Initial expense categories: Food, Transport, Utilities, Subscriptions, Savings, 
 
 - **401 from the webhook.** The `X-Telegram-Bot-Api-Secret-Token` header does not match `TELEGRAM_WEBHOOK_SECRET`. Register the webhook again after changing the secret.
 - **500 before any reply.** A required Telegram variable is missing or the webhook secret is shorter than 16 characters or contains unsupported characters.
-- **"This bot is private."** The numeric id is missing from `AUTHORIZED_TELEGRAM_USER_IDS`. Use `/id`, then update the variable.
+- **The account isn't linked.** The numeric id is not saved in Settings. Use `/id`, save it on the website, then message again. After the first message, the ID can no longer be edited.
 - **"Finance storage is not configured yet."** The three Google variables are incomplete.
 - **Spreadsheet permission error.** Share the spreadsheet with the service account email as Editor and confirm the Sheets API is enabled.
 - **Header mismatch.** The first row was edited by hand. Restore the headers listed above or use a new tab. The setup script will not overwrite data rows.

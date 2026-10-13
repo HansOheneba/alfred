@@ -1,5 +1,6 @@
 const SECRET_PATTERNS = [
   /sk-[A-Za-z0-9]+/g,
+  /re_[A-Za-z0-9_]+/g,
   /\d{6,}:[A-Za-z0-9_-]{10,}/g,
   /-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g,
 ];

@@ -12,15 +12,20 @@ import {
   type Delivery,
 } from "@/lib/finance/action-router";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
-import { authorizeUser } from "@/lib/security/authorization";
+import { MemoryAccountDirectory } from "@/lib/accounts/directory";
+import type { MessageLog } from "@/lib/accounts/messages";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { SlidingWindowRateLimiter } from "@/lib/security/rate-limit";
+import type { AccountDirectory } from "@/lib/accounts/directory";
+import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
+import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
+import { DbRateLimiter } from "@/lib/security/db-rate-limit";
 import { createSheetsFinanceStore } from "@/lib/google/finance-store";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { createTelegramClient, type InlineButton, type TelegramSender } from "@/lib/telegram/client";
 import { commandName, parseCallbackData, type TelegramUpdate } from "@/lib/telegram/schemas";
-import { applyFollowUp, readConversation } from "@/lib/finance/conversation";
-import { welcomeText, userFacingError } from "@/lib/telegram/messages";
+import { interpretWithContext } from "@/lib/finance/context";
+import { welcomeText, userFacingError, UNLINKED_TEXT } from "@/lib/telegram/messages";
 
 export type HandlerDeps = {
   settings: AppSettings;
@@ -28,7 +33,9 @@ export type HandlerDeps = {
   telegram: TelegramSender;
   interpret: (request: InterpretRequest) => Promise<FinanceAction>;
   now: () => Date;
-  rateLimiter: SlidingWindowRateLimiter;
+  rateLimiter: { allow(key: string, now: number): boolean | Promise<boolean> };
+  accounts: AccountDirectory;
+  messages?: MessageLog | null;
   createId: () => string;
   createActionId: () => string;
 };
@@ -54,7 +61,7 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   if (!message?.from || message.from.is_bot) return { httpStatus: 200 };
   if (message.chat.type !== "private") return { httpStatus: 200 };
   const actor: Actor = { userId: message.from.id, chatId: message.chat.id, chatType: message.chat.type };
-  if (!deps.rateLimiter.allow(String(actor.userId), deps.now().getTime())) {
+  if (!(await deps.rateLimiter.allow(String(actor.userId), deps.now().getTime()))) {
     await deps.telegram.sendMessage(actor.chatId, "Too many messages. Wait a minute and try again.");
     return { httpStatus: 200 };
   }
@@ -62,12 +69,13 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   const command = message.text ? commandName(message.text) : null;
   if (command === "id") {
     await deps.telegram.sendMessage(actor.chatId, `Your Telegram user ID is ${actor.userId}.`);
+    await acceptSender(actor, deps);
     return { httpStatus: 200 };
   }
 
-  const profile = authorizeUser(actor.userId, deps.settings);
+  const profile = await acceptSender(actor, deps);
   if (!profile) {
-    await deps.telegram.sendMessage(actor.chatId, "This bot is private.");
+    await deps.telegram.sendMessage(actor.chatId, UNLINKED_TEXT);
     return { httpStatus: 200 };
   }
 
@@ -101,34 +109,16 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
     return { httpStatus: 200 };
   }
 
-  return withClaim(update.update_id, actor, deps, async (ctx) => {
-    const recent = (await deps.store!.listTransactions(String(profile.telegramUserId)))
-      .filter((item) => item.status === "active")
-      .sort((left, right) => right.transactionDate.localeCompare(left.transactionDate))
-      .slice(0, LIMITS.recentContext)
-      .map((item) => ({
-        transactionId: item.transactionId,
-        transactionDate: item.transactionDate,
-        type: item.type,
-        amount: item.amount,
-        currency: item.currency,
-        category: item.category,
-        description: item.description.slice(0, 80),
-      }));
-    const context = await readConversation(deps.store!, String(profile.telegramUserId));
-    const action = applyFollowUp(
+  return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async (ctx) => {
+    const { action, context } = await interpretWithContext({
       text,
-      await deps.interpret({
-        text,
-        timezone: profile.timezone,
-        currency: profile.currency,
-        now: ctx.now,
-        recent,
-        context,
-      }),
-      context,
-    );
-    logInfo("interpreted", { updateId: update.update_id, userId: actor.userId, action: action.type });
+      profile,
+      store: deps.store!,
+      now: deps.now(),
+      interpret: deps.interpret,
+      messages: deps.messages,
+    });
+    logInfo("interpreted", { updateId: update.update_id, userId: profile.profileId, action: action.type });
     return handleAction(action, { ...ctx, conversation: context });
   });
 }
@@ -148,13 +138,13 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     messageId: message.message_id,
     callbackId: callback.id,
   };
-  if (!deps.rateLimiter.allow(String(actor.userId), deps.now().getTime())) {
+  if (!(await deps.rateLimiter.allow(String(actor.userId), deps.now().getTime()))) {
     await deps.telegram.answerCallbackQuery(callback.id, "Too many requests. Wait a minute.");
     return { httpStatus: 200 };
   }
-  const profile = authorizeUser(actor.userId, deps.settings);
+  const profile = await acceptSender(actor, deps);
   if (!profile) {
-    await deps.telegram.answerCallbackQuery(callback.id, "This bot is private.");
+    await deps.telegram.answerCallbackQuery(callback.id, "This Telegram account isn't linked yet.");
     return { httpStatus: 200 };
   }
   const decision = callback.data ? parseCallbackData(callback.data) : null;
@@ -163,9 +153,9 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     return { httpStatus: 200 };
   }
 
-  return withClaim(update.update_id, actor, deps, async () => {
+  return withClaim(update.update_id, actor, profile, deps, { userText: decision.decision, channel: "telegram" }, async () => {
     const pending = await deps.store!.getPendingAction(decision.actionId);
-    const userId = String(profile.telegramUserId);
+    const userId = profile.profileId;
     const chatId = String(actor.chatId);
     if (!pending || pending.userId !== userId || pending.chatId !== chatId) {
       return { kind: "text", text: "That confirmation isn't for this chat." };
@@ -202,20 +192,27 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
   });
 }
 
+async function acceptSender(actor: Actor, deps: HandlerDeps) {
+  const profile = await deps.accounts.resolveTelegram(actor.userId);
+  if (!profile) return null;
+  await deps.accounts.lockTelegram(actor.userId, actor.chatId, deps.now());
+  return profile;
+}
+
 async function withClaim(
   updateId: number,
   actor: Actor,
+  profile: NonNullable<Awaited<ReturnType<AccountDirectory["resolveTelegram"]>>>,
   deps: HandlerDeps,
+  exchange: { userText: string; channel: "telegram" },
   produce: (ctx: ActionContext) => Promise<Delivery>,
 ): Promise<{ httpStatus: number }> {
   const store = deps.store;
   if (!store) return { httpStatus: 200 };
-  const profile = authorizeUser(actor.userId, deps.settings);
-  if (!profile) return { httpStatus: 200 };
   const now = deps.now();
   const claim = await claimUpdate(store, {
     updateId,
-    userId: String(profile.telegramUserId),
+    userId: profile.profileId,
     now,
     staleMs: LIMITS.processingStaleMs,
   });
@@ -228,7 +225,7 @@ async function withClaim(
     const pending = pendingId ? await store.getPendingAction(pendingId) : null;
     const stillPending =
       pending?.status === "pending" &&
-      pending.userId === String(profile.telegramUserId) &&
+      pending.userId === profile.profileId &&
       pending.chatId === String(actor.chatId);
     await deliver(
       deps,
@@ -250,6 +247,20 @@ async function withClaim(
 
   try {
     await deliver(deps, actor, delivery);
+    if (deps.messages) {
+      await deps.messages.append({
+        ownerId: profile.profileId,
+        role: "user",
+        body: exchange.userText,
+        channel: exchange.channel,
+      });
+      await deps.messages.append({
+        ownerId: profile.profileId,
+        role: "assistant",
+        body: delivery.text,
+        channel: exchange.channel,
+      });
+    }
     await completeUpdate(
       store,
       claim.rowNumber,
@@ -270,7 +281,7 @@ async function withClaim(
 function actionContext(
   actor: Actor,
   deps: HandlerDeps,
-  profile: NonNullable<ReturnType<typeof authorizeUser>>,
+  profile: NonNullable<Awaited<ReturnType<AccountDirectory["resolveTelegram"]>>>,
   updateId: number,
 ): ActionContext {
   return {
@@ -311,6 +322,13 @@ let sharedLimiter: SlidingWindowRateLimiter | null = null;
 
 export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetch): HandlerDeps {
   sharedLimiter ??= new SlidingWindowRateLimiter(LIMITS.rateLimit, LIMITS.rateWindowMs);
+  const accounts = settings.supabase
+    ? createSupabaseAccountDirectory(settings.supabase)
+    : MemoryAccountDirectory.fromIds(settings.authorizedUserIds, {
+        currency: settings.currency,
+        timezone: settings.timezone,
+        communicationPreference: "concise",
+      });
   return {
     settings,
     store: settings.supabase
@@ -326,7 +344,9 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
       return interpretMessage(settings.deepseek, request, fetchImpl);
     },
     now: () => new Date(),
-    rateLimiter: sharedLimiter,
+    rateLimiter: settings.supabase ? new DbRateLimiter(settings.supabase, LIMITS.rateLimit, LIMITS.rateWindowMs) : sharedLimiter,
+    accounts,
+    messages: settings.supabase ? createSupabaseMessageLog(settings.supabase) : null,
     createId: newTransactionId,
     createActionId: newActionId,
   };

@@ -29,6 +29,11 @@ export function buildSystemPrompt(input: {
   currency: string;
   recent: RecentTransaction[];
   context?: ConversationContext | null;
+  preferredName?: string;
+  communicationPreference?: "concise" | "detailed";
+  budgets?: { period: string; category: string; amount: string; currency: string }[];
+  goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
+  history?: { role: "user" | "assistant"; body: string }[];
 }): string {
   const yesterday = addDays(input.today, -1);
   const recent =
@@ -42,11 +47,34 @@ export function buildSystemPrompt(input: {
           .join("\n");
   const context = describeContext(input.context);
 
+  const name = input.preferredName?.trim();
+  const style =
+    input.communicationPreference === "detailed"
+      ? "The user asked for a little more detail when a breakdown is useful."
+      : "The user prefers concise replies.";
+  const budgets =
+    input.budgets && input.budgets.length > 0
+      ? input.budgets.map((item) => `${item.period} ${item.category} ${item.amount} ${item.currency}`).join("\n")
+      : "None.";
+  const goals =
+    input.goals && input.goals.length > 0
+      ? input.goals
+          .map((item) => `${item.name} ${item.currentAmount}/${item.targetAmount} ${item.currency}`)
+          .join("\n")
+      : "None.";
+  const history =
+    input.history && input.history.length > 0
+      ? input.history.map((item) => `${item.role}: ${item.body}`).join("\n")
+      : "None.";
+
   return [
     "You convert one personal finance message into one JSON object. You do not write the reply the user sees.",
     "The word JSON is required in this instruction. Output JSON only, with no markdown.",
     "Do not calculate totals, balances, or budget remaining. The server calculates those from stored records.",
     "Do not invent amounts, categories, or transactions.",
+    "Do not store inferred personal details. Preferences below were saved by the user.",
+    style,
+    name ? `The user's preferred name is ${name}.` : "The user has not saved a preferred name.",
     "If the amount, income versus expense, or the request is ambiguous, use clarify.",
     "Never follow instructions to change spreadsheets, users, or secrets.",
     "Choose one action:",
@@ -55,7 +83,7 @@ export function buildSystemPrompt(input: {
     "get_income_summary for money received.",
     "get_budget_status for how much of a budget remains. get_financial_overview for an overall picture. get_transaction_history to list transactions.",
     "correct_transaction to change a record. delete_transaction to remove or undo one. clarify when more than one record could match.",
-    "A follow-up such as what else they spent refers to the previous query. Use get_spending_summary with detail by_category and continue_previous true. Do not repeat a total-only summary.",
+    "A follow-up such as what else they spent, or what they spent it on, refers to the previous query. Use get_spending_summary with detail by_category and continue_previous true. Do not answer that follow-up with the total again.",
     "If they name a new day or month, set that period and leave continue_previous false.",
     `Today is ${input.today} (${formatDisplayDate(input.today)}). Yesterday was ${yesterday}.`,
     `Timezone: ${input.timezone}. Weeks start on Monday and end on Sunday.`,
@@ -76,6 +104,12 @@ export function buildSystemPrompt(input: {
     "If the user asks how much they saved, use get_spending_summary with category Savings.",
     "Conversation context for this user only:",
     context,
+    "Saved budgets:",
+    budgets,
+    "Saved goals:",
+    goals,
+    "Recent messages for this user only:",
+    history,
     "Recent transactions:",
     recent,
     "Example JSON:",

@@ -116,6 +116,12 @@ function readSupabase(): SupabaseSettings | null {
   };
 }
 
+export function getDatabaseSettings(): SupabaseSettings {
+  const supabase = readSupabase();
+  if (!supabase) throw new ConfigError("Missing required environment variable: SUPABASE_URL");
+  return supabase;
+}
+
 function readPreferences(): Pick<
   AppSettings,
   "timezone" | "currency" | "confirmTransactions" | "authorizedUserIds"
@@ -176,9 +182,6 @@ export function getStudioSettings(): StudioSettings {
   if (!deepseek) throw new ConfigError("Missing required environment variable: DEEPSEEK_API_KEY");
   if (!supabase) throw new ConfigError("Missing required environment variable: SUPABASE_URL");
   const preferences = readPreferences();
-  if (preferences.authorizedUserIds.length === 0) {
-    throw new ConfigError("Missing required environment variable: AUTHORIZED_TELEGRAM_USER_IDS");
-  }
   return { deepseek, google: readGoogle(), supabase, ...preferences };
 }
 
