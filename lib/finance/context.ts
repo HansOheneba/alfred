@@ -2,9 +2,11 @@ import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { MessageLog } from "@/lib/accounts/messages";
 import type { UserProfile } from "@/lib/config";
 import { LIMITS } from "@/lib/config";
+import { AiError } from "@/lib/errors";
 import { applyFollowUp, readConversation, type ConversationContext } from "@/lib/finance/conversation";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
+import { conversationalFallback, localGreeting } from "@/lib/telegram/messages";
 
 export async function interpretWithContext(input: {
   text: string;
@@ -15,6 +17,8 @@ export async function interpretWithContext(input: {
   messages?: MessageLog | null;
   excludeClientId?: string | null;
 }): Promise<{ action: FinanceAction; context: ConversationContext | null }> {
+  const greeting = localGreeting(input.text);
+  if (greeting) return { action: { type: "chat", message: greeting }, context: null };
   const ownerId = input.profile.profileId;
   const recent = (await input.store.listTransactions(ownerId))
     .filter((item) => item.status === "active")
@@ -35,9 +39,9 @@ export async function interpretWithContext(input: {
     input.store.listSavingsGoals(ownerId),
     input.messages ? input.messages.listRecent(ownerId, LIMITS.maxHistory) : Promise.resolve([]),
   ]);
-  const action = applyFollowUp(
-    input.text,
-    await input.interpret({
+  let interpreted: FinanceAction;
+  try {
+    interpreted = await input.interpret({
       text: input.text,
       timezone: input.profile.timezone,
       currency: input.profile.currency,
@@ -64,8 +68,13 @@ export async function interpretWithContext(input: {
           role: item.role,
           body: item.body.slice(0, 500),
         })),
-    }),
-    context,
-  );
+    });
+  } catch (error) {
+    if (error instanceof AiError && error.code === "invalid") {
+      return { action: { type: "chat", message: conversationalFallback(input.text) }, context };
+    }
+    throw error;
+  }
+  const action = applyFollowUp(input.text, interpreted, context);
   return { action, context };
 }

@@ -44,6 +44,7 @@ import {
   formatWriteResult,
   helpText,
   oneLine,
+  safeChatReply,
   safeClarification,
   spokenPeriod,
   unknownCategoryMessage,
@@ -72,6 +73,8 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return { kind: "text", text: helpText() };
     case "clarify":
       return { kind: "text", text: safeClarification(action.question) };
+    case "chat":
+      return { kind: "text", text: safeChatReply(action.message) };
     case "create_transaction":
       return createTransactions(action, ctx);
     case "get_spending_summary":

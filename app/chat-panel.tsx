@@ -5,8 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
 
-const EXAMPLES = ["I spent GH₵45 on lunch", "How much have I spent this month?", "How much of my food budget remains?"];
-
 type ServerMessage = {
   id: string;
   role: "user" | "assistant";
@@ -202,21 +200,7 @@ export function ChatPanel({ ownerId, initialMessages }: { ownerId: string; initi
       >
         <div className="mx-auto flex w-full max-w-[840px] flex-col gap-5 px-4 py-6" role="log" aria-label="Conversation" aria-relevant="additions">
           {messages.length === 0 ? (
-            <div className="flex flex-col gap-4 pt-6">
-              <p className="text-sm leading-6 text-neutral-400">Ask Alfred to record a transaction or check what you have spent.</p>
-              <div className="flex flex-wrap gap-2">
-                {EXAMPLES.map((example) => (
-                  <button
-                    key={example}
-                    type="button"
-                    className="rounded-full border border-white/10 px-3 py-1.5 text-left text-sm text-neutral-300 transition-colors hover:border-white/25 hover:text-white focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-neutral-400"
-                    onClick={() => setText(example)}
-                  >
-                    {example}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <p className="pt-6 text-sm leading-6 text-neutral-400">Message Alfred. The same conversation is available on Telegram.</p>
           ) : (
             messages.map((message, index) => (
               <article key={threadKey(message)} className={message.role === "user" ? "flex justify-end" : "flex justify-start"}>

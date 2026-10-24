@@ -58,11 +58,41 @@ export function helpText(): string {
   return WELCOME_TEXT;
 }
 
+export const GREETING_TEXT = "Hey. Tell me what you spent or earned, or ask how the month is looking.";
+
+export const CAPABILITY_TEXT =
+  "I can help with recording expenses and income, checking spending, income, budgets, savings, and transaction history. What would you like to do with your finances?";
+
+const UNSAFE_REPLY = /spreadsheet|private key|api[_ -]?key|ignore previous|system prompt/i;
+
+export function localGreeting(text: string): string | null {
+  const value = text.trim();
+  if (/^(?:hi|hello|hey|thanks|thank you)(?:\s+(?:alfred|there))?[\s!.?]*$/i.test(value)) return GREETING_TEXT;
+  return null;
+}
+
+export function looksLikeTransaction(text: string): boolean {
+  return /\d|\b(spent|spend|spending|paid|received|earned|income|expense|budget|saved)\b|gh[c₵]|ghs|₵/i.test(text);
+}
+
+export function conversationalFallback(text: string): string {
+  if (looksLikeTransaction(text)) {
+    return "I couldn't read that reliably. Please rephrase with the amount and what it was for.";
+  }
+  return CAPABILITY_TEXT;
+}
+
 export function safeClarification(question: string): string {
   const trimmed = question.replace(/\s+/g, " ").trim().slice(0, 500);
-  if (!trimmed || /spreadsheet|private key|api[_ -]?key|ignore previous|system prompt/i.test(trimmed)) {
+  if (!trimmed || UNSAFE_REPLY.test(trimmed)) {
     return "I need a bit more detail. What was the amount, and was it income or an expense?";
   }
+  return trimmed;
+}
+
+export function safeChatReply(message: string): string {
+  const trimmed = message.replace(/\s+/g, " ").trim().slice(0, 500);
+  if (!trimmed || UNSAFE_REPLY.test(trimmed)) return CAPABILITY_TEXT;
   return trimmed;
 }
 

@@ -141,6 +141,10 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     type: z.literal("clarify"),
     question: z.string().min(1).max(500),
   }),
+  z.object({
+    type: z.literal("chat"),
+    message: z.string().min(1).max(500),
+  }),
 ]);
 
 export type FinanceAction = z.infer<typeof financeActionSchema>;
@@ -243,6 +247,7 @@ export function normalizeModelValue(value: unknown): unknown {
   if (typeof next.category === "string") next.category = next.category.trim();
   if (typeof next.name === "string") next.name = next.name.trim();
   if (typeof next.question === "string") next.question = next.question.trim();
+  if (typeof next.message === "string") next.message = next.message.trim();
   if (Array.isArray(next.transactions)) next.transactions = next.transactions.map(normalizeDraft);
   if ("changes" in next) next.changes = normalizeChanges(next.changes);
   return next;

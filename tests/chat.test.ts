@@ -262,6 +262,38 @@ describe("web chat messages", () => {
     expect(await messages.listRecent("77", 10)).toEqual([]);
   });
 
+  it("lets a website turn read the previous Telegram lines", async () => {
+    const messages = new MemoryMessageLog();
+    await messages.append({
+      ownerId: "42",
+      role: "user",
+      body: "How much have I spent this month?",
+      channel: "telegram",
+    });
+    await messages.append({
+      ownerId: "42",
+      role: "assistant",
+      body: "You've spent GH₵45.00 this month.",
+      channel: "telegram",
+    });
+    const store = new MemoryFinanceStore();
+    await store.appendTransaction(expense());
+    let seen = "";
+    const deps = webDeps(async (request) => {
+      seen = (request.history ?? []).map((item) => `${item.role}:${item.body}`).join("\n");
+      return { type: "get_spending_summary", period: "this_month", detail: "total" };
+    }, store, messages);
+    const result = await handleProfileTurn(
+      profile(),
+      { text: "What have I spent it on?", clientId: "client-turn-44" },
+      deps,
+    );
+    expect(seen).toContain("user:How much have I spent this month?");
+    expect(seen).toContain("assistant:You've spent GH₵45.00 this month.");
+    expect(result.text).toContain("Food");
+    expect(await messages.listRecent("42", 10)).toHaveLength(4);
+  });
+
   it("derives a stable claim id that stays clear of millisecond studio ids", () => {
     const id = clientTurnUpdateId("client-turn-01");
     expect(id).toBe(clientTurnUpdateId("client-turn-01"));

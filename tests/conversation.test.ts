@@ -2,7 +2,8 @@ import { describe, expect, it } from "vitest";
 
 import { handleAction } from "@/lib/finance/action-router";
 import type { FinanceAction } from "@/lib/finance/schemas";
-import { WELCOME_TEXT } from "@/lib/telegram/messages";
+import { WELCOME_TEXT, GREETING_TEXT, CAPABILITY_TEXT } from "@/lib/telegram/messages";
+import { AiError } from "@/lib/errors";
 import { expense, harness, runUpdate, settings, textUpdate, NOW } from "./helpers";
 
 const profile = {
@@ -26,6 +27,45 @@ describe("Alfred conversation", () => {
     expect(await store.listProcessedUpdates()).toHaveLength(0);
     expect(await store.listBudgets("42")).toHaveLength(0);
     expect(await store.listPendingActions("42")).toHaveLength(0);
+  });
+
+  it("answers a greeting without calling the model", async () => {
+    const { deps, store, telegram, interpret } = harness();
+    await runUpdate(textUpdate(50, 42, "Hi"), deps);
+    expect(telegram.sent[0]?.text).toBe(GREETING_TEXT);
+    expect(telegram.sent[0]?.text).not.toContain("rephrase");
+    expect(interpret.calls).toBe(0);
+    expect(await store.listTransactions("42")).toHaveLength(0);
+  });
+
+  it("answers what Alfred can do from a chat reply", async () => {
+    const { deps, store, telegram } = harness();
+    deps.interpret = async () => ({
+      type: "chat",
+      message: CAPABILITY_TEXT,
+    });
+    await runUpdate(textUpdate(51, 42, "So you can't do anything except money?"), deps);
+    expect(telegram.sent[0]?.text).toBe(CAPABILITY_TEXT);
+    expect(await store.listTransactions("42")).toHaveLength(0);
+  });
+
+  it("does not ask for an amount when a non-finance message cannot be parsed", async () => {
+    const { deps, telegram } = harness();
+    deps.interpret = async () => {
+      throw new AiError("invalid", "bad json");
+    };
+    await runUpdate(textUpdate(52, 42, "So you can't do anything except money?"), deps);
+    expect(telegram.sent[0]?.text).toBe(CAPABILITY_TEXT);
+    expect(telegram.sent[0]?.text).not.toContain("amount");
+  });
+
+  it("asks for an amount when a transaction cannot be parsed", async () => {
+    const { deps, telegram } = harness();
+    deps.interpret = async () => {
+      throw new AiError("invalid", "bad json");
+    };
+    await runUpdate(textUpdate(53, 42, "I spent something on lunch"), deps);
+    expect(telegram.sent[0]?.text).toContain("amount");
   });
 
   it("confirms an expense from the stored total, and income without that total", async () => {
