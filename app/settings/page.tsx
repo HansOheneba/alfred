@@ -53,9 +53,14 @@ async function SettingsContent() {
     <main className="mx-auto flex w-full max-w-xl flex-col px-6 py-8">
       <div className="mb-6 flex items-center justify-between">
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        <Link href="/" className="text-sm underline">
-          Back to chat
-        </Link>
+        <div className="flex gap-4 text-sm">
+          <Link href="/" className="underline">
+            Dashboard
+          </Link>
+          <Link href="/chat" className="underline">
+            Chat
+          </Link>
+        </div>
       </div>
       <SettingsForm initial={settings} />
       <PasswordForm />
