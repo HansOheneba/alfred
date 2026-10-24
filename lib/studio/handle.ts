@@ -2,9 +2,9 @@ import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
-import { executeConfirmed, handleAction, type ActionContext } from "@/lib/finance/action-router";
+import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
+import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
-import { pendingPayloadSchema } from "@/lib/finance/schemas";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { userFacingError } from "@/lib/telegram/messages";
@@ -135,6 +135,22 @@ export async function handleProfileTurn(
   return result;
 }
 
+async function respond(text: string, ctx: ActionContext, deps: StudioDeps, clientId?: string): Promise<Delivery> {
+  const settled = await answerTypedDecision(text, ctx);
+  if (settled) return { kind: "text", text: settled.text, context: settled.context };
+  const { action, context } = await interpretWithContext({
+    text,
+    profile: ctx.profile,
+    store: deps.store,
+    now: ctx.now,
+    interpret: deps.interpret,
+    messages: deps.messages,
+    excludeClientId: clientId,
+  });
+  logInfo("studio_interpreted", { userId: ctx.profile.profileId, action: action.type });
+  return handleAction(action, { ...ctx, conversation: context });
+}
+
 function ordered(rows: ChatMessageRecord[]): ChatMessageRecord[] {
   return [...rows].sort((left, right) => {
     const byTime = left.createdAt.localeCompare(right.createdAt);
@@ -159,17 +175,7 @@ async function answerText(
       clientId,
     });
   }
-  const { action, context } = await interpretWithContext({
-    text,
-    profile: ctx.profile,
-    store: deps.store,
-    now: ctx.now,
-    interpret: deps.interpret,
-    messages: deps.messages,
-    excludeClientId: clientId,
-  });
-  logInfo("studio_interpreted", { userId: ctx.profile.profileId, action: action.type });
-  const delivery = await handleAction(action, { ...ctx, conversation: context });
+  const delivery = await respond(text, ctx, deps, clientId);
   if (deps.messages) {
     if (!clientId) {
       await deps.messages.append({ ownerId: ctx.profile.profileId, role: "user", body: text, channel: "web" });
@@ -195,7 +201,7 @@ async function answerDecision(
   deps: StudioDeps,
   clientId?: string,
 ): Promise<StudioResult> {
-  const result = await decide(input, ctx);
+  const result = await decidePending({ ...input, chatId: String(STUDIO_CHAT_ID) }, ctx);
   if (deps.messages) {
     await deps.messages.append({
       ownerId: ctx.profile.profileId,
@@ -215,44 +221,6 @@ async function answerDecision(
   const messages =
     clientId && deps.messages ? ordered(await deps.messages.listByClientId(ctx.profile.profileId, clientId)) : undefined;
   return { ...result, messages };
-}
-
-async function decide(
-  input: { decision: "confirm" | "cancel"; actionId: string },
-  ctx: ActionContext,
-): Promise<StudioResult> {
-  const pending = await ctx.store.getPendingAction(input.actionId);
-  const userId = ctx.profile.profileId;
-  if (!pending || pending.userId !== userId || pending.chatId !== String(STUDIO_CHAT_ID)) {
-    return { text: "That confirmation isn't for this chat." };
-  }
-  if (Date.parse(pending.expiresAt) <= ctx.now.getTime() && pending.status === "pending") {
-    await ctx.store.updatePendingAction(pending.actionId, { status: "expired" });
-    return { text: "That confirmation expired. Send the request again. Nothing was changed." };
-  }
-  if (pending.status === "completed") return { text: "That was already confirmed." };
-  if (pending.status === "cancelled" || pending.status === "expired") {
-    return { text: "That confirmation is closed. Nothing was changed." };
-  }
-  if (input.decision === "cancel") {
-    await ctx.store.updatePendingAction(pending.actionId, { status: "cancelled" });
-    return { text: "Cancelled. Nothing was changed." };
-  }
-  let raw: unknown = null;
-  try {
-    raw = JSON.parse(pending.payloadJson) as unknown;
-  } catch {
-    raw = null;
-  }
-  const payload = pendingPayloadSchema.safeParse(raw);
-  if (!payload.success || payload.data.type !== pending.actionType) {
-    await ctx.store.updatePendingAction(pending.actionId, { status: "cancelled" });
-    return { text: "That confirmation is no longer valid. Nothing was changed." };
-  }
-  await ctx.store.updatePendingAction(pending.actionId, { status: "processing" });
-  const confirmed = await executeConfirmed(payload.data, ctx);
-  await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
-  return { text: confirmed.text, context: confirmed.context };
 }
 
 export function createStudioDeps(settings: StudioSettings): StudioDeps {

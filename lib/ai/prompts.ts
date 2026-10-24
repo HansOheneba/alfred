@@ -12,6 +12,25 @@ export type RecentTransaction = {
   description: string;
 };
 
+const RANGE = '"period":null,"month":null,"year":null,"start_date":null,"end_date":null,"category":null,"continue_previous":false';
+
+const ACTION_SHAPES = [
+  '{"type":"chat","message":"..."}',
+  '{"type":"clarify","question":"..."}',
+  '{"type":"help"}',
+  '{"type":"create_transaction","explicit":true,"transactions":[{"transaction_type":"expense","amount":"45.00","currency":"GHS","category":"Food","description":"Lunch","date":null,"payment_method":null,"notes":null}]}',
+  `{"type":"get_spending_summary",${RANGE},"detail":"total"}`,
+  `{"type":"get_income_summary",${RANGE}}`,
+  `{"type":"get_financial_overview",${RANGE}}`,
+  `{"type":"get_transaction_history",${RANGE},"limit":null}`,
+  '{"type":"set_budget","category":"Food","amount":"800.00","currency":"GHS","period":"YYYY-MM or null"}',
+  '{"type":"get_budget_status","category":null,"period":null}',
+  '{"type":"create_savings_goal","name":"Laptop","target_amount":"3000.00","currency":"GHS","target_date":null,"current_amount":null}',
+  '{"type":"update_savings_goal","goal_id":null,"name":"Laptop","contribution":"100.00","set_current_amount":null,"target_amount":null,"target_date":null,"status":null}',
+  '{"type":"correct_transaction","transaction_id":"id from the recent list","description_query":null,"changes":{"amount":"60.00"}} — put only the fields that change inside changes.',
+  '{"type":"delete_transaction","transaction_id":"id from the recent list","description_query":null,"undo_last":false}',
+];
+
 function recentDayGuide(today: string): string {
   return Array.from({ length: 7 }, (_, index) => {
     const date = addDays(today, -index);
@@ -105,6 +124,12 @@ export function buildSystemPrompt(input: {
     "Use period values today, yesterday, this_week, last_week, this_month, last_month, or this_year when the user speaks relatively.",
     "For a named month such as September, set month to 1-12 and omit year unless the user states it.",
     "If the user asks how much they saved, use get_spending_summary with category Savings.",
+    "Questions like can I afford something, or how am I doing, use get_financial_overview for this_month unless they name a saved budget.",
+    "A bare yes, no, ok, or cancel is a reply to the previous assistant message, never a new transaction. Use chat and ask them to tap Confirm or Cancel, or to say what they meant.",
+    "Descriptions are short and specific, in the user's words, such as Waakye, Uber to work, or October salary. Avoid vague words like Payment or Expense.",
+    `Budget periods are YYYY-MM. This month is ${input.today.slice(0, 7)}.`,
+    "Field shapes for each action. Use these names exactly, and use null for anything not stated:",
+    ...ACTION_SHAPES,
     "Conversation context for this user only:",
     context,
     "Saved budgets:",
@@ -115,8 +140,6 @@ export function buildSystemPrompt(input: {
     history,
     "Recent transactions:",
     recent,
-    "Example JSON:",
-    '{"type":"create_transaction","explicit":true,"transactions":[{"transaction_type":"expense","amount":"45.00","currency":"GHS","category":"Food","description":"Lunch","date":null,"payment_method":null,"notes":null}]}',
   ].join("\n");
 }
 

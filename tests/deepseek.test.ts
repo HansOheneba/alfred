@@ -3,6 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { interpretMessage } from "@/lib/ai/deepseek";
 import { buildSystemPrompt } from "@/lib/ai/prompts";
 import { AiError } from "@/lib/errors";
+import { parseModelOutput } from "@/lib/finance/schemas";
+import { typedDecision } from "@/lib/finance/pending";
 
 const settings = { apiKey: "sk-test-key", model: "deepseek-flash" };
 const request = {
@@ -63,5 +65,48 @@ describe("DeepSeek client", () => {
     expect(prompt).toContain("JSON");
     expect(prompt).toContain("Food");
     expect(prompt).not.toContain("sk-");
+  });
+
+  it("sends the schema problem back to the model on retry", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse('{"type":"set_budget","category":"Food"}'))
+      .mockResolvedValueOnce(jsonResponse(JSON.stringify({ type: "help" })));
+    await interpretMessage(settings, request, fetchImpl as typeof fetch);
+    const retry = JSON.parse(String(fetchImpl.mock.calls[1][1].body)) as { messages: { role: string; content: string }[] };
+    expect(retry.messages.map((message) => message.role)).toEqual(["system", "user", "assistant", "user"]);
+    expect(retry.messages[3].content).toContain("amount");
+  });
+});
+
+describe("model output repair", () => {
+  it("moves top-level correction fields into changes", () => {
+    const parsed = parseModelOutput(
+      '{"type":"correct_transaction","transaction_id":"11111111-1111-4111-8111-111111111111","amount":"60","category":"Food"}',
+    );
+    expect(parsed.success && parsed.data.type === "correct_transaction" && parsed.data.changes).toEqual({
+      amount: "60.00",
+      category: "Food",
+    });
+  });
+
+  it("accepts message as the question of a clarify", () => {
+    const parsed = parseModelOutput('{"type":"clarify","message":"What was it for?"}');
+    expect(parsed.success && parsed.data.type === "clarify" && parsed.data.question).toBe("What was it for?");
+  });
+
+  it("turns relative budget periods into months", () => {
+    const parsed = parseModelOutput('{"type":"set_budget","category":"Food","amount":"800","currency":"GHS","period":"last_month"}', {
+      today: "2026-01-15",
+    });
+    expect(parsed.success && parsed.data.type === "set_budget" && parsed.data.period).toBe("2025-12");
+  });
+
+  it("recognizes short typed confirmations only", () => {
+    expect(typedDecision("Yes!")).toBe("confirm");
+    expect(typedDecision("ok")).toBe("confirm");
+    expect(typedDecision("no.")).toBe("cancel");
+    expect(typedDecision("never mind")).toBe("cancel");
+    expect(typedDecision("yes I spent 40 on lunch")).toBeNull();
   });
 });

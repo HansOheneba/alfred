@@ -616,20 +616,24 @@ async function correctTransaction(
     date?: string;
     transactionType?: "income" | "expense";
   } = {};
-  if (action.changes.amount) changes.amount = action.changes.amount;
-  if (action.changes.description) changes.description = action.changes.description;
-  if (action.changes.date) {
+  if (action.changes.amount && action.changes.amount !== target.amount) changes.amount = action.changes.amount;
+  if (action.changes.description && action.changes.description !== target.description) {
+    changes.description = action.changes.description;
+  }
+  if (action.changes.date && action.changes.date !== target.transactionDate) {
     if (!isSaneTransactionDate(action.changes.date, today)) {
       return { kind: "text", text: "That date isn't one I can store." };
     }
     changes.date = action.changes.date;
   }
-  if (action.changes.transaction_type) changes.transactionType = action.changes.transaction_type;
+  if (action.changes.transaction_type && action.changes.transaction_type !== target.type) {
+    changes.transactionType = action.changes.transaction_type;
+  }
   const nextType = changes.transactionType ?? target.type;
   if (action.changes.category) {
     const category = normalizeCategory(action.changes.category, nextType);
     if (!category) return { kind: "text", text: unknownCategoryMessage(nextType) };
-    changes.category = category;
+    if (category !== target.category) changes.category = category;
   }
   if (Object.keys(changes).length === 0) {
     return { kind: "text", text: "What should I change on that transaction?" };

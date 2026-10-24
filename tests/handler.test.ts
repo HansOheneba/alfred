@@ -201,4 +201,20 @@ describe("webhook route", () => {
     );
     expect(response.status).toBe(200);
   });
+
+  it("settles an open confirmation from a typed yes without asking the model", async () => {
+    const { deps, store, telegram, interpret } = harness();
+    await store.appendTransaction(expense());
+    deps.interpret = async () => {
+      interpret.calls += 1;
+      return { type: "delete_transaction", transaction_id: null, description_query: "lunch", undo_last: false };
+    };
+    await runUpdate(textUpdate(40, 42, "Delete the lunch expense"), deps);
+    expect(telegram.sent[0]?.buttons).toBeDefined();
+
+    await runUpdate(textUpdate(41, 42, "Yes!"), deps);
+    expect(interpret.calls).toBe(1);
+    expect((await store.listTransactions("42"))[0]?.status).toBe("deleted");
+    expect(telegram.sent.at(-1)?.text).toContain("Removed");
+  });
 });

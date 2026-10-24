@@ -3,14 +3,9 @@ import { ConfigError } from "@/lib/errors";
 import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import type { FinanceAction } from "@/lib/finance/schemas";
-import { pendingPayloadSchema } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
-import {
-  executeConfirmed,
-  handleAction,
-  type ActionContext,
-  type Delivery,
-} from "@/lib/finance/action-router";
+import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
+import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
 import { MemoryAccountDirectory } from "@/lib/accounts/directory";
 import type { MessageLog } from "@/lib/accounts/messages";
@@ -110,6 +105,8 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   }
 
   return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async (ctx) => {
+    const settled = await answerTypedDecision(text, ctx);
+    if (settled) return { kind: "text", text: settled.text, context: settled.context };
     const { action, context } = await interpretWithContext({
       text,
       profile,
@@ -153,42 +150,12 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     return { httpStatus: 200 };
   }
 
-  return withClaim(update.update_id, actor, profile, deps, { userText: decision.decision, channel: "telegram" }, async () => {
-    const pending = await deps.store!.getPendingAction(decision.actionId);
-    const userId = profile.profileId;
-    const chatId = String(actor.chatId);
-    if (!pending || pending.userId !== userId || pending.chatId !== chatId) {
-      return { kind: "text", text: "That confirmation isn't for this chat." };
-    }
-    const now = deps.now();
-    if (Date.parse(pending.expiresAt) <= now.getTime() && pending.status === "pending") {
-      await deps.store!.updatePendingAction(pending.actionId, { status: "expired" });
-      return { kind: "text", text: "That confirmation expired. Send the request again. Nothing was changed." };
-    }
-    if (pending.status === "completed") return { kind: "text", text: "That was already confirmed." };
-    if (pending.status === "cancelled" || pending.status === "expired") {
-      return { kind: "text", text: "That confirmation is closed. Nothing was changed." };
-    }
-    if (decision.decision === "cancel") {
-      await deps.store!.updatePendingAction(pending.actionId, { status: "cancelled" });
-      return { kind: "text", text: "Cancelled. Nothing was changed." };
-    }
-    let raw: unknown = null;
-    try {
-      raw = JSON.parse(pending.payloadJson) as unknown;
-    } catch {
-      raw = null;
-    }
-    const payload = pendingPayloadSchema.safeParse(raw);
-    if (!payload.success || payload.data.type !== pending.actionType) {
-      await deps.store!.updatePendingAction(pending.actionId, { status: "cancelled" });
-      return { kind: "text", text: "That confirmation is no longer valid. Nothing was changed." };
-    }
-    await deps.store!.updatePendingAction(pending.actionId, { status: "processing" });
-    const ctx = actionContext(actor, deps, profile, update.update_id);
-    const confirmed = await executeConfirmed(payload.data, ctx);
-    await deps.store!.updatePendingAction(pending.actionId, { status: "completed" });
-    return { kind: "text", text: confirmed.text, context: confirmed.context };
+  return withClaim(update.update_id, actor, profile, deps, { userText: decision.decision, channel: "telegram" }, async (ctx) => {
+    const settled = await decidePending(
+      { decision: decision.decision, actionId: decision.actionId, chatId: String(actor.chatId) },
+      ctx,
+    );
+    return { kind: "text", text: settled.text, context: settled.context };
   });
 }
 

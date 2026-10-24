@@ -221,11 +221,37 @@ function normalizeChanges(value: unknown): unknown {
   return next;
 }
 
-export function normalizeModelValue(value: unknown): unknown {
+const CHANGE_FIELDS = ["amount", "category", "description", "date", "transaction_type"] as const;
+
+/** Models sometimes send correction fields at the top level instead of inside changes. */
+function liftChanges(next: Record<string, unknown>): void {
+  if (next.type !== "correct_transaction" || asRecord(next.changes)) return;
+  const changes: Record<string, unknown> = {};
+  for (const key of CHANGE_FIELDS) {
+    if (next[key] != null) changes[key] = next[key];
+    delete next[key];
+  }
+  next.changes = changes;
+}
+
+function budgetPeriod(value: unknown, today: string | undefined): unknown {
+  if (!today || typeof value !== "string") return value;
+  const [year, month] = today.split("-").map(Number);
+  const shift = value === "this_month" ? 0 : value === "last_month" ? -1 : value === "next_month" ? 1 : null;
+  if (shift === null) return value;
+  const date = new Date(Date.UTC(year, month - 1 + shift, 1));
+  return date.toISOString().slice(0, 7);
+}
+
+export function normalizeModelValue(value: unknown, today?: string): unknown {
   const record = asRecord(value);
   if (!record) return value;
   const next = { ...record };
   if (typeof next.type === "string") next.type = next.type.trim();
+  liftChanges(next);
+  if (next.type === "clarify" && next.question == null && typeof next.message === "string") next.question = next.message;
+  if (next.type === "chat" && next.message == null && typeof next.question === "string") next.message = next.question;
+  if (next.type === "set_budget" || next.type === "get_budget_status") next.period = budgetPeriod(next.period, today);
   if (typeof next.currency === "string") next.currency = next.currency.trim().toUpperCase();
   if ("amount" in next && next.amount != null) {
     next.amount = canonicalizeAmount(next.amount) ?? next.amount;
@@ -255,18 +281,25 @@ export function normalizeModelValue(value: unknown): unknown {
 
 export function parseModelOutput(
   input: unknown,
-): { success: true; data: FinanceAction } | { success: false } {
+  options: { today?: string } = {},
+): { success: true; data: FinanceAction } | { success: false; issue: string } {
   let value = input;
   if (typeof input === "string") {
     try {
       value = JSON.parse(input) as unknown;
     } catch {
-      return { success: false };
+      return { success: false, issue: "The reply was not valid JSON." };
     }
   }
   const record = asRecord(value);
   if (record && record.action && !record.type) value = record.action;
-  const parsed = financeActionSchema.safeParse(normalizeModelValue(value));
-  if (!parsed.success) return { success: false };
+  const parsed = financeActionSchema.safeParse(normalizeModelValue(value, options.today));
+  if (!parsed.success) {
+    const issue = parsed.error.issues
+      .slice(0, 3)
+      .map((item) => `${item.path.join(".") || "type"}: ${item.message}`)
+      .join("; ");
+    return { success: false, issue };
+  }
   return { success: true, data: parsed.data };
 }

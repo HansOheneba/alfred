@@ -53,29 +53,39 @@ export async function interpretMessage(
     history: request.history,
   });
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);
+  const messages: ChatMessage[] = [
+    { role: "system", content: system },
+    { role: "user", content: userText },
+  ];
   let first = "";
   try {
-    first = await complete(settings, system, userText, fetchImpl);
+    first = await complete(settings, messages, fetchImpl);
   } catch (error) {
     if (!(error instanceof AiError) || error.code !== "invalid") throw error;
   }
-  const parsed = parseModelOutput(first);
+  const parsed = parseModelOutput(first, { today });
   if (parsed.success) return parsed.data;
-  const second = await complete(
-    settings,
-    system,
-    `${userText}\n\nReturn one JSON object that matches the finance action schema.`,
-    fetchImpl,
-  );
-  const retry = parseModelOutput(second);
+  const retryMessages: ChatMessage[] = first
+    ? [
+        ...messages,
+        { role: "assistant", content: first },
+        {
+          role: "user",
+          content: `That JSON did not match the schema (${parsed.issue}). Return one corrected JSON object using the field shapes in the instructions.`,
+        },
+      ]
+    : messages;
+  const second = await complete(settings, retryMessages, fetchImpl);
+  const retry = parseModelOutput(second, { today });
   if (!retry.success) throw new AiError("invalid", "DeepSeek returned an invalid finance action.");
   return retry.data;
 }
 
+type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+
 async function complete(
   settings: DeepSeekSettings,
-  system: string,
-  userText: string,
+  messages: ChatMessage[],
   fetchImpl: typeof fetch,
 ): Promise<string> {
   let response: Response;
@@ -88,10 +98,7 @@ async function complete(
       },
       body: JSON.stringify({
         model: settings.model,
-        messages: [
-          { role: "system", content: system },
-          { role: "user", content: userText },
-        ],
+        messages,
         response_format: { type: "json_object" },
         thinking: { type: "disabled" },
         temperature: 0,
