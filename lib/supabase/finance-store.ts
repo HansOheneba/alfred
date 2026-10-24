@@ -39,6 +39,26 @@ function money(value: string, allowZero = false): string {
   return canonical;
 }
 
+type ProcessedRow = {
+  id: string;
+  update_id: string;
+  user_id: string;
+  status: ProcessedStatus;
+  result_reference: string;
+  processed_at: Date;
+};
+
+function processedFrom(row: ProcessedRow): ProcessedUpdateRecord {
+  return {
+    updateId: row.update_id,
+    userId: row.user_id,
+    status: row.status,
+    resultReference: row.result_reference,
+    processedAt: iso(row.processed_at),
+    rowNumber: Number(row.id),
+  };
+}
+
 function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
@@ -75,23 +95,29 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       }
     },
 
-    async listProcessedUpdates() {
-      const rows = await query<{
-        id: string;
-        update_id: string;
-        user_id: string;
-        status: ProcessedStatus;
-        result_reference: string;
-        processed_at: Date;
-      }>(settings, "select id, update_id, user_id, status, result_reference, processed_at from public.processed_updates order by id");
-      return rows.map((row) => ({
-        updateId: row.update_id,
-        userId: row.user_id,
-        status: row.status,
-        resultReference: row.result_reference,
-        processedAt: iso(row.processed_at),
-        rowNumber: Number(row.id),
-      }));
+    async findProcessedUpdates(updateId) {
+      const rows = await query<ProcessedRow>(
+        settings,
+        `select id, update_id, user_id, status, result_reference, processed_at
+         from public.processed_updates
+         where update_id = $1
+         order by id`,
+        [updateId],
+      );
+      return rows.map(processedFrom);
+    },
+
+    async latestCompletedUpdates(userId, limit) {
+      const rows = await query<ProcessedRow>(
+        settings,
+        `select id, update_id, user_id, status, result_reference, processed_at
+         from public.processed_updates
+         where user_id = $1 and status = 'completed'
+         order by id desc
+         limit $2`,
+        [userId, limit],
+      );
+      return rows.map(processedFrom);
     },
 
     async appendProcessedUpdate(row) {
@@ -108,14 +134,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     },
 
     async updateProcessedUpdate(rowNumber, patch) {
-      const current = await query<{
-        id: string;
-        update_id: string;
-        user_id: string;
-        status: ProcessedStatus;
-        result_reference: string;
-        processed_at: Date;
-      }>(settings, "select id, update_id, user_id, status, result_reference, processed_at from public.processed_updates where id = $1", [
+      const current = await query<ProcessedRow>(settings, "select id, update_id, user_id, status, result_reference, processed_at from public.processed_updates where id = $1", [
         rowNumber,
       ]);
       const row = current[0];

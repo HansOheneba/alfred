@@ -39,9 +39,7 @@ export async function claimUpdate(
   await store.ensureReady();
   const updateId = String(input.updateId);
   const token = input.newToken?.() ?? randomUUID();
-  const rows = (await store.listProcessedUpdates())
-    .filter((row) => row.updateId === updateId)
-    .sort((left, right) => left.rowNumber - right.rowNumber);
+  const rows = await store.findProcessedUpdates(updateId);
 
   const completed = rows.find((row) => row.status === "completed");
   if (completed) return replay(completed);
@@ -67,7 +65,7 @@ export async function claimUpdate(
       resultReference: nextReference,
       userId: reusable.userId || input.userId,
     });
-    const again = (await store.listProcessedUpdates()).find((row) => row.rowNumber === reusable.rowNumber);
+    const again = (await store.findProcessedUpdates(updateId)).find((row) => row.rowNumber === reusable.rowNumber);
     const ref = parseRef(again?.resultReference ?? "");
     if (!again || again.status !== "processing" || ref.claimToken !== token) {
       return { kind: "lost_race" };
@@ -82,11 +80,8 @@ export async function claimUpdate(
     resultReference: JSON.stringify({ claimToken: token }),
     processedAt: input.now.toISOString(),
   });
-  const contenders = (await store.listProcessedUpdates())
-    .filter(
-      (row) =>
-        row.updateId === updateId && (row.status === "processing" || row.status === "completed"),
-    )
+  const contenders = (await store.findProcessedUpdates(updateId))
+    .filter((row) => row.status === "processing" || row.status === "completed")
     .sort((left, right) => left.rowNumber - right.rowNumber);
   const winner = contenders[0];
   if (!winner || winner.rowNumber !== created.rowNumber) {
