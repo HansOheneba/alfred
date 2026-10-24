@@ -16,6 +16,9 @@ export type ConversationContext = {
   pendingActionId: string | null;
 };
 
+/** Completed updates scanned for the last saved context, newest first. */
+const CONTEXT_LOOKBACK = 20;
+
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 export function conversationContext(value: unknown): ConversationContext | null {
@@ -64,7 +67,7 @@ export function contextFromReference(raw: string): ConversationContext | null {
 }
 
 export async function readConversation(store: FinanceStore, userId: string): Promise<ConversationContext | null> {
-  return latestConversation(await store.listProcessedUpdates(), userId);
+  return latestConversation(await store.latestCompletedUpdates(userId, CONTEXT_LOOKBACK), userId);
 }
 
 function mentionsNewPeriod(text: string): boolean {

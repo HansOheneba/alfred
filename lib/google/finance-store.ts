@@ -222,28 +222,42 @@ export function createGoogleFinanceStore(input: {
     throw new SheetsError("missing_row", "Transaction was not found.");
   }
 
+  async function readProcessedUnqueued(): Promise<ProcessedUpdateRecord[]> {
+    await ensureReadyUnqueued();
+    const rows = await readSheet("processed");
+    return rows.flatMap((row) => {
+      const [updateId, userId, status, resultReference, processedAt] = row.cells;
+      if (!updateId || !isProcessedStatus(status)) return [];
+      const record: ProcessedUpdateRecord = {
+        updateId,
+        userId,
+        status,
+        resultReference,
+        processedAt,
+        rowNumber: row.rowNumber,
+      };
+      return [record];
+    });
+  }
+
   return {
     ensureReady() {
       return enqueue(ensureReadyUnqueued);
     },
-    listProcessedUpdates() {
-      return enqueue(async () => {
-        await ensureReadyUnqueued();
-        const rows = await readSheet("processed");
-        return rows.flatMap((row) => {
-          const [updateId, userId, status, resultReference, processedAt] = row.cells;
-          if (!updateId || !isProcessedStatus(status)) return [];
-          const record: ProcessedUpdateRecord = {
-            updateId,
-            userId,
-            status,
-            resultReference,
-            processedAt,
-            rowNumber: row.rowNumber,
-          };
-          return [record];
-        });
-      });
+    findProcessedUpdates(updateId: string) {
+      return enqueue(async () =>
+        (await readProcessedUnqueued())
+          .filter((row) => row.updateId === updateId)
+          .sort((left, right) => left.rowNumber - right.rowNumber),
+      );
+    },
+    latestCompletedUpdates(userId: string, limit: number) {
+      return enqueue(async () =>
+        (await readProcessedUnqueued())
+          .filter((row) => row.userId === userId && row.status === "completed")
+          .sort((left, right) => right.rowNumber - left.rowNumber)
+          .slice(0, limit),
+      );
     },
     appendProcessedUpdate(row: NewProcessedUpdate) {
       return enqueue(async () => {

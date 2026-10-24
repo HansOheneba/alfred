@@ -15,7 +15,10 @@ export type NewPendingAction = Omit<PendingActionRecord, "rowNumber">;
 
 export interface FinanceStore {
   ensureReady(): Promise<void>;
-  listProcessedUpdates(): Promise<ProcessedUpdateRecord[]>;
+  /** Every row recorded for one update id, oldest first. */
+  findProcessedUpdates(updateId: string): Promise<ProcessedUpdateRecord[]>;
+  /** The user's most recent completed rows, newest first. */
+  latestCompletedUpdates(userId: string, limit: number): Promise<ProcessedUpdateRecord[]>;
   appendProcessedUpdate(row: NewProcessedUpdate): Promise<ProcessedUpdateRecord>;
   updateProcessedUpdate(
     rowNumber: number,

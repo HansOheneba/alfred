@@ -28,8 +28,24 @@ export class MemoryFinanceStore implements FinanceStore {
 
   async ensureReady(): Promise<void> {}
 
+  /** Test helper: every processed row. Not part of FinanceStore. */
   async listProcessedUpdates(): Promise<ProcessedUpdateRecord[]> {
     return this.processed.map(clone);
+  }
+
+  async findProcessedUpdates(updateId: string): Promise<ProcessedUpdateRecord[]> {
+    return this.processed
+      .filter((item) => item.updateId === updateId)
+      .sort((left, right) => left.rowNumber - right.rowNumber)
+      .map(clone);
+  }
+
+  async latestCompletedUpdates(userId: string, limit: number): Promise<ProcessedUpdateRecord[]> {
+    return this.processed
+      .filter((item) => item.userId === userId && item.status === "completed")
+      .sort((left, right) => right.rowNumber - left.rowNumber)
+      .slice(0, limit)
+      .map(clone);
   }
 
   async appendProcessedUpdate(row: NewProcessedUpdate): Promise<ProcessedUpdateRecord> {
