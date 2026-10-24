@@ -89,6 +89,10 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     ...rangeFields,
   }),
   z.object({
+    type: z.literal("get_insights"),
+    ...rangeFields,
+  }),
+  z.object({
     type: z.literal("set_budget"),
     category: z.string().min(1).max(40),
     amount: amountSchema,

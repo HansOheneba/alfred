@@ -16,6 +16,7 @@ export const LIMITS = {
 
 export const DEFAULT_TIMEZONE = "Africa/Accra";
 export const DEFAULT_CURRENCY = "GHS";
+export const DASHBOARD_URL = "https://alfred.hansopoku.com";
 
 export type GoogleSettings = {
   clientEmail: string;
@@ -72,4 +73,6 @@ export type UserProfile = {
   timezone: string;
   preferredName: string;
   communicationPreference: CommunicationPreference;
+  /** Private guidance on tone for this person, from public.assistant_notes. */
+  toneNote?: string;
 };

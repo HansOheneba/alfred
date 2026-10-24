@@ -2,6 +2,7 @@ import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
+import { createVoice, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
@@ -38,6 +39,7 @@ export type StudioDeps = {
   createActionId: () => string;
   nextUpdateId?: () => number;
   messages?: MessageLog | null;
+  voice?: Voice | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -146,9 +148,11 @@ async function respond(text: string, ctx: ActionContext, deps: StudioDeps, clien
     interpret: deps.interpret,
     messages: deps.messages,
     excludeClientId: clientId,
+    channel: "web",
   });
   logInfo("studio_interpreted", { userId: ctx.profile.profileId, action: action.type });
-  return handleAction(action, { ...ctx, conversation: context });
+  const delivery = await handleAction(action, { ...ctx, conversation: context });
+  return voiceDelivery(deps.voice, action, delivery, { userText: text, profile: ctx.profile, channel: "web" });
 }
 
 function ordered(rows: ChatMessageRecord[]): ChatMessageRecord[] {
@@ -237,5 +241,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
       return Date.now() * 1000 + sequence;
     },
     messages: createSupabaseMessageLog(settings.supabase),
+    voice: createVoice(settings.deepseek),
   };
 }

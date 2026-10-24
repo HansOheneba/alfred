@@ -13,6 +13,7 @@ type AccountRow = {
   telegram_user_id: string | null;
   chat_id: string | null;
   locked_at: Date | null;
+  tone_note: string | null;
 };
 
 function linkFrom(row: AccountRow): TelegramLink {
@@ -25,14 +26,16 @@ function linkFrom(row: AccountRow): TelegramLink {
     currency: row.currency,
     timezone: row.timezone,
     communicationPreference: row.communication_preference,
+    toneNote: row.tone_note ?? "",
   };
 }
 
 const accountSql = `
   select p.id, p.preferred_name, p.currency, p.timezone, p.communication_preference,
-         t.telegram_user_id::text, t.chat_id::text, t.locked_at
+         t.telegram_user_id::text, t.chat_id::text, t.locked_at, n.tone_note
   from public.profiles p
   join public.telegram_accounts t on t.owner_id = p.id
+  left join public.assistant_notes n on n.owner_id = p.id
 `;
 
 export function createSupabaseAccountDirectory(settings: SupabaseSettings): AccountDirectory & {

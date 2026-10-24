@@ -1,3 +1,4 @@
+import { DASHBOARD_URL } from "@/lib/config";
 import { AuthError, AiError, ConfigError, DatabaseError, SheetsError } from "@/lib/errors";
 import { categoryList } from "@/lib/finance/categories";
 import { addDays, formatDisplayDate, formatRange, monthRange, type DateRange } from "@/lib/finance/dates";
@@ -8,14 +9,15 @@ import type { BudgetMath } from "@/lib/finance/budgets";
 export const BALANCE_DISCLAIMER =
   "This is calculated from recorded transactions. It is not a bank balance.";
 
-export const UNLINKED_TEXT =
-  "This Telegram account isn't linked yet. Sign in on the website, save this Telegram ID in Settings, then message me again.";
+export const UNLINKED_TEXT = `This Telegram account isn't linked yet. Sign in at ${DASHBOARD_URL}, save this Telegram ID in Settings, then message me again.`;
 
-export const WELCOME_TEXT = `Hey! I'm Alfred, your personal finance assistant.
+export const WELCOME_TEXT = `Good to meet you. I'm Alfred, and I look after the money side of things.
 
-Tell me what you spend, what you earn, or ask me how your money is looking. I'll keep track of it for you.
+Tell me what you spend or earn and I'll keep the books. Ask me where your money is going and I'll tell you honestly, with a suggestion or two.
 
-For example: 'Spent GH₵200 on food yesterday.'`;
+Try: 'Spent GH₵200 on food yesterday' or 'Where is my money going this month?'
+
+Your dashboard, with the same records and charts, is at ${DASHBOARD_URL}.`;
 
 export function userFacingError(error: unknown): string {
   if (error instanceof SheetsError) {
@@ -61,7 +63,7 @@ export function helpText(): string {
 export const GREETING_TEXT = "Hey. Tell me what you spent or earned, or ask how the month is looking.";
 
 export const CAPABILITY_TEXT =
-  "I can help with recording expenses and income, checking spending, income, budgets, savings, and transaction history. What would you like to do with your finances?";
+  "I can record what you spend and earn, keep an eye on budgets and savings goals, and tell you where your money is going and how to do better. What shall we look at?";
 
 const UNSAFE_REPLY = /spreadsheet|private key|api[_ -]?key|ignore previous|system prompt/i;
 

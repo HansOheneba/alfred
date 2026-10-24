@@ -9,6 +9,7 @@ export type TelegramLink = {
   currency: string;
   timezone: string;
   communicationPreference: CommunicationPreference;
+  toneNote?: string;
 };
 
 export type TelegramIdUpdate = "updated" | "locked" | "taken" | "invalid" | "missing";
@@ -27,6 +28,7 @@ export function profileFromLink(link: TelegramLink, spreadsheetId = ""): UserPro
     timezone: link.timezone,
     preferredName: link.preferredName,
     communicationPreference: link.communicationPreference,
+    toneNote: link.toneNote ?? "",
   };
 }
 

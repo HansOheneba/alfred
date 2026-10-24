@@ -2,6 +2,7 @@ import { LIMITS, type AppSettings } from "@/lib/config";
 import { ConfigError } from "@/lib/errors";
 import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
+import { createVoice, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
@@ -31,6 +32,7 @@ export type HandlerDeps = {
   rateLimiter: { allow(key: string, now: number): boolean | Promise<boolean> };
   accounts: AccountDirectory;
   messages?: MessageLog | null;
+  voice?: Voice | null;
   createId: () => string;
   createActionId: () => string;
 };
@@ -114,9 +116,11 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
       now: deps.now(),
       interpret: deps.interpret,
       messages: deps.messages,
+      channel: "telegram",
     });
     logInfo("interpreted", { updateId: update.update_id, userId: profile.profileId, action: action.type });
-    return handleAction(action, { ...ctx, conversation: context });
+    const delivery = await handleAction(action, { ...ctx, conversation: context });
+    return voiceDelivery(deps.voice, action, delivery, { userText: text, profile, channel: "telegram" });
   });
 }
 
@@ -314,6 +318,7 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     rateLimiter: settings.supabase ? new DbRateLimiter(settings.supabase, LIMITS.rateLimit, LIMITS.rateWindowMs) : sharedLimiter,
     accounts,
     messages: settings.supabase ? createSupabaseMessageLog(settings.supabase) : null,
+    voice: settings.deepseek ? createVoice(settings.deepseek, fetchImpl) : null,
     createId: newTransactionId,
     createActionId: newActionId,
   };

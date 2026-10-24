@@ -1,4 +1,5 @@
 import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { Channel } from "@/lib/ai/persona";
 import type { MessageLog } from "@/lib/accounts/messages";
 import type { UserProfile } from "@/lib/config";
 import { LIMITS } from "@/lib/config";
@@ -16,8 +17,11 @@ export async function interpretWithContext(input: {
   interpret: (request: InterpretRequest) => Promise<FinanceAction>;
   messages?: MessageLog | null;
   excludeClientId?: string | null;
+  channel: Channel;
 }): Promise<{ action: FinanceAction; context: ConversationContext | null }> {
-  const greeting = localGreeting(input.text);
+  // Someone Alfred knows by name gets a greeting in his own voice instead.
+  const personal = Boolean(input.profile.preferredName.trim() || input.profile.toneNote?.trim());
+  const greeting = personal ? null : localGreeting(input.text);
   if (greeting) return { action: { type: "chat", message: greeting }, context: null };
   const ownerId = input.profile.profileId;
   const recent = (await input.store.listTransactions(ownerId))
@@ -50,6 +54,8 @@ export async function interpretWithContext(input: {
       context,
       preferredName: input.profile.preferredName,
       communicationPreference: input.profile.communicationPreference,
+      toneNote: input.profile.toneNote,
+      channel: input.channel,
       budgets: budgets.slice(0, 12).map((item) => ({
         period: item.period,
         category: item.category,

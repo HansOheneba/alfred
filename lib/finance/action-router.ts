@@ -14,6 +14,7 @@ import {
 } from "@/lib/finance/dates";
 import { formatMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
+import { buildInsights } from "@/lib/finance/insights";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
 import type { FinanceAction, PendingPayload } from "@/lib/finance/schemas";
 import { pendingPayloadSchema } from "@/lib/finance/schemas";
@@ -83,6 +84,8 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return incomeSummary(action, ctx);
     case "get_financial_overview":
       return overview(action, ctx);
+    case "get_insights":
+      return insights(action, ctx);
     case "get_transaction_history":
       return history(action, ctx);
     case "set_budget":
@@ -450,6 +453,27 @@ async function overview(
   }
   lines.push("", BALANCE_DISCLAIMER);
   return { kind: "text", text: lines.join("\n") };
+}
+
+async function insights(
+  action: Extract<FinanceAction, { type: "get_insights" }>,
+  ctx: ActionContext,
+): Promise<Delivery> {
+  const today = zonedYmd(ctx.now, ctx.profile.timezone);
+  const resolved = resolveRange(action, today);
+  if (!resolved.ok) return { kind: "text", text: resolved.message };
+  const userId = ctx.profile.profileId;
+  const [transactions, budgets] = await Promise.all([listOwn(ctx), ctx.store.listBudgets(userId)]);
+  const lines = buildInsights({
+    userId,
+    currency: ctx.profile.currency,
+    range: resolved.range,
+    today,
+    transactions,
+    budgets,
+  });
+  const text = [`Insights (${formatRangeLabel(resolved.range)})`, ...lines.map((line) => `- ${line}`)].join("\n");
+  return remember(text, queryContext(resolved.range, null, "by_category", null, "overview"));
 }
 
 async function history(

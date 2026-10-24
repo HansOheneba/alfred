@@ -1,5 +1,6 @@
 import { z } from "zod";
 
+import type { Channel } from "@/lib/ai/persona";
 import { buildSystemPrompt, type RecentTransaction } from "@/lib/ai/prompts";
 import { LIMITS, type DeepSeekSettings } from "@/lib/config";
 import { AiError } from "@/lib/errors";
@@ -29,6 +30,8 @@ export type InterpretRequest = {
   context?: ConversationContext | null;
   preferredName?: string;
   communicationPreference?: "concise" | "detailed";
+  toneNote?: string;
+  channel?: Channel;
   budgets?: { period: string; category: string; amount: string; currency: string }[];
   goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
   history?: { role: "user" | "assistant"; body: string }[];
@@ -48,6 +51,8 @@ export async function interpretMessage(
     context: request.context,
     preferredName: request.preferredName,
     communicationPreference: request.communicationPreference,
+    toneNote: request.toneNote,
+    channel: request.channel,
     budgets: request.budgets,
     goals: request.goals,
     history: request.history,
@@ -59,7 +64,7 @@ export async function interpretMessage(
   ];
   let first = "";
   try {
-    first = await complete(settings, messages, fetchImpl);
+    first = await chatCompletion(settings, messages, {}, fetchImpl);
   } catch (error) {
     if (!(error instanceof AiError) || error.code !== "invalid") throw error;
   }
@@ -75,18 +80,19 @@ export async function interpretMessage(
         },
       ]
     : messages;
-  const second = await complete(settings, retryMessages, fetchImpl);
+  const second = await chatCompletion(settings, retryMessages, {}, fetchImpl);
   const retry = parseModelOutput(second, { today });
   if (!retry.success) throw new AiError("invalid", "DeepSeek returned an invalid finance action.");
   return retry.data;
 }
 
-type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
+export type ChatMessage = { role: "system" | "user" | "assistant"; content: string };
 
-async function complete(
+export async function chatCompletion(
   settings: DeepSeekSettings,
   messages: ChatMessage[],
-  fetchImpl: typeof fetch,
+  options: { temperature?: number; maxTokens?: number; timeoutMs?: number },
+  fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
   let response: Response;
   try {
@@ -101,10 +107,10 @@ async function complete(
         messages,
         response_format: { type: "json_object" },
         thinking: { type: "disabled" },
-        temperature: 0,
-        max_tokens: LIMITS.maxModelTokens,
+        temperature: options.temperature ?? 0,
+        max_tokens: options.maxTokens ?? LIMITS.maxModelTokens,
       }),
-      signal: AbortSignal.timeout(LIMITS.aiTimeoutMs),
+      signal: AbortSignal.timeout(options.timeoutMs ?? LIMITS.aiTimeoutMs),
     });
   } catch (error) {
     if (error instanceof Error && error.name === "TimeoutError") {
