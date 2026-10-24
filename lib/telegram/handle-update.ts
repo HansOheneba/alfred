@@ -2,7 +2,7 @@ import { LIMITS, type AppSettings } from "@/lib/config";
 import { ConfigError } from "@/lib/errors";
 import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
-import { createVoice, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
@@ -109,7 +109,7 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async (ctx) => {
     const settled = await answerTypedDecision(text, ctx);
     if (settled) return { kind: "text", text: settled.text, context: settled.context };
-    const { action, context } = await interpretWithContext({
+    const { action, context, cue } = await interpretWithContext({
       text,
       profile,
       store: deps.store!,
@@ -120,7 +120,8 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
     });
     logInfo("interpreted", { updateId: update.update_id, userId: profile.profileId, action: action.type });
     const delivery = await handleAction(action, { ...ctx, conversation: context });
-    return voiceDelivery(deps.voice, action, delivery, { userText: text, profile, channel: "telegram" });
+    const voiced = await voiceDelivery(deps.voice, action, delivery, { userText: text, profile, channel: "telegram", cue });
+    return { ...voiced, intent: intentOf(action) };
   });
 }
 
@@ -176,7 +177,7 @@ async function withClaim(
   profile: NonNullable<Awaited<ReturnType<AccountDirectory["resolveTelegram"]>>>,
   deps: HandlerDeps,
   exchange: { userText: string; channel: "telegram" },
-  produce: (ctx: ActionContext) => Promise<Delivery>,
+  produce: (ctx: ActionContext) => Promise<Delivery & { intent?: string }>,
 ): Promise<{ httpStatus: number }> {
   const store = deps.store;
   if (!store) return { httpStatus: 200 };
@@ -208,7 +209,7 @@ async function withClaim(
     return { httpStatus: 200 };
   }
 
-  let delivery: Delivery;
+  let delivery: Delivery & { intent?: string };
   try {
     delivery = await produce(actionContext(actor, deps, profile, updateId));
   } catch (error) {
@@ -230,6 +231,8 @@ async function withClaim(
         role: "assistant",
         body: delivery.text,
         channel: exchange.channel,
+        intent: delivery.intent ?? null,
+        chart: delivery.chart ?? null,
       });
     }
     await completeUpdate(

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState, type FormEvent } from "react";
 import { useRouter } from "next/navigation";
 
+import { AlfredMark } from "@/app/components/app-shell";
 import type { OtpVerifyType } from "@/lib/auth/issue-otp";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -89,8 +90,11 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
 
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-md flex-col justify-center px-6 py-16">
-      <h1 className="text-2xl font-semibold tracking-tight">{signUp ? "Create your Alfred account" : "Sign in"}</h1>
-      <p className="mt-2 text-sm text-neutral-600 dark:text-neutral-400">
+      <Link href="/" className="mb-8 self-start rounded-full focus-visible:outline-2 focus-visible:outline-gold" aria-label="Alfred home">
+        <AlfredMark size="size-11" />
+      </Link>
+      <h1 className="text-2xl font-medium tracking-tight">{signUp ? "Create your Alfred account" : "Sign in"}</h1>
+      <p className="mt-2 text-sm text-muted">
         {sent
           ? `Enter the code sent to ${email}.`
           : signUp
@@ -108,7 +112,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
               pattern="[0-9]{6,8}"
               value={code}
               onChange={(event) => setCode(event.target.value)}
-              className="rounded-xl border border-neutral-300 bg-transparent px-3 py-2 tracking-widest dark:border-neutral-700"
+              className={`${inputClass} tracking-widest`}
             />
           </label>
           <Status error={error} />
@@ -117,7 +121,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           </button>
           <button
             type="button"
-            className="text-sm text-neutral-600 underline dark:text-neutral-400"
+            className="text-sm text-muted underline underline-offset-4 hover:text-ink"
             onClick={() => {
               setSent(false);
               setCode("");
@@ -148,7 +152,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           </button>
           <button
             type="button"
-            className="text-sm text-neutral-600 underline dark:text-neutral-400"
+            className="text-sm text-muted underline underline-offset-4 hover:text-ink"
             onClick={() => {
               setUsePassword(false);
               setError("");
@@ -167,7 +171,7 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           {signUp ? null : (
             <button
               type="button"
-              className="text-sm text-neutral-600 underline dark:text-neutral-400"
+              className="text-sm text-muted underline underline-offset-4 hover:text-ink"
               onClick={() => {
                 setUsePassword(true);
                 setError("");
@@ -178,13 +182,13 @@ export function AuthForm({ mode }: { mode: "sign-in" | "sign-up" }) {
           )}
         </form>
       )}
-      <p className="mt-6 text-sm text-neutral-600 dark:text-neutral-400">
+      <p className="mt-6 text-sm text-muted">
         {signUp ? (
-          <Link href="/login" className="underline">
+          <Link href="/login" className="text-gold underline underline-offset-4">
             Already have an account? Sign in
           </Link>
         ) : (
-          <Link href="/signup" className="underline">
+          <Link href="/signup" className="text-gold underline underline-offset-4">
             Create an account
           </Link>
         )}
@@ -212,12 +216,13 @@ function EmailField({ email, onChange }: { email: string; onChange: (value: stri
 function Status({ error }: { error: string }) {
   if (!error) return null;
   return (
-    <p className="text-sm text-red-700 dark:text-red-400" role="alert">
+    <p className="text-sm text-danger" role="alert">
       {error}
     </p>
   );
 }
 
-const inputClass = "rounded-xl border border-neutral-300 bg-transparent px-3 py-2 dark:border-neutral-700";
+const inputClass =
+  "h-11 rounded-xl border border-line-strong bg-bg px-3 text-ink placeholder:text-faint focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold-soft";
 const buttonClass =
-  "rounded-full bg-neutral-900 px-4 py-2 text-sm text-white disabled:opacity-50 dark:bg-neutral-100 dark:text-neutral-900";
+  "h-11 rounded-full bg-gold px-4 text-sm font-medium text-gold-ink hover:brightness-110 disabled:opacity-50 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold";

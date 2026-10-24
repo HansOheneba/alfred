@@ -21,6 +21,7 @@ function present(message: ChatMessageRecord) {
     channel: message.channel,
     createdAt: message.createdAt,
     clientId: message.clientId,
+    chart: message.chart ?? null,
   };
 }
 

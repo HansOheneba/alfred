@@ -217,4 +217,17 @@ describe("webhook route", () => {
     expect((await store.listTransactions("42"))[0]?.status).toBe("deleted");
     expect(telegram.sent.at(-1)?.text).toContain("Removed");
   });
+
+  it("asks before saving a budget and saves it after Confirm", async () => {
+    const { deps, store, telegram } = harness();
+    deps.interpret = async () => ({ type: "set_budget", category: "food", amount: "800.00", currency: "GHS", period: null });
+    await runUpdate(textUpdate(60, 42, "set a food budget of 800"), deps);
+    expect(await store.listBudgets("42")).toHaveLength(0);
+    expect(telegram.sent.at(-1)?.text).toContain("Set a Food budget of GH₵800.00 for October 2026?");
+
+    await runUpdate(textUpdate(61, 42, "yes"), deps);
+    const budgets = await store.listBudgets("42");
+    expect(budgets).toHaveLength(1);
+    expect(budgets[0]).toMatchObject({ category: "Food", amount: "800.00", period: "2026-10" });
+  });
 });

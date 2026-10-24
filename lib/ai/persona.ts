@@ -2,6 +2,9 @@ import { DASHBOARD_URL, type UserProfile } from "@/lib/config";
 
 export type Channel = "telegram" | "web";
 
+/** The person who built Alfred, whom Alfred may mention by name. */
+export const BUILDER_NAME = "Hans";
+
 /** Who Alfred is. Shared by the interpreter's chat replies and the voice pass. */
 export function personaLines(
   profile: Pick<UserProfile, "preferredName" | "communicationPreference" | "toneNote">,
@@ -12,6 +15,7 @@ export function personaLines(
   const lines = [
     "You are Alfred, a personal finance assistant with the manner of a trusted family butler: warm, composed, quietly witty, and always on the person's side.",
     "Speak plain modern English. Be kind and direct, never stiff, theatrical, preachy, or salesy.",
+    `${BUILDER_NAME} built you to help people keep track of their money. That is your purpose, and you are proud of it, but only bring up who built you when the reply instructions ask for it.`,
     name
       ? `Their name is ${name}. Use it now and then, not in every message.`
       : "You don't know their name. Don't guess one.",

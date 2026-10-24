@@ -1,9 +1,10 @@
 import { z } from "zod";
 
 import { chatCompletion } from "@/lib/ai/deepseek";
-import { personaLines, type Channel } from "@/lib/ai/persona";
+import { BUILDER_NAME, personaLines, type Channel } from "@/lib/ai/persona";
 import { DASHBOARD_URL, type DeepSeekSettings, type UserProfile } from "@/lib/config";
 import type { Delivery } from "@/lib/finance/action-router";
+import type { ChatCue } from "@/lib/finance/context";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import { logError } from "@/lib/log";
 
@@ -13,6 +14,9 @@ export type VoiceRequest = {
   intent: FinanceAction["type"];
   profile: UserProfile;
   channel: Channel;
+  /** Set for chat replies: the conversation so far and how long it has drifted. */
+  cue?: ChatCue;
+  topic?: "money" | "other";
 };
 
 export type Voice = (request: VoiceRequest) => Promise<string>;
@@ -32,8 +36,65 @@ const VOICED: ReadonlySet<FinanceAction["type"]> = new Set([
 
 const replySchema = z.object({ reply: z.string().min(1).max(1500) });
 
+/** The label stored with an assistant reply; chat is split so off-topic runs can be counted. */
+export function intentOf(action: FinanceAction): string {
+  return action.type === "chat" ? `chat:${action.topic ?? "other"}` : action.type;
+}
+
+function ladder(turn: number, topic: "money" | "other", builder: string): string {
+  if (topic === "money") {
+    return "This is about their money, so lean in: be supportive and practical, like a friend who is good with money. Two or three sentences.";
+  }
+  if (turn <= 1) {
+    return `Reply the way a warm person would, briefly. A light money-flavoured touch is welcome, but don't push, don't ask them to log anything, and don't mention who built you.`;
+  }
+  if (turn === 2) {
+    return `Play along briefly, then leave a soft, natural opening back to their money. Don't lecture and don't mention who built you yet.`;
+  }
+  if (turn === 3) {
+    return [
+      "They have been chatting off-topic for three messages in a row. Answer briefly, then steer back to their finances with gentle wit.",
+      `Make the point that ${builder} built you to help with their money. If you are talking to ${builder} himself, say he built you for exactly this.`,
+      "Stay warm; never refuse or sound like a wall.",
+    ].join(" ");
+  }
+  return [
+    `They are still off-topic (${turn} messages in a row) and you have already reminded them why ${builder} built you, so don't say that again.`,
+    "Answer in a few words, then offer one concrete thing you could do right now, such as showing this week's spending or logging today's expenses. Keep it light.",
+  ].join(" ");
+}
+
+function chatSystem(request: VoiceRequest): string {
+  const cue = request.cue;
+  const history = cue?.history.length ? cue.history.map((item) => `${item.role}: ${item.body}`).join("\n") : "None.";
+  return [
+    ...personaLines(request.profile, request.channel),
+    "You are replying in an ongoing chat. Recent conversation, oldest first:",
+    history,
+    `Facts you may use if they help, word for word: ${cue?.snapshot ?? "none"}`,
+    "If they ask a general question, such as a fact or a recommendation, answer it in one short line first.",
+    ladder(cue?.offTopicTurn ?? 1, request.topic ?? "other", BUILDER_NAME),
+    "Keep it to one or two sentences unless the line above allows more. Never state any figure that is not in the facts above.",
+    'Reply with JSON only, in the form {"reply":"..."}.',
+  ].join("\n");
+}
+
 export function createVoice(settings: DeepSeekSettings, fetchImpl: typeof fetch = fetch): Voice {
   return async (request) => {
+    if (request.intent === "chat") {
+      const content = await chatCompletion(
+        settings,
+        [
+          { role: "system", content: chatSystem(request) },
+          { role: "user", content: `${request.userText}\n\n(A plain draft you can improve on: ${request.draft})` },
+        ],
+        { temperature: 0.85, maxTokens: 300, timeoutMs: 10_000 },
+        fetchImpl,
+      );
+      const parsed = replySchema.safeParse(JSON.parse(content));
+      if (!parsed.success) throw new Error("Voice reply did not match the schema.");
+      return parsed.data.reply.trim();
+    }
     const system = [
       ...personaLines(request.profile, request.channel),
       "The server has already worked out the facts below from the user's stored records. Rewrite them as your reply to the user's message.",
@@ -69,10 +130,17 @@ export async function voiceDelivery(
   delivery: Delivery,
   request: Omit<VoiceRequest, "draft" | "intent">,
 ): Promise<Delivery> {
-  if (!voice || delivery.kind !== "text" || !VOICED.has(action.type)) return delivery;
+  const chat = action.type === "chat";
+  if (!voice || delivery.kind !== "text" || (!chat && !VOICED.has(action.type))) return delivery;
   try {
-    const reply = await voice({ ...request, draft: delivery.text, intent: action.type });
-    if (!keepsFacts(reply, `${delivery.text}\n${request.userText}`)) return delivery;
+    const reply = await voice({
+      ...request,
+      draft: delivery.text,
+      intent: action.type,
+      topic: chat ? (action.topic ?? "other") : undefined,
+    });
+    const source = `${delivery.text}\n${request.userText}\n${chat ? (request.cue?.snapshot ?? "") : ""}`;
+    if (!keepsFacts(reply, source)) return delivery;
     return { ...delivery, text: reply };
   } catch (error) {
     logError("voice", error);

@@ -1,6 +1,6 @@
 import type { SupabaseSettings } from "@/lib/config";
 import { DatabaseError } from "@/lib/errors";
-import type { ChatMessageRecord, MessageLog, NewChatMessage } from "@/lib/accounts/messages";
+import type { ChatChart, ChatMessageRecord, MessageLog, NewChatMessage } from "@/lib/accounts/messages";
 import { query } from "@/lib/supabase/connection";
 
 type MessageRow = {
@@ -10,6 +10,8 @@ type MessageRow = {
   channel: "web" | "telegram";
   created_at: Date;
   client_id: string | null;
+  intent: string | null;
+  meta: { chart?: ChatChart } | null;
 };
 
 function fromRow(row: MessageRow): ChatMessageRecord {
@@ -20,10 +22,12 @@ function fromRow(row: MessageRow): ChatMessageRecord {
     channel: row.channel,
     createdAt: row.created_at.toISOString(),
     clientId: row.client_id,
+    intent: row.intent,
+    chart: row.meta?.chart ?? null,
   };
 }
 
-const returning = `id, role, body, channel, created_at, client_id`;
+const returning = `id, role, body, channel, created_at, client_id, intent, meta`;
 
 export function createSupabaseMessageLog(settings: SupabaseSettings): MessageLog {
   return {
@@ -61,28 +65,30 @@ export function createSupabaseMessageLog(settings: SupabaseSettings): MessageLog
 async function insertMessage(settings: SupabaseSettings, message: NewChatMessage): Promise<ChatMessageRecord | null> {
   const body = message.body.slice(0, 4000);
   const clientId = message.clientId ?? null;
+  const intent = message.intent ?? null;
+  const meta = message.chart ? JSON.stringify({ chart: message.chart }) : null;
   if (clientId) {
     const rows = await query<MessageRow>(
       settings,
-      `insert into public.messages (conversation_id, owner_id, channel, role, body, client_id)
-       select c.id, $1::uuid, $2::text, $3::text, $4::text, $5::text
+      `insert into public.messages (conversation_id, owner_id, channel, role, body, client_id, intent, meta)
+       select c.id, $1::uuid, $2::text, $3::text, $4::text, $5::text, $6::text, $7::jsonb
        from public.conversations c
        where c.owner_id = $1::uuid
        on conflict (owner_id, client_id, role) where client_id is not null
        do update set body = public.messages.body
        returning ${returning}`,
-      [message.ownerId, message.channel, message.role, body, clientId],
+      [message.ownerId, message.channel, message.role, body, clientId, intent, meta],
     );
     return rows[0] ? fromRow(rows[0]) : null;
   }
   const rows = await query<MessageRow>(
     settings,
-    `insert into public.messages (conversation_id, owner_id, channel, role, body)
-     select c.id, $1::uuid, $2::text, $3::text, $4::text
+    `insert into public.messages (conversation_id, owner_id, channel, role, body, intent, meta)
+     select c.id, $1::uuid, $2::text, $3::text, $4::text, $5::text, $6::jsonb
      from public.conversations c
      where c.owner_id = $1::uuid
      returning ${returning}`,
-    [message.ownerId, message.channel, message.role, body],
+    [message.ownerId, message.channel, message.role, body, intent, meta],
   );
   return rows[0] ? fromRow(rows[0]) : null;
 }

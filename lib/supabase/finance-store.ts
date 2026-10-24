@@ -289,6 +289,15 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       return { ...row, createdAt: iso(saved[0].created_at), rowNumber: Number(id) };
     },
 
+    async deleteBudget(userId, budgetId) {
+      const rows = await query<{ id: string }>(
+        settings,
+        "delete from public.budgets where owner_id = $1::uuid and budget_id = $2 returning id",
+        [userId, budgetId],
+      );
+      return rows.length > 0;
+    },
+
     async listSavingsGoals(userId) {
       const rows = await query<{
         id: string;

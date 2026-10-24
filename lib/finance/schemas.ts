@@ -148,6 +148,8 @@ export const financeActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("chat"),
     message: z.string().min(1).max(500),
+    /** money for feelings, plans, or advice about money; other for anything else. */
+    topic: z.enum(["money", "other"]).nullable().optional(),
   }),
 ]);
 
@@ -174,6 +176,32 @@ export const pendingPayloadSchema = z.discriminatedUnion("type", [
     type: z.literal("delete_transaction"),
     originUpdateId: z.string().regex(/^\d+$/),
     transactionId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal("set_budget"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    category: z.string().min(1).max(40),
+    amount: amountSchema,
+    currency: currencySchema,
+    period: yearMonthSchema,
+  }),
+  z.object({
+    type: z.literal("create_savings_goal"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    name: z.string().min(1).max(80),
+    targetAmount: amountSchema,
+    currentAmount: nonNegativeAmountSchema,
+    currency: currencySchema,
+    targetDate: z.union([isoDateSchema, z.literal("")]),
+  }),
+  z.object({
+    type: z.literal("update_savings_goal"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    goalId: z.string().min(8).max(80),
+    currentAmount: nonNegativeAmountSchema,
+    targetAmount: amountSchema,
+    targetDate: z.union([isoDateSchema, z.literal("")]),
+    status: z.enum(["active", "completed"]),
   }),
   z.object({
     type: z.literal("correct_transaction"),

@@ -1,26 +1,93 @@
 @import "tailwindcss";
 
+/* Dark is the default; [data-theme="light"] on <html> switches palettes. */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --bg: #0b0b0c;
+  --surface: #131315;
+  --surface-2: #1b1b1e;
+  --line: rgba(255, 255, 255, 0.08);
+  --line-strong: rgba(255, 255, 255, 0.16);
+  --ink: #ededed;
+  --muted: #9b9ba1;
+  --faint: #6c6c72;
+  --gold: #d9b45a;
+  --gold-ink: #1a1404;
+  --gold-soft: rgba(217, 180, 90, 0.12);
+  --danger: #f08080;
+  --success: #7fd1a0;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  --bg: #f8f7f3;
+  --surface: #ffffff;
+  --surface-2: #f1efe9;
+  --line: rgba(20, 18, 10, 0.09);
+  --line-strong: rgba(20, 18, 10, 0.18);
+  --ink: #1b1b1d;
+  --muted: #66666c;
+  --faint: #8d8d93;
+  --gold: #a07a22;
+  --gold-ink: #ffffff;
+  --gold-soft: rgba(160, 122, 34, 0.1);
+  --danger: #c43d3d;
+  --success: #2f8f5b;
+  color-scheme: light;
 }
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-gold: var(--gold);
+  --color-gold-ink: var(--gold-ink);
+  --color-gold-soft: var(--gold-soft);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
+body {
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+}
+
+::selection {
+  background: var(--gold-soft);
+}
+
+@keyframes alfred-dot {
+  0%,
+  80%,
+  100% {
+    opacity: 0.25;
+    transform: translateY(0);
+  }
+  40% {
+    opacity: 1;
+    transform: translateY(-2px);
   }
 }
 
-body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+.alfred-dot {
+  animation: alfred-dot 1.2s infinite ease-in-out;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alfred-dot {
+    animation: none;
+  }
+}
+
+/* Recharts draws focus rings on SVG wrappers; keep keyboard focus visible on our own controls instead. */
+.recharts-wrapper:focus,
+.recharts-surface:focus {
+  outline: none;
 }

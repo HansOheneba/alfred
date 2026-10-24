@@ -1,5 +1,9 @@
 export type ChatChannel = "web" | "telegram";
 
+export type ChatChart =
+  | { kind: "categories"; currency: string; items: { label: string; minor: number }[] }
+  | { kind: "daily"; currency: string; items: { label: string; minor: number }[] };
+
 export type ChatMessageRecord = {
   id: string;
   role: "user" | "assistant";
@@ -7,6 +11,9 @@ export type ChatMessageRecord = {
   channel: ChatChannel;
   createdAt: string;
   clientId: string | null;
+  /** The action behind an assistant reply, such as get_insights or chat:other. */
+  intent?: string | null;
+  chart?: ChatChart | null;
 };
 
 export type NewChatMessage = {
@@ -15,6 +22,8 @@ export type NewChatMessage = {
   body: string;
   channel: ChatChannel;
   clientId?: string | null;
+  intent?: string | null;
+  chart?: ChatChart | null;
 };
 
 export interface MessageLog {
@@ -74,6 +83,8 @@ export class MemoryMessageLog implements MessageLog {
       channel: message.channel,
       clientId,
       createdAt: new Date(this.rows.length).toISOString(),
+      intent: message.intent ?? null,
+      chart: message.chart ?? null,
     };
     this.rows.push(row);
     return this.publicRow(row);
@@ -87,6 +98,8 @@ export class MemoryMessageLog implements MessageLog {
       channel: row.channel,
       createdAt: row.createdAt,
       clientId: row.clientId,
+      intent: row.intent ?? null,
+      chart: row.chart ?? null,
     };
   }
 }

@@ -2,7 +2,7 @@ import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
-import { createVoice, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
@@ -137,10 +137,15 @@ export async function handleProfileTurn(
   return result;
 }
 
-async function respond(text: string, ctx: ActionContext, deps: StudioDeps, clientId?: string): Promise<Delivery> {
+async function respond(
+  text: string,
+  ctx: ActionContext,
+  deps: StudioDeps,
+  clientId?: string,
+): Promise<Delivery & { intent?: string }> {
   const settled = await answerTypedDecision(text, ctx);
   if (settled) return { kind: "text", text: settled.text, context: settled.context };
-  const { action, context } = await interpretWithContext({
+  const { action, context, cue } = await interpretWithContext({
     text,
     profile: ctx.profile,
     store: deps.store,
@@ -152,7 +157,8 @@ async function respond(text: string, ctx: ActionContext, deps: StudioDeps, clien
   });
   logInfo("studio_interpreted", { userId: ctx.profile.profileId, action: action.type });
   const delivery = await handleAction(action, { ...ctx, conversation: context });
-  return voiceDelivery(deps.voice, action, delivery, { userText: text, profile: ctx.profile, channel: "web" });
+  const voiced = await voiceDelivery(deps.voice, action, delivery, { userText: text, profile: ctx.profile, channel: "web", cue });
+  return { ...voiced, intent: intentOf(action) };
 }
 
 function ordered(rows: ChatMessageRecord[]): ChatMessageRecord[] {
@@ -190,6 +196,8 @@ async function answerText(
       body: delivery.text,
       channel: "web",
       clientId,
+      intent: delivery.intent ?? null,
+      chart: delivery.chart ?? null,
     });
   }
   const messages =

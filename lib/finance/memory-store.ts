@@ -111,6 +111,13 @@ export class MemoryFinanceStore implements FinanceStore {
     return this.budgets.filter((item) => item.userId === userId).map(clone);
   }
 
+  async deleteBudget(userId: string, budgetId: string): Promise<boolean> {
+    const index = this.budgets.findIndex((item) => item.userId === userId && item.budgetId === budgetId);
+    if (index < 0) return false;
+    this.budgets.splice(index, 1);
+    return true;
+  }
+
   async saveBudget(row: NewBudget): Promise<BudgetRecord> {
     const existing = this.budgets.find(
       (item) =>

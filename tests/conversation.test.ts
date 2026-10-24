@@ -1,8 +1,9 @@
+import { MemoryMessageLog } from "@/lib/accounts/messages";
 import { describe, expect, it } from "vitest";
 
 import { handleAction } from "@/lib/finance/action-router";
 import type { FinanceAction } from "@/lib/finance/schemas";
-import { WELCOME_TEXT, GREETING_TEXT, CAPABILITY_TEXT } from "@/lib/telegram/messages";
+import { WELCOME_TEXT, CAPABILITY_TEXT } from "@/lib/telegram/messages";
 import { AiError } from "@/lib/errors";
 import { expense, harness, runUpdate, settings, textUpdate, NOW } from "./helpers";
 
@@ -29,13 +30,29 @@ describe("Alfred conversation", () => {
     expect(await store.listPendingActions("42")).toHaveLength(0);
   });
 
-  it("answers a greeting without calling the model", async () => {
-    const { deps, store, telegram, interpret } = harness();
+  it("lets Alfred answer a greeting and counts off-topic turns", async () => {
+    const messages = new MemoryMessageLog();
+    const turns: number[] = [];
+    const { deps, store, telegram } = harness({
+      messages,
+      interpret: async () => ({ type: "chat", message: "Hello.", topic: "other" }),
+      voice: async (request) => {
+        turns.push(request.cue?.offTopicTurn ?? 0);
+        return `Reply ${["one", "two", "three", "four", "five"][turns.length - 1]}`;
+      },
+    });
     await runUpdate(textUpdate(50, 42, "Hi"), deps);
-    expect(telegram.sent[0]?.text).toBe(GREETING_TEXT);
-    expect(telegram.sent[0]?.text).not.toContain("rephrase");
-    expect(interpret.calls).toBe(0);
+    await runUpdate(textUpdate(53, 42, "how's your day"), deps);
+    await runUpdate(textUpdate(54, 42, "seen any good films"), deps);
+    expect(turns).toEqual([1, 2, 3]);
+    expect(telegram.sent.map((message) => message.text)).toEqual(["Reply one", "Reply two", "Reply three"]);
     expect(await store.listTransactions("42")).toHaveLength(0);
+
+    deps.interpret = async () => ({ type: "get_spending_summary", period: "today", detail: "total" });
+    await runUpdate(textUpdate(55, 42, "how much today"), deps);
+    deps.interpret = async () => ({ type: "chat", message: "Ha.", topic: "other" });
+    await runUpdate(textUpdate(56, 42, "lol"), deps);
+    expect(turns.at(-1)).toBe(1);
   });
 
   it("answers what Alfred can do from a chat reply", async () => {

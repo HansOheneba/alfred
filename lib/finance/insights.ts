@@ -27,7 +27,7 @@ export function buildInsights(input: InsightInput): string[] {
   const lines: string[] = [];
 
   if (expenses.length === 0) {
-    lines.push("No expenses are recorded for this period yet.");
+    lines.push("No expenses are recorded for this period yet, so there is no pattern to read.");
     return lines;
   }
 

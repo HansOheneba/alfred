@@ -1,69 +1,72 @@
-import Link from "next/link";
+import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { PasswordForm } from "@/app/password-form";
-import { SettingsForm } from "@/app/settings-form";
+import { AppShell } from "@/app/components/app-shell";
+import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
+import { SettingsView } from "@/app/settings/settings-view";
 import { loadAccountSettings } from "@/lib/accounts/settings-store";
-import { getStudioSettings } from "@/lib/env";
-import { getAuthUser } from "@/lib/supabase/session";
+import { telegramBotUsername } from "@/lib/telegram/bot-info";
+import { loadLedger } from "@/lib/web/ledger";
 
 export default function SettingsPage() {
+  if (!publicAuthConfigured()) return <MissingAuthConfig />;
+
   return (
-    <Suspense
-      fallback={
-        <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col px-6 py-8">
-          <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        </main>
-      }
-    >
+    <Suspense fallback={<SettingsFallback />}>
       <SettingsContent />
     </Suspense>
   );
 }
 
+function SettingsFallback() {
+  return (
+    <AppShell current="settings" name="">
+      <div className="mx-auto w-full max-w-5xl px-4 py-8">
+        <h1 className="text-2xl font-medium tracking-tight">Settings</h1>
+        <p className="mt-2 text-sm text-muted">Loading your settings…</p>
+      </div>
+    </AppShell>
+  );
+}
+
 async function SettingsContent() {
-  const user = await getAuthUser();
-  if (!user) {
+  const account = await signedInAccount();
+  if (account.kind === "signed-out") redirect("/");
+  if (account.kind === "error") {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center px-6">
-        <p className="text-sm">
-          <Link href="/login" className="underline">
-            Sign in
-          </Link>{" "}
-          to change your Alfred settings.
-        </p>
-      </main>
+      <AppShell current="settings" name="">
+        <div className="mx-auto w-full max-w-5xl px-4 py-8">
+          <p className="text-sm text-danger" role="alert">
+            {account.message}
+          </p>
+        </div>
+      </AppShell>
     );
   }
 
-  let settings;
+  let data;
   try {
-    settings = await loadAccountSettings(getStudioSettings().supabase, user.id);
+    const [settings, ledger, botUsername] = await Promise.all([
+      loadAccountSettings(account.settings.supabase, account.userId),
+      loadLedger(account.profile, account.settings),
+      telegramBotUsername(),
+    ]);
+    data = { settings, ledger, botUsername };
   } catch (error) {
     return (
-      <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center px-6">
-        <p className="text-sm text-red-700 dark:text-red-400" role="alert">
-          {error instanceof Error ? error.message : "Settings could not be loaded."}
-        </p>
-      </main>
+      <AppShell current="settings" name={account.profile.preferredName.trim()}>
+        <div className="mx-auto w-full max-w-5xl px-4 py-8">
+          <p className="text-sm text-danger" role="alert">
+            {error instanceof Error ? error.message : "Settings could not be loaded."}
+          </p>
+        </div>
+      </AppShell>
     );
   }
 
   return (
-    <main className="mx-auto flex w-full max-w-xl flex-col px-6 py-8">
-      <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
-        <div className="flex gap-4 text-sm">
-          <Link href="/" className="underline">
-            Dashboard
-          </Link>
-          <Link href="/chat" className="underline">
-            Chat
-          </Link>
-        </div>
-      </div>
-      <SettingsForm initial={settings} />
-      <PasswordForm />
-    </main>
+    <AppShell current="settings" name={account.profile.preferredName.trim()}>
+      <SettingsView initial={data.settings} ledger={data.ledger} botUsername={data.botUsername} />
+    </AppShell>
   );
 }

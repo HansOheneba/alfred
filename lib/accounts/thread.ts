@@ -1,4 +1,4 @@
-import type { ChatChannel, ChatMessageRecord } from "@/lib/accounts/messages";
+import type { ChatChannel, ChatChart, ChatMessageRecord } from "@/lib/accounts/messages";
 
 export type ThreadMessage = {
   id: string;
@@ -10,6 +10,7 @@ export type ThreadMessage = {
   actionId?: string | null;
   settled?: boolean;
   status?: "sending" | "sent" | "failed";
+  chart?: ChatChart | null;
 };
 
 export function toThreadMessage(record: ChatMessageRecord): ThreadMessage {
@@ -21,6 +22,7 @@ export function toThreadMessage(record: ChatMessageRecord): ThreadMessage {
     createdAt: record.createdAt,
     clientId: record.clientId,
     status: "sent",
+    chart: record.chart ?? null,
   };
 }
 
@@ -53,6 +55,7 @@ export function mergeThread(current: ThreadMessage[], incoming: ThreadMessage[])
       ...message,
       text: message.text || previous.text,
       actionId: message.actionId ?? previous.actionId ?? null,
+      chart: message.chart ?? previous.chart ?? null,
       settled: message.settled ?? previous.settled,
       status: previous.status === "failed" && incomingStatus === "sent" && message.role === "user" ? "failed" : incomingStatus,
       createdAt: message.createdAt || previous.createdAt,

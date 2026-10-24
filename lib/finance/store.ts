@@ -34,6 +34,8 @@ export interface FinanceStore {
   ): Promise<TransactionRecord>;
   listBudgets(userId: string): Promise<BudgetRecord[]>;
   saveBudget(row: NewBudget): Promise<BudgetRecord>;
+  /** Removes one of the user's budgets. Returns false when it wasn't found. */
+  deleteBudget(userId: string, budgetId: string): Promise<boolean>;
   listSavingsGoals(userId: string): Promise<SavingsGoalRecord[]>;
   appendSavingsGoal(row: NewSavingsGoal): Promise<SavingsGoalRecord>;
   updateSavingsGoal(

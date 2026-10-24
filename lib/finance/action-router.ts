@@ -1,3 +1,4 @@
+import type { ChatChart } from "@/lib/accounts/messages";
 import type { UserProfile } from "@/lib/config";
 import { normalizeCategory } from "@/lib/finance/categories";
 import type { ConversationContext } from "@/lib/finance/conversation";
@@ -51,7 +52,9 @@ import {
   unknownCategoryMessage,
 } from "@/lib/telegram/messages";
 
-export type Delivery =
+export type Delivery = DeliveryBody & { chart?: ChatChart };
+
+type DeliveryBody =
   | { kind: "text"; text: string; context?: ConversationContext }
   | { kind: "confirm"; text: string; actionId: string; context?: ConversationContext };
 
@@ -120,6 +123,47 @@ export async function executeConfirmed(
       now: ctx.now,
     });
     return { text: await loggedReply(ctx, result), context: savedContext(ctx, result.succeeded) };
+  }
+  if (payload.type === "set_budget") {
+    const timestamp = ctx.now.toISOString();
+    const saved = await ctx.store.saveBudget({
+      budgetId: ctx.createId(),
+      userId,
+      period: payload.period,
+      category: payload.category,
+      amount: payload.amount,
+      currency: payload.currency,
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    return { text: `Done. Your ${saved.category} budget for ${monthName(saved.period)} is ${formatMoneyAmount(saved.amount, saved.currency)}.` };
+  }
+  if (payload.type === "create_savings_goal") {
+    const timestamp = ctx.now.toISOString();
+    const goal = await ctx.store.appendSavingsGoal({
+      goalId: ctx.createId(),
+      userId,
+      name: payload.name,
+      targetAmount: payload.targetAmount,
+      currentAmount: payload.currentAmount,
+      currency: payload.currency,
+      targetDate: payload.targetDate,
+      status: "active",
+      createdAt: timestamp,
+      updatedAt: timestamp,
+    });
+    return { text: `Savings goal saved.\n${formatGoal(goal)}\nThis tracks the goal. It is not an account balance.` };
+  }
+  if (payload.type === "update_savings_goal") {
+    const goal = (await ctx.store.listSavingsGoals(userId)).find((item) => item.goalId === payload.goalId);
+    if (!goal) return { text: "I couldn't find that savings goal anymore. Nothing was changed." };
+    const updated = await ctx.store.updateSavingsGoal(userId, goal.goalId, {
+      currentAmount: payload.currentAmount,
+      targetAmount: payload.targetAmount,
+      targetDate: payload.targetDate,
+      status: payload.status,
+    });
+    return { text: `${formatGoal(updated)}\nThis is recorded progress toward the goal, not money moving in a bank account.` };
   }
   if (payload.type === "delete_transaction") {
     const transactions = await ctx.store.listTransactions(userId);
@@ -273,7 +317,11 @@ async function spendingSummary(
     return remember(lines.join("\n"), queryContext(resolved.range, category, "largest", rows[0]?.transactionId ?? null));
   }
   const text = await spokenSpend(ctx, resolved.range, rows, category, today, detail);
-  return remember(text, queryContext(resolved.range, category, detail === "by_category" ? "by_category" : "total", rows.length === 1 ? rows[0].transactionId : null));
+  return remember(
+    text,
+    queryContext(resolved.range, category, detail === "by_category" ? "by_category" : "total", rows.length === 1 ? rows[0].transactionId : null),
+    category ? undefined : categoryChart(rows, ctx.profile.currency),
+  );
 }
 
 function queryContext(
@@ -294,8 +342,16 @@ function queryContext(
   };
 }
 
-function remember(text: string, context: ConversationContext): Delivery {
-  return { kind: "text", text, context };
+function remember(text: string, context: ConversationContext, chart?: ChatChart): Delivery {
+  return chart ? { kind: "text", text, context, chart } : { kind: "text", text, context };
+}
+
+/** Spending by category in the user's main currency, for the chart beside a reply. */
+function categoryChart(rows: TransactionRecord[], currency: string): ChatChart | undefined {
+  const items = totalsByCategory(rows)
+    .filter((item) => item.currency === currency)
+    .map((item) => ({ label: item.category, minor: item.minor }));
+  return items.length >= 2 ? { kind: "categories", currency, items } : undefined;
 }
 
 async function spokenSpend(
@@ -452,7 +508,8 @@ async function overview(
     goals.forEach((goal) => lines.push(formatGoal(goal)));
   }
   lines.push("", BALANCE_DISCLAIMER);
-  return { kind: "text", text: lines.join("\n") };
+  const chart = categoryChart(expenses, ctx.profile.currency);
+  return chart ? { kind: "text", text: lines.join("\n"), chart } : { kind: "text", text: lines.join("\n") };
 }
 
 async function insights(
@@ -472,8 +529,13 @@ async function insights(
     transactions,
     budgets,
   });
-  const text = [`Insights (${formatRangeLabel(resolved.range)})`, ...lines.map((line) => `- ${line}`)].join("\n");
-  return remember(text, queryContext(resolved.range, null, "by_category", null, "overview"));
+  const text = [`Insights, ${spokenPeriod(resolved.range, today)}`, ...lines.map((line) => `- ${line}`)].join("\n");
+  const expenses = inRange(transactions, { userId, range: resolved.range, type: "expense" });
+  return remember(
+    text,
+    queryContext(resolved.range, null, "by_category", null, "overview"),
+    categoryChart(expenses, ctx.profile.currency),
+  );
 }
 
 async function history(
@@ -515,21 +577,28 @@ async function setBudget(
   if (!category) return { kind: "text", text: unknownCategoryMessage("expense") };
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const period = action.period ?? today.slice(0, 7);
-  const timestamp = ctx.now.toISOString();
-  const saved = await ctx.store.saveBudget({
-    budgetId: ctx.createId(),
-    userId: ctx.profile.profileId,
-    period,
+  const existing = (await ctx.store.listBudgets(ctx.profile.profileId)).find(
+    (budget) => budget.period === period && budget.category === category && budget.currency === action.currency,
+  );
+  const amount = formatMoneyAmount(action.amount, action.currency);
+  const lines = existing
+    ? [`Change your ${category} budget for ${monthName(period)}?`, `${formatMoneyAmount(existing.amount, existing.currency)} → ${amount}`]
+    : [`Set a ${category} budget of ${amount} for ${monthName(period)}?`];
+  return saveConfirmation(ctx, [...lines, "", "Confirm or cancel."].join("\n"), {
+    type: "set_budget",
+    originUpdateId: String(ctx.updateId),
     category,
     amount: action.amount,
     currency: action.currency,
-    createdAt: timestamp,
-    updatedAt: timestamp,
+    period,
   });
-  return {
-    kind: "text",
-    text: `${saved.category} budget for ${saved.period} set to ${formatMoneyAmount(saved.amount, saved.currency)}.`,
-  };
+}
+
+function monthName(period: string): string {
+  const [year, month] = period.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-GB", { month: "long", year: "numeric", timeZone: "UTC" }).format(
+    new Date(Date.UTC(year, month - 1, 1)),
+  );
 }
 
 async function budgetStatus(
@@ -571,23 +640,23 @@ async function createGoal(
   action: Extract<FinanceAction, { type: "create_savings_goal" }>,
   ctx: ActionContext,
 ): Promise<Delivery> {
-  const timestamp = ctx.now.toISOString();
-  const goal = await ctx.store.appendSavingsGoal({
-    goalId: ctx.createId(),
-    userId: ctx.profile.profileId,
-    name: action.name.trim(),
+  const name = action.name.trim();
+  const current = action.current_amount ?? "0.00";
+  const lines = [
+    `Create a savings goal "${name}"?`,
+    `Target: ${formatMoneyAmount(action.target_amount, action.currency)}`,
+    `Saved so far: ${formatMoneyAmount(current, action.currency)}`,
+  ];
+  if (action.target_date) lines.push(`By: ${formatDisplayDate(action.target_date)}`);
+  return saveConfirmation(ctx, [...lines, "", "Confirm or cancel."].join("\n"), {
+    type: "create_savings_goal",
+    originUpdateId: String(ctx.updateId),
+    name,
     targetAmount: action.target_amount,
-    currentAmount: action.current_amount ?? "0.00",
+    currentAmount: current,
     currency: action.currency,
     targetDate: action.target_date ?? "",
-    status: "active",
-    createdAt: timestamp,
-    updatedAt: timestamp,
   });
-  return {
-    kind: "text",
-    text: `Savings goal saved: ${goal.name}\nTarget: ${formatMoneyAmount(goal.targetAmount, goal.currency)}\nCurrently recorded: ${formatMoneyAmount(goal.currentAmount, goal.currency)}\nThis tracks the goal. It is not an account balance.`,
-  };
 }
 
 async function updateGoal(
@@ -607,16 +676,25 @@ async function updateGoal(
   const currentAmount = action.contribution
     ? addContribution(goal.currentAmount, action.contribution)
     : (action.set_current_amount ?? goal.currentAmount);
-  const updated = await ctx.store.updateSavingsGoal(goal.userId, goal.goalId, {
+  const next = {
     currentAmount,
     targetAmount: action.target_amount ?? goal.targetAmount,
     targetDate: action.target_date ?? goal.targetDate,
-    status: action.status ?? goal.status,
+    status: action.status ?? (goal.status === "completed" ? "completed" : "active"),
+  } as const;
+  const money = (value: string) => formatMoneyAmount(value, goal.currency);
+  const changes: string[] = [];
+  if (next.currentAmount !== goal.currentAmount) changes.push(`Saved: ${money(goal.currentAmount)} → ${money(next.currentAmount)}`);
+  if (next.targetAmount !== goal.targetAmount) changes.push(`Target: ${money(goal.targetAmount)} → ${money(next.targetAmount)}`);
+  if (next.targetDate !== goal.targetDate) changes.push(`By: ${next.targetDate ? formatDisplayDate(next.targetDate) : "no date"}`);
+  if (next.status !== goal.status) changes.push(`Status: ${goal.status} → ${next.status}`);
+  if (changes.length === 0) return { kind: "text", text: "That goal already looks like that. What should I change?" };
+  return saveConfirmation(ctx, [`Update "${goal.name}"?`, ...changes, "", "Confirm or cancel."].join("\n"), {
+    type: "update_savings_goal",
+    originUpdateId: String(ctx.updateId),
+    goalId: goal.goalId,
+    ...next,
   });
-  return {
-    kind: "text",
-    text: `${formatGoal(updated)}\nThis is recorded progress toward the goal, not money moving in a bank account.`,
-  };
 }
 
 async function correctTransaction(

@@ -371,6 +371,9 @@ export function createGoogleFinanceStore(input: {
         });
       });
     },
+    async deleteBudget(): Promise<boolean> {
+      throw new Error("Deleting budgets is only supported with the Supabase ledger.");
+    },
     saveBudget(row: NewBudget) {
       return enqueue(async () => {
         await ensureReadyUnqueued();
