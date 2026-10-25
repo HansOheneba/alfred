@@ -53,8 +53,8 @@
   --color-danger: var(--danger);
   --color-success: var(--success);
   /* --font-aktiv is unset until licensed Aktiv Grotesk files are loaded. See app/fonts.ts. */
-  --font-sans: var(--font-manrope), "Avenir Next", "Segoe UI", sans-serif;
-  --font-display: var(--font-aktiv, var(--font-manrope)), "Avenir Next", "Segoe UI", sans-serif;
+  --font-sans: var(--font-instrument), "Avenir Next", "Segoe UI", sans-serif;
+  --font-display: var(--font-aktiv, var(--font-instrument)), "Avenir Next", "Segoe UI", sans-serif;
 }
 
 body {

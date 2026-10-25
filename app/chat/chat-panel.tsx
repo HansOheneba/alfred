@@ -38,6 +38,24 @@ const FOLLOW_UPS: Suggestion[] = [
 
 const noSubscribe = () => () => {};
 
+export const STATS_EVENT = "alfred:open-stats";
+
+/** Opens the month-at-a-glance sheet from the phone top bar. */
+export function StatsButton() {
+  return (
+    <button
+      type="button"
+      onClick={() => window.dispatchEvent(new Event(STATS_EVENT))}
+      aria-label="This month at a glance"
+      className="grid size-9 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-gold"
+    >
+      <svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+        <path d="M5 20V11m7 9V5m7 15v-6" />
+      </svg>
+    </button>
+  );
+}
+
 function greeting(name: string): string {
   const hour = new Date().getHours();
   const part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
@@ -65,8 +83,16 @@ export function ChatPanel({
   const hello = useSyncExternalStore(noSubscribe, () => greeting(name), () => "");
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
   const sending = useRef(false);
   const stickToBottom = useRef(true);
+
+  // The phone top bar's stats button lives outside this component and asks for the sheet by event.
+  useEffect(() => {
+    const open = () => setStatsOpen(true);
+    window.addEventListener(STATS_EVENT, open);
+    return () => window.removeEventListener(STATS_EVENT, open);
+  }, []);
 
   useEffect(() => {
     const node = threadRef.current;
@@ -77,6 +103,11 @@ export function ChatPanel({
   useEffect(() => {
     const node = inputRef.current;
     if (!node) return;
+    // An empty box stays one line; measuring it before layout settles can report a huge height.
+    if (!text) {
+      node.style.height = "";
+      return;
+    }
     node.style.height = "auto";
     node.style.height = `${Math.min(node.scrollHeight, 200)}px`;
   }, [text]);
@@ -226,6 +257,49 @@ export function ChatPanel({
     }
   }
 
+  async function uploadImage(file: File) {
+    if (sending.current) return;
+    sending.current = true;
+    setBusy(true);
+    setError("");
+    const turnId = crypto.randomUUID();
+    setMessages((current) =>
+      mergeThread(current, [
+        { id: turnId, role: "user", text: "📷 Screenshot", channel: "web", createdAt: new Date().toISOString(), clientId: turnId, status: "sending" },
+      ]),
+    );
+    stickToBottom.current = true;
+    try {
+      const form = new FormData();
+      form.set("clientId", turnId);
+      form.set("image", await shrinkImage(file));
+      const response = await fetch("/api/chat/image", { method: "POST", body: form });
+      const payload = (await response.json().catch(() => ({}))) as {
+        ok?: boolean;
+        text?: string;
+        actionId?: string | null;
+        messages?: ServerMessage[];
+      };
+      if (!response.ok || !payload.ok) {
+        markFailed(turnId);
+        setError(payload.text || "Alfred couldn't read that image.");
+        return;
+      }
+      const incoming = (payload.messages ?? []).map((message, index, all) => {
+        const view = serverMessage(message);
+        return message.role === "assistant" && index === all.length - 1 ? { ...view, actionId: payload.actionId ?? null } : view;
+      });
+      setMessages((current) => mergeThread(current, incoming));
+      router.refresh();
+    } catch {
+      markFailed(turnId);
+      setError("Alfred could not reach the server.");
+    } finally {
+      sending.current = false;
+      setBusy(false);
+    }
+  }
+
   function markFailed(turnId: string) {
     setMessages((current) =>
       current.map((message) =>
@@ -265,21 +339,21 @@ export function ChatPanel({
 
   return (
     <div className="flex min-h-0 flex-1">
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex h-12 shrink-0 items-center justify-end gap-2 px-4 xl:hidden">
-          <button
-            type="button"
-            onClick={() => setStatsOpen(true)}
-            className="rounded-full border border-line-strong px-3 py-1.5 text-xs text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-gold"
-          >
-            This month
-          </button>
-        </div>
-
+      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
+        <button
+          type="button"
+          onClick={() => setStatsOpen(true)}
+          aria-label="This month at a glance"
+          className="absolute right-3 top-3 z-20 hidden size-9 place-items-center rounded-full border border-line bg-surface/90 text-muted shadow-sm backdrop-blur hover:text-ink focus-visible:outline-2 focus-visible:outline-gold md:grid xl:hidden"
+        >
+          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <path d="M5 20V11m7 9V5m7 15v-6" />
+          </svg>
+        </button>
         <div
           ref={threadRef}
           tabIndex={0}
-          className="min-h-0 flex-1 overflow-y-auto focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-strong"
+          className="min-h-0 flex-1 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-strong"
           aria-busy={busy}
           onScroll={onThreadScroll}
         >
@@ -304,17 +378,17 @@ export function ChatPanel({
               </div>
             </div>
           ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-6" role="log" aria-label="Conversation" aria-relevant="additions">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-4 pb-6 pt-6 sm:px-6 md:pt-14 xl:pt-8" role="log" aria-label="Conversation" aria-relevant="additions">
               {messages.map((message, index) =>
                 message.role === "assistant" ? (
-                  <article key={threadKey(message)} className="flex gap-3">
-                    <AlfredMark size="size-7" />
-                    <div className="min-w-0 flex-1 pt-0.5">
-                      <p className="mb-1 flex items-center gap-2 text-xs text-muted">
-                        Alfred
-                        {message.channel === "telegram" ? <TelegramBadge /> : null}
+                  <article key={threadKey(message)} className="min-w-0">
+                    {message.channel === "telegram" ? (
+                      <p className="mb-1.5">
+                        <TelegramBadge />
                       </p>
-                      <p className="whitespace-pre-wrap text-[15px] leading-7 text-ink">{message.text}</p>
+                    ) : null}
+                    <div>
+                      <p className="whitespace-pre-wrap text-base leading-7 text-ink">{message.text}</p>
                       {message.chart ? <ReplyChart chart={message.chart} /> : null}
                       {message.actionId && !message.settled ? (
                         <div className="mt-3 flex gap-2">
@@ -346,7 +420,7 @@ export function ChatPanel({
                       </span>
                     ) : null}
                     <div
-                      className={`max-w-[85%] rounded-3xl rounded-br-lg bg-surface-2 px-4 py-2.5 text-[15px] leading-6 text-ink ${
+                      className={`max-w-[85%] rounded-2xl bg-surface-2 px-4 py-2.5 text-base leading-7 text-ink ${
                         message.status === "sending" ? "opacity-70" : ""
                       }`}
                     >
@@ -365,8 +439,11 @@ export function ChatPanel({
                 ),
               )}
               {busy ? (
-                <div className="flex items-center gap-3" role="status">
-                  <AlfredMark size="size-7" />
+                <div className="flex items-center gap-3" role="status" aria-label="Alfred is thinking">
+                  <span className="relative">
+                    <span className="alfred-avatar-glow pointer-events-none absolute -inset-2 rounded-full" aria-hidden="true" />
+                    <AlfredMark size="size-7" />
+                  </span>
                   <span className="flex gap-1" aria-hidden="true">
                     <span className="alfred-dot size-1.5 rounded-full bg-gold" />
                     <span className="alfred-dot size-1.5 rounded-full bg-gold [animation-delay:0.15s]" />
@@ -390,7 +467,7 @@ export function ChatPanel({
             submitText(text);
           }}
         >
-          <div className="mx-auto w-full max-w-3xl px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+          <div className="mx-auto w-full max-w-3xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
             {showFollowUps ? (
               <div className="-mx-4 mb-2 flex gap-2 overflow-x-auto px-4 pb-1">
                 {FOLLOW_UPS.map((suggestion) => (
@@ -408,33 +485,58 @@ export function ChatPanel({
             <label className="sr-only" htmlFor="alfred-message">
               Message Alfred
             </label>
-            <div className="flex items-end gap-2 rounded-3xl border border-line-strong bg-surface px-4 py-2 shadow-sm transition focus-within:border-gold/60">
+            <div className="rounded-[28px] border border-line-strong bg-surface px-3 pb-2 pt-3 shadow-sm transition focus-within:border-gold/50">
               <textarea
                 ref={inputRef}
                 id="alfred-message"
-                className="max-h-[200px] min-h-10 flex-1 resize-none bg-transparent py-2 text-[15px] leading-6 text-ink outline-none placeholder:text-faint"
+                className="block max-h-[200px] min-h-7 w-full resize-none bg-transparent px-2 text-base leading-7 text-ink outline-none placeholder:text-faint"
                 value={text}
                 maxLength={2000}
                 rows={1}
                 placeholder="Message Alfred"
+                enterKeyHint="send"
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
                     event.preventDefault();
                     event.currentTarget.form?.requestSubmit();
                   }
                 }}
               />
-              <button
-                type="submit"
-                disabled={busy || text.trim().length === 0}
-                aria-label="Send"
-                className="mb-1 grid size-9 shrink-0 place-items-center rounded-full bg-gold text-gold-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:bg-surface-2 disabled:text-faint"
-              >
-                <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M12 19V5m-6 6 6-6 6 6" />
-                </svg>
-              </button>
+              <div className="mt-2 flex items-center justify-between">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => fileRef.current?.click()}
+                  aria-label="Attach a screenshot"
+                  className="grid size-9 place-items-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-gold disabled:opacity-40"
+                >
+                  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                    <path d="M12 5v14M5 12h14" />
+                  </svg>
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/heic,image/heif"
+                  className="hidden"
+                  onChange={(event) => {
+                    const file = event.target.files?.[0];
+                    event.target.value = "";
+                    if (file) void uploadImage(file);
+                  }}
+                />
+                <button
+                  type="submit"
+                  disabled={busy || text.trim().length === 0}
+                  aria-label="Send"
+                  className="grid size-9 shrink-0 place-items-center rounded-full bg-gold text-gold-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:bg-surface-2 disabled:text-faint"
+                >
+                  <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                    <path d="M12 19V5m-6 6 6-6 6 6" />
+                  </svg>
+                </button>
+              </div>
             </div>
             <p className="mt-2 hidden text-center text-xs text-faint sm:block">Enter to send · Shift+Enter for a new line · Alfred can make mistakes, so check anything important.</p>
           </div>
@@ -472,6 +574,24 @@ function TelegramBadge() {
       Telegram
     </span>
   );
+}
+
+/** Scales a photo down before upload so it stays well under the server's body limit. */
+async function shrinkImage(file: File): Promise<Blob> {
+  try {
+    const bitmap = await createImageBitmap(file);
+    const scale = Math.min(1, 1800 / Math.max(bitmap.width, bitmap.height));
+    const canvas = document.createElement("canvas");
+    canvas.width = Math.round(bitmap.width * scale);
+    canvas.height = Math.round(bitmap.height * scale);
+    canvas.getContext("2d")?.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+    bitmap.close();
+    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", 0.88));
+    return blob ?? file;
+  } catch {
+    // Some browsers can't decode HEIC; the server accepts the original if it's small enough.
+    return file;
+  }
 }
 
 function serverMessage(message: ServerMessage): ThreadMessage {

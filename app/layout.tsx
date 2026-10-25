@@ -1,12 +1,13 @@
 import type { Metadata, Viewport } from "next";
 
-import { manrope } from "@/app/fonts";
+import { PwaRegister } from "@/app/components/pwa";
+import { instrumentSans } from "@/app/fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Alfred",
   description: "A personal finance assistant for the website and Telegram.",
-  manifest: "/site.webmanifest",
+  appleWebApp: { capable: true, title: "Alfred", statusBarStyle: "black-translucent" },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -19,6 +20,9 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#0b0b0c",
+  // Lets iPhone content reach the safe areas and keeps the composer above the Android keyboard.
+  viewportFit: "cover",
+  interactiveWidget: "resizes-content",
 };
 
 // Applies the saved theme before first paint so light mode doesn't flash dark.
@@ -28,13 +32,16 @@ export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${manrope.variable} h-full antialiased`}
+      className={`${instrumentSans.variable} h-full antialiased`}
       suppressHydrationWarning
     >
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="flex min-h-full flex-col bg-bg text-ink">{children}</body>
+      <body className="flex min-h-full flex-col bg-bg text-ink">
+        {children}
+        <PwaRegister />
+      </body>
     </html>
   );
 }

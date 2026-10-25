@@ -4,9 +4,10 @@ import Link from "next/link";
 import { useId } from "react";
 import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 
+import { NeedsLabel } from "@/app/components/needs-label";
 import { categoryColor } from "@/app/components/ui";
 import { categoryTotals, dailySeries, inRows, presetRange, sumMinor } from "@/lib/finance/analytics";
-import { formatMinor } from "@/lib/finance/money";
+import { formatAmount, formatMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
 
 /** The at-a-glance month beside the chat. */
@@ -46,7 +47,24 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
             "spent this month"
           )}
         </p>
+        {ledger.bank.balances.length > 0 ? (
+          <p className="mt-2 flex flex-wrap gap-x-2 text-xs text-muted">
+            {ledger.bank.balances.map((item, index) => (
+              <span key={item.source} title={`As of ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Accra" }).format(new Date(item.at))}, from your bank's last message`}>
+                {index > 0 ? <span aria-hidden="true">· </span> : null}
+                {item.label} <span className="tabular-nums text-ink">{formatAmount(item.balance, ledger.currency)}</span>
+              </span>
+            ))}
+          </p>
+        ) : null}
       </div>
+
+      {ledger.bank.needsLabel.length > 0 ? (
+        <section>
+          <h3 className="mb-2 text-xs font-medium text-muted">Needs a label ({ledger.bank.needsLabel.length})</h3>
+          <NeedsLabel compact items={ledger.bank.needsLabel} limit={3} />
+        </section>
+      ) : null}
 
       {spentMinor > 0 ? (
         <div className="h-24" aria-label={`Spending so far this month: ${money(spentMinor)}`} role="img">

@@ -22,7 +22,7 @@ export const ALFRED_EMAIL_AVATAR_URL = `${DASHBOARD_URL}/email/alfred.png`;
 
 export const OTP_EMAIL_SUBJECT = "Your Alfred sign-in code";
 
-const fontFamily = '"Manrope", "Avenir Next", "Segoe UI", Helvetica, Arial, sans-serif';
+const fontFamily = '"Instrument Sans", "Avenir Next", "Segoe UI", Helvetica, Arial, sans-serif';
 
 /** Light-theme tokens from app/globals.css, written as hex because email clients ignore CSS variables. */
 const color = {

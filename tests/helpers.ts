@@ -72,7 +72,7 @@ export function fakeTelegram(): {
     edits,
     client: {
       async sendMessage(chatId, text, buttons) {
-        sent.push({ chatId, text, buttons });
+        sent.push({ chatId, text, buttons: buttons?.flat() });
       },
       async answerCallbackQuery(id, text) {
         answers.push({ id, text });

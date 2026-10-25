@@ -3,6 +3,14 @@ import { ConfigError } from "@/lib/errors";
 import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { applyLabel, labelQuestion } from "@/lib/bank/ingest";
+import { labelFromCode, parseLabelCallback } from "@/lib/bank/notify";
+import { answerLabelReply, createReplyClassifier, type ReplyClassifier } from "@/lib/bank/reply";
+import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
+import type { UserProfile } from "@/lib/config";
+import { readImageText, type ImageText } from "@/lib/ocr/read-image";
+import { bankScreenshotReply } from "@/lib/ocr/screenshot-turn";
+import { downloadTelegramFile, pickPhoto } from "@/lib/telegram/files";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
@@ -33,6 +41,12 @@ export type HandlerDeps = {
   accounts: AccountDirectory;
   messages?: MessageLog | null;
   voice?: Voice | null;
+  bank?: BankStore | null;
+  classifyReply?: ReplyClassifier | null;
+  /** Downloads and reads a photo the person sent. */
+  readPhoto?: ((fileId: string) => Promise<ImageText>) | null;
+  /** Files a screenshot of bank texts; null when it isn't one. */
+  bankScreenshot?: ((profile: UserProfile, image: ImageText) => Promise<string | null>) | null;
   createId: () => string;
   createActionId: () => string;
 };
@@ -76,10 +90,14 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
     return { httpStatus: 200 };
   }
 
+  const photo = pickPhoto(message.photo);
+  if (!message.text?.trim() && photo && deps.readPhoto && deps.store && deps.settings.deepseek) {
+    return handlePhoto(update, photo.file_id, message.caption ?? "", actor, profile, deps);
+  }
   if (!message.text?.trim()) {
     await deps.telegram.sendMessage(
       actor.chatId,
-      "Send a text message. Photos, voice notes, and files aren't supported yet.",
+      "Send a text message or a screenshot. Voice notes and files aren't supported yet.",
     );
     return { httpStatus: 200 };
   }
@@ -109,6 +127,15 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async (ctx) => {
     const settled = await answerTypedDecision(text, ctx);
     if (settled) return { kind: "text", text: settled.text, context: settled.context };
+    if (deps.bank && deps.classifyReply) {
+      const labelled = await answerLabelReply(
+        { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId },
+        profile,
+        text,
+        deps.classifyReply,
+      );
+      if (labelled) return { kind: "text", text: labelled.text, intent: "bank:label" };
+    }
     const { action, context, cue } = await interpretWithContext({
       text,
       profile,
@@ -122,6 +149,35 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
     const delivery = await handleAction(action, { ...ctx, conversation: context });
     const voiced = await voiceDelivery(deps.voice, action, delivery, { userText: text, profile, channel: "telegram", cue });
     return { ...voiced, intent: intentOf(action) };
+  });
+}
+
+/** A screenshot sent to the bot: bank texts are filed; anything else is read like a message and always confirmed. */
+async function handlePhoto(
+  update: TelegramUpdate,
+  fileId: string,
+  caption: string,
+  actor: Actor,
+  profile: UserProfile,
+  deps: HandlerDeps,
+): Promise<{ httpStatus: number }> {
+  return withClaim(update.update_id, actor, profile, deps, { userText: caption ? `📷 Screenshot\n${caption}` : "📷 Screenshot", channel: "telegram" }, async (ctx) => {
+    const read = await deps.readPhoto!(fileId);
+    if (!read.text) return { kind: "text", text: "I couldn't make out any text in that image. A sharper screenshot usually does it." };
+    const filed = await deps.bankScreenshot?.(profile, read);
+    if (filed) return { kind: "text", text: filed, intent: "bank:screenshot" };
+    const text = [caption, "📷 Screenshot", read.text].filter(Boolean).join("\n").slice(0, LIMITS.maxUserTextChars);
+    const { action, context } = await interpretWithContext({
+      text,
+      profile,
+      store: ctx.store,
+      now: ctx.now,
+      interpret: deps.interpret,
+      messages: deps.messages,
+      channel: "telegram",
+    });
+    const delivery = await handleAction(action, { ...ctx, confirmTransactions: "always", conversation: context });
+    return { ...delivery, intent: intentOf(action) };
   });
 }
 
@@ -148,6 +204,19 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
   if (!profile) {
     await deps.telegram.answerCallbackQuery(callback.id, "This Telegram account isn't linked yet.");
     return { httpStatus: 200 };
+  }
+  const bankChoice = callback.data ? parseLabelCallback(callback.data) : null;
+  if (bankChoice && deps.bank && deps.store) {
+    const bank = deps.bank;
+    const store = deps.store;
+    const message = await bank.getMessage(profile.profileId, bankChoice.messageId);
+    const label = message ? labelFromCode(message, bankChoice.code) : null;
+    const choice = !label ? "" : label.kind === "category" ? label.category : label.kind === "transfer" ? "My own money" : "Skip";
+    return withClaim(update.update_id, actor, profile, deps, { userText: choice || "Label", channel: "telegram" }, async () => {
+      if (!message || !label) return { kind: "text", text: "That button is no longer valid." };
+      const result = await applyLabel({ bank, ledger: store, now: deps.now(), createId: deps.createId }, profile, message.id, label);
+      return { kind: "text", text: `${labelQuestion(message, profile.timezone)}\n\n${result.ok ? "✓ " : ""}${result.text}`, intent: "bank:label" };
+    });
   }
   const decision = callback.data ? parseCallbackData(callback.data) : null;
   if (!decision || !deps.store) {
@@ -322,6 +391,15 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     accounts,
     messages: settings.supabase ? createSupabaseMessageLog(settings.supabase) : null,
     voice: settings.deepseek ? createVoice(settings.deepseek, fetchImpl) : null,
+    bank: settings.supabase ? createSupabaseBankStore(settings.supabase) : null,
+    classifyReply: settings.deepseek ? createReplyClassifier(settings.deepseek, fetchImpl) : null,
+    readPhoto: settings.deepseek
+      ? async (fileId) => {
+          const bytes = await downloadTelegramFile(settings.telegramBotToken, fileId, fetchImpl);
+          return readImageText({ bytes, mime: "image/jpeg", deepseek: settings.deepseek, google: settings.google }, fetchImpl);
+        }
+      : null,
+    bankScreenshot: settings.supabase ? (owner, image) => bankScreenshotReply(settings.supabase!, owner, image) : null,
     createId: newTransactionId,
     createActionId: newActionId,
   };

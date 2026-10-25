@@ -21,16 +21,20 @@ function base64url(value: string): string {
   return Buffer.from(value).toString("base64url");
 }
 
+export const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+export const VISION_SCOPE = "https://www.googleapis.com/auth/cloud-vision";
+
 export function signServiceAccountJwt(
   email: string,
   privateKey: string,
   nowSeconds: number,
+  scope: string = SHEETS_SCOPE,
 ): string {
   const header = base64url(JSON.stringify({ alg: "RS256", typ: "JWT" }));
   const payload = base64url(
     JSON.stringify({
       iss: email,
-      scope: "https://www.googleapis.com/auth/spreadsheets",
+      scope,
       aud: "https://oauth2.googleapis.com/token",
       iat: nowSeconds,
       exp: nowSeconds + 3600,
@@ -45,14 +49,17 @@ export async function getGoogleAccessToken(
   settings: GoogleSettings,
   fetchImpl: typeof fetch = fetch,
   now = Date.now(),
+  scope: string = SHEETS_SCOPE,
 ): Promise<string> {
-  const cached = tokenCache.get(settings.clientEmail);
+  const cacheKey = `${settings.clientEmail} ${scope}`;
+  const cached = tokenCache.get(cacheKey);
   if (cached && cached.expiresAt > now + 60_000) return cached.token;
 
   const assertion = signServiceAccountJwt(
     settings.clientEmail,
     settings.privateKey,
     Math.floor(now / 1000),
+    scope,
   );
   let response: Response;
   try {
@@ -81,7 +88,7 @@ export async function getGoogleAccessToken(
     throw new SheetsError("credentials", "Google authentication returned an unexpected response.");
   }
   const expiresIn = parsed.data.expires_in ?? 3600;
-  tokenCache.set(settings.clientEmail, {
+  tokenCache.set(cacheKey, {
     token: parsed.data.access_token,
     expiresAt: now + expiresIn * 1000,
   });

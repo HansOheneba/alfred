@@ -129,7 +129,20 @@ function Sidebar({ current, name, onNavigate }: { current: Section; name: string
  * The signed-in frame: a sidebar on desktop and a top bar with a slide-out
  * menu on phones. `fill` gives the page a fixed-height area for chat.
  */
-export function AppShell({ current, name, fill = false, children }: { current: Section; name: string; fill?: boolean; children: ReactNode }) {
+export function AppShell({
+  current,
+  name,
+  fill = false,
+  headerAction,
+  children,
+}: {
+  current: Section;
+  name: string;
+  fill?: boolean;
+  /** Extra control on the right of the phone top bar. */
+  headerAction?: ReactNode;
+  children: ReactNode;
+}) {
   const [menuOpen, setMenuOpen] = useState(false);
   const title = NAV.find((item) => item.section === current)?.label ?? "Alfred";
 
@@ -151,14 +164,14 @@ export function AppShell({ current, name, fill = false, children }: { current: S
       {menuOpen ? (
         <div className="fixed inset-0 z-40 md:hidden">
           <button type="button" aria-label="Close menu" className="absolute inset-0 bg-black/60" onClick={() => setMenuOpen(false)} />
-          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r border-line bg-surface shadow-2xl">
+          <aside className="absolute inset-y-0 left-0 w-72 max-w-[85vw] border-r border-line bg-surface pt-[env(safe-area-inset-top)] shadow-2xl">
             <Sidebar current={current} name={name} onNavigate={() => setMenuOpen(false)} />
           </aside>
         </div>
       ) : null}
 
       <div className={`flex min-w-0 flex-1 flex-col ${fill ? "h-dvh" : ""}`}>
-        <header className="sticky top-0 z-30 flex h-14 shrink-0 items-center gap-3 border-b border-line bg-bg/90 px-3 backdrop-blur md:hidden">
+        <header className="sticky top-0 z-30 flex shrink-0 items-center gap-3 border-b border-line bg-bg/90 px-3 pb-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur md:hidden">
           <button
             type="button"
             onClick={() => setMenuOpen(true)}
@@ -172,6 +185,7 @@ export function AppShell({ current, name, fill = false, children }: { current: S
           </button>
           <AlfredMark size="size-7" />
           <span className="text-sm font-medium">{title}</span>
+          {headerAction ? <span className="ml-auto">{headerAction}</span> : null}
         </header>
         <main className={`flex min-w-0 flex-1 flex-col ${fill ? "min-h-0" : ""}`}>{children}</main>
       </div>

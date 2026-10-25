@@ -1,12 +1,12 @@
-import { Manrope } from "next/font/google";
+import { Instrument_Sans } from "next/font/google";
 
 /**
- * Interface type. Aktiv Grotesk is not in the repo (no licensed files were provided),
- * so Manrope is the primary face for now — including display type.
+ * Interface type. Instrument Sans is the primary face, including display type.
+ * Aktiv Grotesk is not in the repo (no licensed files were provided).
  *
  * To add Aktiv Grotesk later, put the licensed files in `fonts/aktiv-grotesk/`,
  * load them with `next/font/local`, and add `aktiv.variable` on `<html>` in `app/layout.tsx`.
- * `font-display` already reads `--font-aktiv` and falls back to Manrope while it is unset.
+ * `font-display` already reads `--font-aktiv` and falls back to Instrument Sans while it is unset.
  * Do not assign a different family to `--font-aktiv` and call it Aktiv Grotesk.
  *
  * import localFont from "next/font/local";
@@ -22,10 +22,9 @@ import { Manrope } from "next/font/google";
  *   adjustFontFallback: false,
  * });
  */
-export const manrope = Manrope({
+export const instrumentSans = Instrument_Sans({
   subsets: ["latin"],
-  weight: "variable",
   display: "swap",
-  variable: "--font-manrope",
+  variable: "--font-instrument",
   adjustFontFallback: true,
 });

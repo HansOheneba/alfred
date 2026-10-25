@@ -21,7 +21,7 @@ import {
   type RangePreset,
 } from "@/lib/finance/analytics";
 import { formatDisplayDate, inclusiveDays } from "@/lib/finance/dates";
-import { formatMinor, toMinor } from "@/lib/finance/money";
+import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
 
 const PRESETS = Object.keys(RANGE_LABELS) as RangePreset[];
@@ -120,6 +120,26 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
           </Link>
         </div>
       </div>
+
+      {ledger.bank.balances.length > 0 ? (
+        <div className="-mt-1 flex flex-wrap items-center gap-2" aria-label="Latest balances from bank messages">
+          {ledger.bank.balances.map((item) => (
+            <span
+              key={item.source}
+              title={`As of ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Accra" }).format(new Date(item.at))}, from your bank's last message. Not live.`}
+              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-xs text-muted"
+            >
+              {item.label}
+              <span className="tabular-nums text-ink">{formatAmount(item.balance, currency)}</span>
+            </span>
+          ))}
+          {ledger.bank.needsLabel.length > 0 ? (
+            <Link href="/settings#bank" className="inline-flex items-center rounded-full bg-gold-soft px-3 py-1 text-xs text-gold hover:underline">
+              {ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label
+            </Link>
+          ) : null}
+        </div>
+      ) : null}
 
       {!hasAny ? (
         <EmptyState>
