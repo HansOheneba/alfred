@@ -5,6 +5,8 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Spinner } from "@/app/components/status";
 import { Button, Card, Field, inputClass } from "@/app/components/ui";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
+import { AppSection } from "@/app/settings/app-section";
+import { BankSection } from "@/app/settings/bank-section";
 import { DataSection } from "@/app/settings/data-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
 import type { Ledger } from "@/lib/web/ledger";
@@ -16,6 +18,8 @@ const SECTIONS = [
   { id: "goals", label: "Savings goals" },
   { id: "reminders", label: "Reminders" },
   { id: "telegram", label: "Telegram" },
+  { id: "bank", label: "Bank messages" },
+  { id: "app", label: "Install app" },
   { id: "data", label: "Data & privacy" },
 ] as const;
 
@@ -72,6 +76,11 @@ export function SettingsView({
     return () => window.removeEventListener("hashchange", fromHash);
   }, []);
 
+  // On phones the tabs scroll sideways, so keep the open one visible.
+  useEffect(() => {
+    document.querySelector<HTMLElement>(`[data-section="${section}"]`)?.scrollIntoView({ block: "nearest", inline: "center" });
+  }, [section]);
+
   function choose(id: SectionId) {
     setSection(id);
     window.history.replaceState(null, "", `#${id}`);
@@ -124,6 +133,7 @@ export function SettingsView({
               <button
                 key={item.id}
                 type="button"
+                data-section={item.id}
                 onClick={() => choose(item.id)}
                 aria-current={active ? "page" : undefined}
                 className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm transition focus-visible:outline-2 focus-visible:outline-gold ${
@@ -246,6 +256,8 @@ export function SettingsView({
             <TelegramSection form={form} saved={saved} botUsername={botUsername} update={update} saveBar={saveBar} />
           ) : null}
 
+          {section === "bank" ? <BankSection bank={ledger.bank} currency={ledger.currency} /> : null}
+          {section === "app" ? <AppSection /> : null}
           {section === "data" ? <DataSection /> : null}
         </div>
       </div>

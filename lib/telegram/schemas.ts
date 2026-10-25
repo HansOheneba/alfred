@@ -21,6 +21,11 @@ export const telegramUpdateSchema = z
         chat: chatSchema,
         from: userSchema.optional(),
         text: z.string().optional(),
+        caption: z.string().max(1024).optional(),
+        photo: z
+          .array(z.object({ file_id: z.string().min(1).max(200), file_size: z.number().optional(), width: z.number().optional() }))
+          .max(10)
+          .optional(),
         date: z.number().optional(),
       })
       .passthrough()

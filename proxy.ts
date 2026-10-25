@@ -26,5 +26,8 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/((?!_next/static|_next/image|favicon.ico|api/telegram/webhook|api/cron).*)"],
+  // Skip static files, the service worker, and endpoints that authenticate with their own secrets.
+  matcher: [
+    "/((?!_next/static|_next/image|favicon.ico|sw.js|offline.html|manifest.webmanifest|api/telegram/webhook|api/cron|api/ingest|.*\\.(?:png|jpg|jpeg|svg|ico|webp)$).*)",
+  ],
 };

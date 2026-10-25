@@ -8,6 +8,8 @@ export const EXPENSE_CATEGORIES = [
   "People",
   "Personal",
   "Social",
+  "Fees",
+  "Loan repayment",
   "Misc",
 ] as const;
 
@@ -59,6 +61,13 @@ const EXPENSE_ALIASES: Record<string, ExpenseCategory> = {
   spotify: "Subscriptions",
   dstv: "Subscriptions",
   icloud: "Subscriptions",
+  fee: "Fees",
+  fees: "Fees",
+  charges: "Fees",
+  "momo fee": "Fees",
+  "transaction fee": "Fees",
+  "loan repayment": "Loan repayment",
+  repayment: "Loan repayment",
   savings: "Savings",
   save: "Savings",
   emergencies: "Emergencies",

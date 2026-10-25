@@ -6,7 +6,8 @@ export type InlineButton = {
 };
 
 export type TelegramSender = {
-  sendMessage(chatId: number, text: string, buttons?: InlineButton[]): Promise<void>;
+  /** Buttons in one row, or several rows when given as nested arrays. */
+  sendMessage(chatId: number, text: string, buttons?: InlineButton[] | InlineButton[][]): Promise<void>;
   answerCallbackQuery(callbackQueryId: string, text?: string): Promise<void>;
   editMessageText(chatId: number, messageId: number, text: string): Promise<void>;
 };
@@ -56,14 +57,15 @@ export function createTelegramClient(
 ): TelegramSender {
   return {
     async sendMessage(chatId, text, buttons) {
-      const replyMarkup = buttons?.length
+      const rows = buttons?.length ? (Array.isArray(buttons[0]) ? (buttons as InlineButton[][]) : [buttons as InlineButton[]]) : [];
+      const replyMarkup = rows.length
         ? {
-            inline_keyboard: [
-              buttons.map((button) => ({
+            inline_keyboard: rows.map((row) =>
+              row.map((button) => ({
                 text: button.text,
                 callback_data: button.callbackData,
               })),
-            ],
+            ),
           }
         : undefined;
       await callTelegram(

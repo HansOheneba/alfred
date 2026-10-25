@@ -1,7 +1,7 @@
 import { Suspense } from "react";
 
 import { AuthForm } from "@/app/auth-form";
-import { ChatPanel } from "@/app/chat/chat-panel";
+import { ChatPanel, StatsButton } from "@/app/chat/chat-panel";
 import { AlfredMark, AppShell } from "@/app/components/app-shell";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
@@ -62,7 +62,7 @@ async function SignedInHome() {
   }
 
   return (
-    <AppShell current="chat" name={name} fill>
+    <AppShell current="chat" name={name} fill headerAction={<StatsButton />}>
       <ChatPanel ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} ledger={ledger} />
     </AppShell>
   );

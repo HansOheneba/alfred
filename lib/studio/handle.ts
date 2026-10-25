@@ -3,6 +3,8 @@ import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { answerLabelReply, createReplyClassifier, type ReplyClassifier } from "@/lib/bank/reply";
+import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
@@ -40,6 +42,8 @@ export type StudioDeps = {
   nextUpdateId?: () => number;
   messages?: MessageLog | null;
   voice?: Voice | null;
+  bank?: BankStore | null;
+  classifyReply?: ReplyClassifier | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -145,6 +149,15 @@ async function respond(
 ): Promise<Delivery & { intent?: string }> {
   const settled = await answerTypedDecision(text, ctx);
   if (settled) return { kind: "text", text: settled.text, context: settled.context };
+  if (deps.bank && deps.classifyReply) {
+    const labelled = await answerLabelReply(
+      { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId },
+      ctx.profile,
+      text,
+      deps.classifyReply,
+    );
+    if (labelled) return { kind: "text", text: labelled.text, intent: "bank:label" };
+  }
   const { action, context, cue } = await interpretWithContext({
     text,
     profile: ctx.profile,
@@ -250,5 +263,7 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     },
     messages: createSupabaseMessageLog(settings.supabase),
     voice: createVoice(settings.deepseek),
+    bank: createSupabaseBankStore(settings.supabase),
+    classifyReply: createReplyClassifier(settings.deepseek),
   };
 }

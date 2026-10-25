@@ -3,6 +3,9 @@ import { toLedgerRows, type LedgerRow } from "@/lib/finance/analytics";
 import { budgetMath } from "@/lib/finance/budgets";
 import { zonedYmd } from "@/lib/finance/dates";
 import { buildInsights } from "@/lib/finance/insights";
+import { labelQuestion } from "@/lib/bank/ingest";
+import { createSupabaseBankStore } from "@/lib/bank/store";
+import { query } from "@/lib/supabase/connection";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 
 export type LedgerBudget = {
@@ -26,6 +29,27 @@ export type LedgerGoal = {
   status: "active" | "completed";
 };
 
+export type LedgerBankItem = {
+  id: string;
+  direction: "in" | "out";
+  amount: string;
+  currency: string;
+  counterparty: string;
+  occurredAt: string;
+  question: string;
+};
+
+export type LedgerBalance = { source: "momo" | "gcb" | "other"; label: string; balance: string; at: string };
+
+export type LedgerBank = {
+  /** Whether a forwarding key exists, and when it was last used. */
+  connected: boolean;
+  lastUsedAt: string | null;
+  accountNames: string[];
+  needsLabel: LedgerBankItem[];
+  balances: LedgerBalance[];
+};
+
 /** Everything the dashboard, settings and chat side panel need for one person. */
 export type Ledger = {
   today: string;
@@ -35,15 +59,17 @@ export type Ledger = {
   goals: LedgerGoal[];
   /** Server-computed findings for this month, the same ones Alfred narrates in chat. */
   insights: string[];
+  bank: LedgerBank;
 };
 
 export async function loadLedger(profile: UserProfile, settings: StudioSettings): Promise<Ledger> {
   const store = createSupabaseFinanceStore(settings.supabase);
   const userId = profile.profileId;
-  const [transactions, budgets, goals] = await Promise.all([
+  const [transactions, budgets, goals, bank] = await Promise.all([
     store.listTransactions(userId),
     store.listBudgets(userId),
     store.listSavingsGoals(userId),
+    loadBank(settings, profile),
   ]);
   const today = zonedYmd(new Date(), profile.timezone);
   const monthStart = `${today.slice(0, 7)}-01`;
@@ -82,5 +108,45 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
       transactions,
       budgets,
     }),
+    bank,
+  };
+}
+
+const BALANCE_LABELS = { momo: "MoMo", gcb: "GCB card", other: "Bank" } as const;
+
+async function loadBank(settings: StudioSettings, profile: UserProfile): Promise<LedgerBank> {
+  const bank = createSupabaseBankStore(settings.supabase);
+  const [held, token, names, balances] = await Promise.all([
+    bank.listMessages(profile.profileId, "needs_label"),
+    query<{ last_used_at: Date | null }>(settings.supabase, "select last_used_at from public.ingest_tokens where owner_id = $1::uuid", [profile.profileId]),
+    bank.accountNames(profile.profileId),
+    query<{ source: LedgerBalance["source"]; balance: string; occurred_at: Date }>(
+      settings.supabase,
+      `select distinct on (source) source, balance::text, occurred_at
+       from public.bank_messages
+       where owner_id = $1::uuid and balance is not null
+       order by source, occurred_at desc`,
+      [profile.profileId],
+    ),
+  ]);
+  return {
+    connected: token.length > 0,
+    lastUsedAt: token[0]?.last_used_at ? token[0].last_used_at.toISOString() : null,
+    accountNames: names,
+    needsLabel: held.slice(0, 20).map((message) => ({
+      id: message.id,
+      direction: message.direction,
+      amount: message.amount,
+      currency: message.currency,
+      counterparty: message.counterparty,
+      occurredAt: message.occurredAt,
+      question: labelQuestion(message, profile.timezone),
+    })),
+    balances: balances.map((row) => ({
+      source: row.source,
+      label: BALANCE_LABELS[row.source],
+      balance: Number(row.balance).toFixed(2),
+      at: row.occurred_at.toISOString(),
+    })),
   };
 }
