@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { applyLabel, ingestBankText, type IngestDeps } from "@/lib/bank/ingest";
+import { applyLabel, ingestBankText, labelQuestion, type IngestDeps } from "@/lib/bank/ingest";
 import { labelButtons } from "@/lib/bank/notify";
 import { answerLabelReply } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
@@ -54,6 +54,13 @@ describe("bank ingest", () => {
     ]);
   });
 
+  it("fixes the date of a held message when a dated copy arrives", async () => {
+    const { deps, bank, owner } = setup();
+    await ingestBankText(deps, owner, RUKAYA, { channel: "screenshot" });
+    await ingestBankText(deps, owner, `Yesterday 8:15 AM\n${RUKAYA}`, { channel: "screenshot" });
+    expect(bank.messages[0].occurredAt).toBe("2026-10-24T08:15:00.000Z");
+  });
+
   it("ignores the same message sent twice", async () => {
     const { deps, owner } = setup();
     await ingestBankText(deps, owner, RUKAYA, { channel: "shortcut" });
@@ -89,6 +96,31 @@ describe("bank ingest", () => {
     expect(reply?.text).toContain("under Transport");
     expect((await ledger.listTransactions("42")).some((item) => item.category === "Transport" && item.description === "Ride home")).toBe(true);
     expect(await answerLabelReply(deps, owner, "how much did I spend", async () => null)).toBeNull();
+  });
+});
+
+describe("payees Alfred already understands", () => {
+  const PUSH =
+    "Your payment of GHS 30.50 to TELECEL PUSH has been completed at 2026-10-24 20:23:55. Your new balance: GHS 343.94. Fee was GHS 0.38 Tax was GHS -. Reference: -. Financial Transaction Id: 92282961231.";
+
+  it("asks who a cross-network push was to, and never learns the channel as a payee", async () => {
+    const { deps, bank, owner } = setup();
+    const result = await ingestBankText(deps, owner, PUSH, { channel: "screenshot" });
+    const held = result.outcomes[0].message;
+    expect(result.outcomes[0]).toMatchObject({ outcome: "needs_label", feeRecorded: true });
+    expect(labelQuestion(held, "Africa/Accra")).toContain("to a Telecel Cash number (Telecel Push)");
+    expect(labelQuestion(held, "Africa/Accra")).toContain("Who was it to, and what for?");
+    const labelled = await applyLabel(deps, owner, held.id, { kind: "category", category: "People", description: "Kofi" });
+    expect(labelled.text).toBe("Filed GH₵30.50 under People.");
+    expect(bank.rules.size).toBe(0);
+  });
+
+  it("files well-known merchants without asking", async () => {
+    const { deps, ledger, owner } = setup();
+    const ecg = "Your payment of GHS 100.00 to ECG PREPAID has been completed at 2026-10-24 09:00:00. Your new balance: GHS 243.94. Fee was GHS 0.00. Financial Transaction Id: 92282961299.";
+    const result = await ingestBankText(deps, owner, ecg, { channel: "shortcut" });
+    expect(result.outcomes[0]).toMatchObject({ outcome: "recorded", category: "Utilities" });
+    expect((await ledger.listTransactions("42"))[0]).toMatchObject({ category: "Utilities", description: "Electricity" });
   });
 });
 

@@ -86,4 +86,33 @@ describe("bank message parser", () => {
     expect(isOwnName("ANNETTE AKUSHIKA KWASHIE", ["Hans Opoku"])).toBe(false);
     expect(payeeKey("  Rukaya   ISSIFU. ")).toBe("rukaya issifu");
   });
+
+  it("reads a cross-network push with its fee, new balance and in-message time", () => {
+    const text =
+      "Your payment of GHS 30.50 to TELECEL PUSH has been completed at 2026-10-24 20:23:55. Your new balance: GHS 343.94. Fee was GHS 0.38 Tax was GHS -. Reference: -. Financial Transaction Id: 92282961231. External Transaction Id: 92282961231.";
+    expect(parseBankText(text, options)[0]).toMatchObject({
+      direction: "out",
+      amount: "30.50",
+      fee: "0.38",
+      counterparty: "TELECEL PUSH",
+      balance: "343.94",
+      externalId: "92282961231",
+      occurredAt: "2026-10-24T20:23:00.000Z",
+    });
+  });
+
+  it("dates messages from Yesterday and weekday headings", () => {
+    const text = [
+      "Yesterday 11:36 AM",
+      "Payment made for GHS 31.50 to AMOS SEKYI SAM Current Balance: GHS 374.82 . Available Balance: GHS 374.82. Reference: . Transaction ID: 92243526792. Fee charged: GHS0.00",
+      "Yesterday 7:54 PM",
+      "Secure your future with Insurance on MoMo and get 300MB FREE data when you sign up.",
+      "Thursday 9:05 AM",
+      "Payment made for GHS 12.00 to ABENA KYEI Current Balance: GHS 362.82 . Transaction ID: 92243526000. Fee charged: GHS0.00",
+    ].join("\n");
+    expect(parseBankText(text, options).map((item) => [item.counterparty, item.occurredAt])).toEqual([
+      ["AMOS SEKYI SAM", "2026-10-24T11:36:00.000Z"],
+      ["ABENA KYEI", "2026-10-22T09:05:00.000Z"],
+    ]);
+  });
 });

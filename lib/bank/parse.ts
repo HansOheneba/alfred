@@ -16,6 +16,8 @@ export type ParsedBankMessage = {
   reference: string;
   balance: string | null;
   occurredAt: string;
+  /** False when no date could be read and occurredAt is just the time it arrived. */
+  dated: boolean;
   /** Stable across an SMS and a screenshot of the same SMS, for de-duplication. */
   fingerprint: string;
   raw: string;
@@ -28,34 +30,79 @@ const MESSAGE_START =
   /(?=Payment (?:made|received) for GHS|Dear [A-Z][A-Z .'-]+\.\s*Your Prepaid Card|Dear Customer|Hello, The requested link|Cash (?:In|Out) (?:made|received)|Your payment of GHS|You have (?:received|sent|bought|paid) GHS)/g;
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
-const DATE_HEADER =
-  /(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\s+)?(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\s+(?:at\s+)?(\d{1,2}):(\d{2})\s*(AM|PM)?/gi;
+const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
+const TIME = "(\\d{1,2}):(\\d{2})\\s*(AM|PM)?";
+/** iPhone Messages headings: "Sun, 4 Oct at 8:15 AM", "Yesterday 11:36 AM", "Saturday 10:12 AM". */
+const DATED_HEADER = new RegExp(`(?:(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)[a-z]*,?\\s+)?(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+(?:at\\s+)?${TIME}`, "gi");
+const RELATIVE_HEADER = new RegExp(`\\b(Today|Yesterday)\\s*(?:at\\s+)?${TIME}`, "gi");
+const WEEKDAY_HEADER = new RegExp(`\\b(Monday|Tuesday|Wednesday|Thursday|Friday|Saturday|Sunday)\\s+(?:at\\s+)?${TIME}`, "gi");
+/** A timestamp inside the message itself, e.g. "completed at 2026-10-24 20:23:55". */
+const INLINE_TIME = /\b(\d{4})-(\d{2})-(\d{2})[ T](\d{2}):(\d{2})/;
+
+type Header = { index: number; length: number; time: string };
 
 function amountOf(value: string | undefined, allowZero = false): string | null {
   if (!value) return null;
   return canonicalizeAmount(value.replace(/,/g, ""), { allowZero });
 }
 
+/** "Fee charged: GHS0.38", "Fee was GHS 0.38" and similar. */
+function feeOf(text: string): string {
+  return amountOf(text.match(new RegExp(`Fee(?: charged| was)?:?\\s*GHS\\s*${MONEY}`, "i"))?.[1], true) ?? "0.00";
+}
+
 function clean(value: string): string {
   return value.replace(/\s+/g, " ").trim();
 }
 
-/** Turns a "Sun, 4 Oct at 8:15 AM" header into a timestamp in the person's timezone, in the most recent matching year. */
-function headerTime(match: RegExpExecArray, now: Date, timeZone: string): string {
-  const day = Number(match[1]);
-  const month = MONTHS.indexOf(match[2].slice(0, 3).toLowerCase());
-  let hour = Number(match[3]) % 12;
-  if ((match[5] ?? "").toUpperCase() === "PM") hour += 12;
-  if (!match[5]) hour = Number(match[3]);
-  const minute = Number(match[4]);
-  const offsetMinutes = zoneOffsetMinutes(now, timeZone);
-  let year = Number(new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric" }).format(now));
-  let utc = Date.UTC(year, month, day, hour, minute) - offsetMinutes * 60_000;
-  if (utc > now.getTime() + 36 * 3_600_000) {
-    year -= 1;
-    utc = Date.UTC(year, month, day, hour, minute) - offsetMinutes * 60_000;
+function hour24(hour: string, meridiem: string | undefined): number {
+  if (!meridiem) return Number(hour);
+  return (Number(hour) % 12) + (meridiem.toUpperCase() === "PM" ? 12 : 0);
+}
+
+/** A wall-clock time in the person's timezone, as an ISO instant. */
+function localTime(year: number, month: number, day: number, hour: number, minute: number, now: Date, timeZone: string): number {
+  return Date.UTC(year, month, day, hour, minute) - zoneOffsetMinutes(now, timeZone) * 60_000;
+}
+
+function localParts(now: Date, timeZone: string): { year: number; month: number; day: number; weekday: number } {
+  const [year, month, day] = new Intl.DateTimeFormat("en-CA", { timeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now).split("-").map(Number);
+  return { year, month: month - 1, day, weekday: new Date(Date.UTC(year, month - 1, day)).getUTCDay() };
+}
+
+/** Every date heading in a screenshot's text, with the time it stands for. */
+function findHeaders(text: string, now: Date, timeZone: string): Header[] {
+  const today = localParts(now, timeZone);
+  const headers: Header[] = [];
+  for (const match of text.matchAll(DATED_HEADER)) {
+    const month = MONTHS.indexOf(match[2].slice(0, 3).toLowerCase());
+    let year = today.year;
+    let utc = localTime(year, month, Number(match[1]), hour24(match[3], match[5]), Number(match[4]), now, timeZone);
+    // Headings omit the year, so a date in the future must be from last year.
+    if (utc > now.getTime() + 36 * 3_600_000) {
+      year -= 1;
+      utc = localTime(year, month, Number(match[1]), hour24(match[3], match[5]), Number(match[4]), now, timeZone);
+    }
+    headers.push({ index: match.index ?? 0, length: match[0].length, time: new Date(utc).toISOString() });
   }
-  return new Date(utc).toISOString();
+  const daysBack = (offset: number, hour: number, minute: number) =>
+    localTime(today.year, today.month, today.day - offset, hour, minute, now, timeZone);
+  for (const match of text.matchAll(RELATIVE_HEADER)) {
+    const offset = match[1].toLowerCase() === "yesterday" ? 1 : 0;
+    headers.push({ index: match.index ?? 0, length: match[0].length, time: new Date(daysBack(offset, hour24(match[2], match[4]), Number(match[3]))).toISOString() });
+  }
+  for (const match of text.matchAll(WEEKDAY_HEADER)) {
+    const index = match.index ?? 0;
+    // "Sun, 4 Oct at…" is already covered above.
+    if (headers.some((item) => index >= item.index && index < item.index + item.length)) continue;
+    const offset = (today.weekday - WEEKDAYS.indexOf(match[1].toLowerCase()) + 7) % 7 || 7;
+    headers.push({ index, length: match[0].length, time: new Date(daysBack(offset, hour24(match[2], match[4]), Number(match[3]))).toISOString() });
+  }
+  return headers.sort((left, right) => left.index - right.index);
+}
+
+function stripHeaders(text: string): string {
+  return text.replace(DATED_HEADER, " ").replace(RELATIVE_HEADER, " ").replace(WEEKDAY_HEADER, " ");
 }
 
 function zoneOffsetMinutes(date: Date, timeZone: string): number {
@@ -68,18 +115,17 @@ function zoneOffsetMinutes(date: Date, timeZone: string): number {
   return Math.round((asUtc - date.getTime()) / 60_000);
 }
 
-function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage, "occurredAt" | "fingerprint"> | null {
+function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage, "occurredAt" | "dated" | "fingerprint"> | null {
   const text = clean(body);
   const externalId = text.match(/(?:Transaction ID|Financial Transaction Id|Trans(?:action)? Id)\s*:?\s*(\d{6,})/i)?.[1] ?? null;
-  const momoBalance = amountOf(text.match(new RegExp(`Current Balance:\\s*GHS\\s*${MONEY}`, "i"))?.[1], true);
+  const momoBalance = amountOf(text.match(new RegExp(`(?:Current|new) balance:?\\s*GHS\\s*${MONEY}`, "i"))?.[1], true);
   const reference = clean(text.match(/Reference:\s*([^]*?)(?:\.\s+Transaction ID|Transaction ID|$)/i)?.[1] ?? "").slice(0, 160);
 
   const made = text.match(new RegExp(`Payment made for GHS\\s*${MONEY}\\s+to\\s+(.+?)\\s+Current Balance`, "i"));
   if (made) {
     const amount = amountOf(made[1]);
     if (!amount) return null;
-    const fee = amountOf(text.match(new RegExp(`Fee charged:\\s*GHS\\s*${MONEY}`, "i"))?.[1], true) ?? "0.00";
-    return { source: "momo", externalId, direction: "out", amount, fee, counterparty: clean(made[2]).slice(0, 120), reference, balance: momoBalance, raw: text };
+    return { source: "momo", externalId, direction: "out", amount, fee: feeOf(text), counterparty: clean(made[2]).slice(0, 120), reference, balance: momoBalance, raw: text };
   }
 
   const received = text.match(new RegExp(`Payment received for GHS\\s*${MONEY}\\s+from\\s+(.+?)\\s+Current Balance`, "i"));
@@ -87,6 +133,24 @@ function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage
     const amount = amountOf(received[1]);
     if (!amount) return null;
     return { source: "momo", externalId, direction: "in", amount, fee: "0.00", counterparty: clean(received[2]).slice(0, 120), reference, balance: momoBalance, raw: text };
+  }
+
+  // Merchant and cross-network payments: "Your payment of GHS 30.50 to TELECEL PUSH has been completed at …".
+  const completed = text.match(new RegExp(`Your payment of GHS\\s*${MONEY}\\s+to\\s+(.+?)\\s+has been completed`, "i"));
+  if (completed) {
+    const amount = amountOf(completed[1]);
+    if (!amount) return null;
+    return {
+      source: "momo",
+      externalId,
+      direction: "out",
+      amount,
+      fee: feeOf(text),
+      counterparty: clean(completed[2]).slice(0, 120),
+      reference,
+      balance: momoBalance ?? amountOf(text.match(new RegExp(`new balance:?\\s*GHS\\s*${MONEY}`, "i"))?.[1], true),
+      raw: text,
+    };
   }
 
   const cardDebit = text.match(new RegExp(`Prepaid Card.*?debited with\\s+amount of\\s*:\\s*${MONEY}\\s*(?:GHANA CEDIS|GHS)\\.?\\s*Your balance is\\s*${MONEY}`, "i"));
@@ -108,11 +172,11 @@ function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage
   if (!generic) return null;
   const amount = amountOf(generic[1]);
   if (!amount) return null;
-  const out = /\b(sent|paid|payment made|debited|cash out|purchase|bought|withdraw)/i.test(text);
+  const out = /\b(sent|paid|payment made|payment of|debited|cash out|purchase|bought|withdraw|transferred)/i.test(text);
   const inbound = /\b(received|credited|cash in|deposit)/i.test(text);
   if (out === inbound) return null;
   const party = text.match(out ? /\bto\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/ : /\bfrom\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/);
-  const fee = amountOf(text.match(new RegExp(`Fee(?: charged)?:?\\s*GHS\\s*${MONEY}`, "i"))?.[1], true) ?? "0.00";
+  const fee = feeOf(text);
   return {
     source: hint ?? (/gcb/i.test(text) ? "gcb" : "momo"),
     externalId,
@@ -126,7 +190,7 @@ function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage
   };
 }
 
-function fingerprint(message: Omit<ParsedBankMessage, "occurredAt" | "fingerprint">): string {
+function fingerprint(message: Omit<ParsedBankMessage, "occurredAt" | "dated" | "fingerprint">): string {
   const key = message.externalId
     ? `${message.source}|id|${message.externalId}`
     : `${message.source}|${message.direction}|${message.amount}|${message.balance ?? ""}|${message.counterparty.toLowerCase()}`;
@@ -148,10 +212,7 @@ export function parseBankText(
         ? "momo"
         : null
     : null;
-  const headers: { index: number; time: string }[] = [];
-  for (const match of text.matchAll(DATE_HEADER)) {
-    headers.push({ index: match.index ?? 0, time: headerTime(match as RegExpExecArray, options.now, options.timeZone) });
-  }
+  const headers = findHeaders(text, options.now, options.timeZone);
   const starts = [...text.matchAll(MESSAGE_START)].map((match) => match.index ?? 0);
   const bounds = starts.length > 0 ? starts : [0];
   if (bounds[0] !== 0 && text.slice(0, bounds[0]).trim().length > 40 && !headers.length) bounds.unshift(0);
@@ -160,14 +221,17 @@ export function parseBankText(
   bounds.forEach((start, index) => {
     const end = bounds[index + 1] ?? text.length;
     // Strip any date header that sits between this message and the next.
-    const body = text.slice(start, end).replace(DATE_HEADER, " ");
+    const body = stripHeaders(text.slice(start, end));
     const parsed = parseOne(body, hint);
     if (!parsed) return;
+    const inline = INLINE_TIME.exec(body);
     const header = [...headers].reverse().find((item) => item.index <= start);
     // A message above the first readable heading arrived before it, so borrow that heading's date.
     const next = header ? null : headers.find((item) => item.index > start);
-    const occurredAt = header?.time ?? (next ? new Date(Date.parse(next.time) - 60_000).toISOString() : options.now.toISOString());
-    results.push({ ...parsed, occurredAt, fingerprint: fingerprint(parsed) });
+    const occurredAt = inline
+      ? new Date(localTime(Number(inline[1]), Number(inline[2]) - 1, Number(inline[3]), Number(inline[4]), Number(inline[5]), options.now, options.timeZone)).toISOString()
+      : (header?.time ?? (next ? new Date(Date.parse(next.time) - 60_000).toISOString() : options.now.toISOString()));
+    results.push({ ...parsed, occurredAt, dated: Boolean(inline || header || next), fingerprint: fingerprint(parsed) });
   });
   return results;
 }
