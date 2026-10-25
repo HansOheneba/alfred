@@ -1,4 +1,5 @@
 import { isOwnName, parseBankText, payeeKey, type ParsedBankMessage } from "@/lib/bank/parse";
+import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { normalizeCategory } from "@/lib/finance/categories";
@@ -26,7 +27,8 @@ export const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"] as c
 
 /** Card messages name no payee, so there's nothing to learn from them. */
 function learnable(counterparty: string): boolean {
-  return Boolean(counterparty) && !/^gcb prepaid card/i.test(counterparty);
+  // A channel like TELECEL PUSH reaches a different person each time, so filing it by name would be wrong.
+  return Boolean(counterparty) && !/^gcb prepaid card/i.test(counterparty) && classifyPayee(counterparty).kind !== "channel";
 }
 
 export function titleCase(value: string): string {
@@ -35,6 +37,9 @@ export function titleCase(value: string): string {
 
 function describe(message: Pick<BankMessage, "counterparty" | "direction" | "source">): string {
   if (!message.counterparty) return message.direction === "out" ? "Payment" : "Money received";
+  const payee = classifyPayee(message.counterparty);
+  if (payee.kind === "channel") return message.direction === "out" ? `Sent to ${payee.channel}` : `From ${payee.channel}`;
+  if (payee.kind === "merchant" && payee.label) return payee.label;
   if (message.source === "gcb") return message.direction === "out" ? "GCB card payment" : "GCB card top-up";
   return message.direction === "out" ? `Payment to ${titleCase(message.counterparty)}` : `From ${titleCase(message.counterparty)}`;
 }
@@ -132,6 +137,7 @@ export async function ingestBankText(
     });
     if (!stored) {
       duplicates += 1;
+      if (item.dated) await deps.bank.correctDate(profile.profileId, item.fingerprint, item.occurredAt);
       continue;
     }
 
@@ -168,6 +174,16 @@ export async function ingestBankText(
       const id = await record(deps, profile, stored, { type, amount: stored.amount, category, description: rule.description || describe(stored) });
       await deps.bank.updateMessage(profile.profileId, stored.id, { status: "recorded", transactionId: id });
       outcomes.push({ message: { ...stored, status: "recorded", transactionId: id }, outcome: "recorded", category, feeRecorded });
+      continue;
+    }
+
+    // Well-known merchants (ECG, Bolt, DSTV…) don't need asking about.
+    const payee = stored.direction === "out" ? classifyPayee(stored.counterparty) : null;
+    if (payee?.kind === "merchant") {
+      const description = payee.label || titleCase(stored.counterparty);
+      const id = await record(deps, profile, stored, { type: "expense", amount: stored.amount, category: payee.category, description });
+      await deps.bank.updateMessage(profile.profileId, stored.id, { status: "recorded", transactionId: id });
+      outcomes.push({ message: { ...stored, status: "recorded", transactionId: id }, outcome: "recorded", category: payee.category, feeRecorded });
       continue;
     }
 
@@ -232,6 +248,13 @@ export function labelQuestion(message: BankMessage, timeZone: string): string {
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone }).format(
     new Date(message.occurredAt),
   );
+  const payee = classifyPayee(message.counterparty);
+  if (payee.kind === "channel") {
+    const network = titleCase(message.counterparty);
+    return message.direction === "out"
+      ? `${money} sent from MoMo to ${payee.channel} (${network}) · ${when}. These transfers don't say who received the money. Who was it to, and what for?`
+      : `${money} came in from ${payee.channel} (${network}) · ${when}. Who sent it, and what was it?`;
+  }
   if (message.direction === "out") {
     const to = message.counterparty && !/^gcb/i.test(message.counterparty) ? ` to ${titleCase(message.counterparty)}` : " on your GCB card";
     return `${money}${to} · ${when}. What was that for?`;

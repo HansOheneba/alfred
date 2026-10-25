@@ -64,11 +64,17 @@ function ladder(turn: number, topic: "money" | "other", builder: string): string
   ].join(" ");
 }
 
+/** The person's local date and time, e.g. "Sunday 25 October 2026 at 12:57". */
+function nowLine(timeZone: string): string {
+  return new Intl.DateTimeFormat("en-GB", { weekday: "long", day: "numeric", month: "long", year: "numeric", hour: "numeric", minute: "2-digit", timeZone }).format(new Date());
+}
+
 function chatSystem(request: VoiceRequest): string {
   const cue = request.cue;
   const history = cue?.history.length ? cue.history.map((item) => `${item.role}: ${item.body}`).join("\n") : "None.";
   return [
     ...personaLines(request.profile, request.channel),
+    `Right now it is ${nowLine(request.profile.timezone)} where they are. Use this if they ask the date or time; never guess.`,
     "You are replying in an ongoing chat. Recent conversation, oldest first:",
     history,
     `Facts you may use if they help, word for word: ${cue?.snapshot ?? "none"}`,
@@ -139,7 +145,7 @@ export async function voiceDelivery(
       intent: action.type,
       topic: chat ? (action.topic ?? "other") : undefined,
     });
-    const source = `${delivery.text}\n${request.userText}\n${chat ? (request.cue?.snapshot ?? "") : ""}`;
+    const source = `${delivery.text}\n${request.userText}\n${chat ? `${request.cue?.snapshot ?? ""}\n${nowLine(request.profile.timezone)}` : ""}`;
     if (!keepsFacts(reply, source)) return delivery;
     return { ...delivery, text: reply };
   } catch (error) {

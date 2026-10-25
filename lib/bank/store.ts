@@ -37,6 +37,8 @@ export interface BankStore {
   insertMessage(row: NewBankMessage): Promise<BankMessage | null>;
   updateMessage(ownerId: string, id: string, patch: Partial<Pick<BankMessage, "status" | "transactionId" | "feeTransactionId" | "askedAt" | "kind">>): Promise<void>;
   getMessage(ownerId: string, id: string): Promise<BankMessage | null>;
+  /** Corrects the date of a stored message that still needs a label, when a later copy shows when it really happened. */
+  correctDate(ownerId: string, textHash: string, occurredAt: string): Promise<void>;
   listMessages(ownerId: string, status?: BankStatus): Promise<BankMessage[]>;
   /** Ledger transaction ids already linked to a bank message, so one manual entry isn't matched twice. */
   linkedTransactionIds(ownerId: string): Promise<Set<string>>;
@@ -124,6 +126,13 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       if (sets.length === 0) return;
       await query(settings, `update public.bank_messages set ${sets.join(", ")} where owner_id = $1::uuid and id = $2::uuid`, values);
     },
+    async correctDate(ownerId, textHash, occurredAt) {
+      await query(
+        settings,
+        "update public.bank_messages set occurred_at = $3 where owner_id = $1::uuid and text_hash = $2 and status = 'needs_label'",
+        [ownerId, textHash, occurredAt],
+      );
+    },
     async getMessage(ownerId, id) {
       if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
       const rows = await query<MessageRow>(settings, `select ${columns} from public.bank_messages where owner_id = $1::uuid and id = $2::uuid`, [ownerId, id]);
@@ -199,6 +208,10 @@ export class MemoryBankStore implements BankStore {
   async updateMessage(ownerId: string, id: string, patch: Partial<BankMessage>) {
     const message = this.messages.find((item) => item.ownerId === ownerId && item.id === id);
     if (message) Object.assign(message, patch);
+  }
+  async correctDate(ownerId: string, textHash: string, occurredAt: string) {
+    const message = this.messages.find((item) => item.ownerId === ownerId && item.textHash === textHash && item.status === "needs_label");
+    if (message) message.occurredAt = occurredAt;
   }
   async getMessage(ownerId: string, id: string) {
     const message = this.messages.find((item) => item.ownerId === ownerId && item.id === id);
