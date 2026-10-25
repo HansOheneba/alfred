@@ -2,6 +2,7 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
+import { Spinner } from "@/app/components/status";
 import { Button, Card, Field, inputClass } from "@/app/components/ui";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { DataSection } from "@/app/settings/data-section";
@@ -108,7 +109,7 @@ export function SettingsView({
   return (
     <div className="mx-auto w-full max-w-5xl px-4 py-6 pb-20 sm:py-8">
       <header className="mb-6">
-        <h1 className="text-2xl font-medium tracking-tight">Settings</h1>
+        <h1 className="font-display text-2xl font-medium leading-tight tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-muted">How Alfred knows you, what he keeps track of, and where he can reach you.</p>
       </header>
 
@@ -269,8 +270,8 @@ function SaveBar({ dirty, state, onSave, onReset }: { dirty: boolean; state: Sav
           Discard
         </Button>
       ) : null}
-      <Button variant="primary" onClick={onSave} disabled={!dirty || state.kind === "saving"}>
-        {state.kind === "saving" ? "Saving…" : "Save changes"}
+      <Button variant="primary" onClick={onSave} disabled={!dirty || state.kind === "saving"} aria-busy={state.kind === "saving"} aria-label="Save changes">
+        {state.kind === "saving" ? <Spinner /> : "Save changes"}
       </Button>
     </div>
   );

@@ -11,6 +11,7 @@
   --muted: #9b9ba1;
   --faint: #6c6c72;
   --gold: #d9b45a;
+  --gold-dim: #c6b184;
   --gold-ink: #1a1404;
   --gold-soft: rgba(217, 180, 90, 0.12);
   --danger: #f08080;
@@ -28,6 +29,7 @@
   --muted: #66666c;
   --faint: #8d8d93;
   --gold: #a07a22;
+  --gold-dim: #6f5420;
   --gold-ink: #ffffff;
   --gold-soft: rgba(160, 122, 34, 0.1);
   --danger: #c43d3d;
@@ -45,18 +47,26 @@
   --color-muted: var(--muted);
   --color-faint: var(--faint);
   --color-gold: var(--gold);
+  --color-gold-dim: var(--gold-dim);
   --color-gold-ink: var(--gold-ink);
   --color-gold-soft: var(--gold-soft);
   --color-danger: var(--danger);
   --color-success: var(--success);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  /* --font-aktiv is unset until licensed Aktiv Grotesk files are loaded. See app/fonts.ts. */
+  --font-sans: var(--font-manrope), "Avenir Next", "Segoe UI", sans-serif;
+  --font-display: var(--font-aktiv, var(--font-manrope)), "Avenir Next", "Segoe UI", sans-serif;
 }
 
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
+  font-family: var(--font-sans), "Avenir Next", "Segoe UI", sans-serif;
+}
+
+@layer utilities {
+  .tabular-nums {
+    font-variant-numeric: tabular-nums lining-nums;
+  }
 }
 
 ::selection {
@@ -80,9 +90,93 @@ body {
   animation: alfred-dot 1.2s infinite ease-in-out;
 }
 
+.auth-screen {
+  background-color: var(--bg);
+  background-image: radial-gradient(70% 42% at 50% -12%, var(--gold-soft), transparent 70%);
+}
+
+.auth-noise {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='140' height='140'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.55'/%3E%3C/svg%3E");
+}
+
+.alfred-avatar-glow {
+  background: radial-gradient(circle, rgba(217, 180, 90, 0.28), transparent 68%);
+  animation: alfred-glow 8s ease-in-out infinite;
+}
+
+@keyframes alfred-glow {
+  0%,
+  100% {
+    opacity: 0.5;
+  }
+  50% {
+    opacity: 0.85;
+  }
+}
+
+@keyframes auth-swap {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.auth-swap {
+  animation: auth-swap 180ms ease;
+}
+
+@media (min-width: 1024px) {
+  .auth-screen {
+    background-image: none;
+  }
+
+  .auth-brand {
+    background:
+      radial-gradient(85% 58% at 28% 18%, var(--gold-soft), transparent 64%),
+      var(--bg);
+  }
+}
+
+@keyframes alfred-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.alfred-spin {
+  animation: alfred-spin 0.7s linear infinite;
+}
+
+@keyframes alfred-pulse {
+  50% {
+    opacity: 0.45;
+  }
+}
+
+.alfred-pulse {
+  animation: alfred-pulse 1.4s ease-in-out infinite;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .alfred-dot {
+  .alfred-dot,
+  .alfred-avatar-glow,
+  .auth-swap,
+  .alfred-spin,
+  .alfred-pulse {
     animation: none;
+  }
+
+  .alfred-avatar-glow {
+    opacity: 0.7;
   }
 }
 

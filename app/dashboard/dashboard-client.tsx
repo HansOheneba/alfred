@@ -91,7 +91,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs text-muted">{formatDisplayDate(today)}</p>
-          <h1 className="mt-1 text-2xl font-medium tracking-tight">{name ? `${name}'s finances` : "Your finances"}</h1>
+          <h1 className="mt-1 font-display text-2xl font-medium leading-tight tracking-tight">{name ? `${name}'s finances` : "Your finances"}</h1>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex flex-wrap gap-1 rounded-full border border-line bg-surface p-1" role="group" aria-label="Date range">

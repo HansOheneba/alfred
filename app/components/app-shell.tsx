@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
+import { AlfredAvatar } from "@/app/components/alfred-avatar";
+
 export type Section = "chat" | "dashboard" | "settings";
 
 const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
@@ -40,11 +42,7 @@ function Icon({ children, className = "size-[18px]" }: { children: ReactNode; cl
 }
 
 export function AlfredMark({ size = "size-8" }: { size?: string }) {
-  return (
-    <span className={`grid ${size} shrink-0 place-items-center rounded-full bg-gold-soft text-sm font-semibold text-gold ring-1 ring-gold/30`} aria-hidden="true">
-      A
-    </span>
-  );
+  return <AlfredAvatar sizeClass={size} alt="" sizes="96px" loading="eager" />;
 }
 
 function subscribeTheme(onChange: () => void) {
@@ -87,7 +85,7 @@ function Sidebar({ current, name, onNavigate }: { current: Section; name: string
     <div className="flex h-full flex-col gap-6 p-3">
       <Link href="/" onClick={onNavigate} className="flex items-center gap-3 rounded-xl px-2 py-1.5 focus-visible:outline-2 focus-visible:outline-gold">
         <AlfredMark />
-        <span className="text-[15px] font-medium tracking-tight">Alfred</span>
+        <span className="font-display text-[15px] font-medium tracking-tight">Alfred</span>
       </Link>
       <nav className="flex flex-col gap-1" aria-label="Main">
         {NAV.map((item) => {

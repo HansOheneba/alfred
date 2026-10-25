@@ -1,3 +1,5 @@
+import { buildOtpMessage } from "@/lib/email/otp-template";
+
 const BARE_EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const NAMED_EMAIL = /^[^<>\r\n]{1,80}\s<[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>$/;
 
@@ -20,18 +22,19 @@ export function readResendConfig(): ResendConfig | null {
   return { apiKey, from };
 }
 
-export function otpEmail(code: string): { subject: string; text: string; html: string } {
-  const safeCode = code.replace(/[^\d]/g, "");
-  return {
-    subject: "Your Alfred code",
-    text: `Your Alfred code is ${safeCode}. It expires shortly. If you did not ask for it, you can ignore this email.`,
-    html: `<p>Your Alfred code is <strong style="font-size:20px;letter-spacing:0.2em">${escapeHtml(safeCode)}</strong>.</p><p>It expires shortly. If you did not ask for it, you can ignore this email.</p>`,
-  };
+export type EmailContent = {
+  subject: string;
+  text: string;
+  html: string;
+};
+
+export function otpEmail(code: string): Promise<EmailContent> {
+  return buildOtpMessage(code);
 }
 
 export async function sendResendEmail(
   config: ResendConfig,
-  input: { to: string; subject: string; text: string; html: string },
+  input: EmailContent & { to: string },
   fetchImpl: typeof fetch = fetch,
 ): Promise<{ ok: true } | { ok: false; message: string }> {
   let response: Response;
@@ -63,14 +66,4 @@ export async function sendResendEmail(
     // The status is enough when the body is not JSON.
   }
   return { ok: false, message };
-}
-
-function escapeHtml(value: string): string {
-  return value.replace(/[&<>"']/g, (char) => {
-    if (char === "&") return "&amp;";
-    if (char === "<") return "&lt;";
-    if (char === ">") return "&gt;";
-    if (char === '"') return "&quot;";
-    return "&#39;";
-  });
 }

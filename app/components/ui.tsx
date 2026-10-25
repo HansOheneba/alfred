@@ -2,6 +2,8 @@
 
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
+import { Spinner } from "@/app/components/status";
+
 export const CATEGORY_COLORS = ["#d9b45a", "#7aa7e8", "#e48a5c", "#7fc8a0", "#b98ad9", "#5fb8b2", "#e07a8c", "#9c9a92", "#c9a3e8", "#8fb3c9"];
 
 export function categoryColor(index: number): string {
@@ -121,8 +123,8 @@ export function ConfirmDialog({
         <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
         </Button>
-        <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} disabled={busy}>
-          {busy ? "Working…" : confirmLabel}
+        <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} disabled={busy} aria-busy={busy} aria-label={confirmLabel}>
+          {busy ? <Spinner /> : confirmLabel}
         </Button>
       </div>
     </Dialog>

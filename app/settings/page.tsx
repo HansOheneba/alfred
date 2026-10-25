@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppShell } from "@/app/components/app-shell";
+import { Skeleton } from "@/app/components/status";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { SettingsView } from "@/app/settings/settings-view";
 import { loadAccountSettings } from "@/lib/accounts/settings-store";
@@ -21,9 +22,26 @@ export default function SettingsPage() {
 function SettingsFallback() {
   return (
     <AppShell current="settings" name="">
-      <div className="mx-auto w-full max-w-5xl px-4 py-8">
-        <h1 className="text-2xl font-medium tracking-tight">Settings</h1>
-        <p className="mt-2 text-sm text-muted">Loading your settings…</p>
+      <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 px-4 py-6 sm:py-8" aria-busy="true">
+        <div>
+          <Skeleton className="h-8 w-36" />
+          <Skeleton className="mt-2 h-4 w-72 max-w-full" />
+        </div>
+        <div className="flex flex-col gap-6 md:flex-row">
+          <div className="flex gap-2 md:w-52 md:flex-col">
+            {["profile", "replies", "budgets", "goals"].map((key) => (
+              <Skeleton key={key} className="h-9 w-28 md:w-full" />
+            ))}
+          </div>
+          <div className="min-w-0 flex-1 rounded-2xl border border-line bg-surface p-5">
+            <Skeleton className="h-4 w-24" />
+            <div className="mt-5 grid gap-4 sm:grid-cols-2">
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16" />
+              <Skeleton className="h-16 sm:col-span-2" />
+            </div>
+          </div>
+        </div>
       </div>
     </AppShell>
   );

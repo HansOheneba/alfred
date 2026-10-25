@@ -286,7 +286,7 @@ export function ChatPanel({
           {messages.length === 0 ? (
             <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center px-4 py-10 text-center">
               <AlfredMark size="size-14" />
-              <h1 className="mt-5 text-2xl font-medium tracking-tight sm:text-3xl">{hello || "Hello."}</h1>
+              <h1 className="mt-5 font-display text-2xl font-medium tracking-tight">{hello || "Hello."}</h1>
               <p className="mt-2 max-w-md text-sm leading-6 text-muted">
                 Tell me what you spend or earn and I&apos;ll keep the books. Ask where your money goes and I&apos;ll tell you honestly. This is the same conversation as Telegram.
               </p>
@@ -372,7 +372,6 @@ export function ChatPanel({
                     <span className="alfred-dot size-1.5 rounded-full bg-gold [animation-delay:0.15s]" />
                     <span className="alfred-dot size-1.5 rounded-full bg-gold [animation-delay:0.3s]" />
                   </span>
-                  <span className="text-sm text-muted">Alfred is thinking…</span>
                 </div>
               ) : null}
               {error ? (

@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 
+import { Spinner } from "@/app/components/status";
 import { Button, Card, ConfirmDialog, Field, inputClass, sendJson } from "@/app/components/ui";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 
@@ -136,8 +137,8 @@ function PasswordCard() {
           <p className="mr-auto text-sm" role="status" aria-live="polite">
             {error ? <span className="text-danger">{error}</span> : saved ? <span className="text-success">Password saved ✓</span> : null}
           </p>
-          <Button variant="primary" type="submit" disabled={busy}>
-            {busy ? "Saving…" : "Set password"}
+          <Button variant="primary" type="submit" disabled={busy} aria-busy={busy} aria-label="Set password">
+            {busy ? <Spinner /> : "Set password"}
           </Button>
         </div>
       </form>

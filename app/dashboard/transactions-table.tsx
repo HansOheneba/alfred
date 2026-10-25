@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { Spinner } from "@/app/components/status";
 import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerRow } from "@/lib/finance/analytics";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
@@ -331,8 +332,8 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={busy}>
-            {busy ? "Saving…" : "Save changes"}
+          <Button type="submit" variant="primary" disabled={busy} aria-busy={busy} aria-label="Save changes">
+            {busy ? <Spinner /> : "Save changes"}
           </Button>
         </div>
       </form>

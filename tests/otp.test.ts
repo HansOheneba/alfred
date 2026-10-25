@@ -1,8 +1,11 @@
 import { describe, expect, it } from "vitest";
 
-import { createEmailOtp, publicOtpError } from "@/lib/auth/issue-otp";
-import { formatFromAddress, otpEmail, sendResendEmail } from "@/lib/email/resend";
 import type { GenerateLinkParams, GenerateLinkResponse } from "@supabase/auth-js";
+
+import { EMAIL_OTP_EXPIRY_SECONDS, formatEmailOtpExpiry } from "@/lib/auth/email-otp";
+import { createEmailOtp, publicOtpError } from "@/lib/auth/issue-otp";
+import { ALFRED_EMAIL_AVATAR_URL } from "@/lib/email/otp-template";
+import { formatFromAddress, otpEmail, sendResendEmail } from "@/lib/email/resend";
 
 describe("otp email", () => {
   it("formats a bare address with the Alfred name", () => {
@@ -11,12 +14,28 @@ describe("otp email", () => {
     expect(formatFromAddress("not an email")).toBeNull();
   });
 
-  it("puts only the numeric code in the message", () => {
-    const message = otpEmail("123456");
-    expect(message.subject).toBe("Your Alfred code");
+  it("puts only the numeric code in the message", async () => {
+    const message = await otpEmail("12<3456>");
+    expect(message.subject).toBe("Your Alfred sign-in code");
+    expect(message.subject).not.toContain("123456");
     expect(message.text).toContain("123456");
+    expect(message.text).not.toContain("12<3456>");
     expect(message.html).toContain("123456");
+    expect(message.html).not.toContain("12<3456>");
     expect(message.text).not.toContain("<");
+    expect(message.html).toContain("This code is valid for 1 hour.");
+    expect(message.html).not.toContain("<!--");
+    expect(message.text).toContain("This code is valid for 1 hour.");
+    expect(message.html).toContain("Enter it to get back in. It stays valid for 1 hour.");
+    expect(message.html).toContain(ALFRED_EMAIL_AVATAR_URL);
+    expect(message.html).toContain('alt="Alfred"');
+    expect(message.html).toContain("Alfred");
+    expect(message.html).toContain("<table");
+    expect(message.html).toContain("background-color:#f8f7f3");
+    expect(message.html).not.toContain("localhost");
+    expect(message.html).not.toContain("file:");
+    expect(EMAIL_OTP_EXPIRY_SECONDS).toBe(3600);
+    expect(formatEmailOtpExpiry(EMAIL_OTP_EXPIRY_SECONDS)).toBe("1 hour");
   });
 
   it("sends through the Resend API and keeps the key in the header", async () => {

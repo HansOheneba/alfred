@@ -55,7 +55,13 @@ export async function POST(request: Request): Promise<Response> {
   }
   if (!issued.ok) return Response.json(issued, { status: 400 });
 
-  const message = otpEmail(issued.code);
+  let message: Awaited<ReturnType<typeof otpEmail>>;
+  try {
+    message = await otpEmail(issued.code);
+  } catch (error) {
+    logError("otp_render", error);
+    return Response.json({ ok: false, text: "Alfred could not send that code." }, { status: 500 });
+  }
   const sent = await sendResendEmail(resend, { to: parsed.data.email, ...message });
   if (!sent.ok) {
     logError("otp_send", new Error(sent.message));
