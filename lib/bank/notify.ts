@@ -1,4 +1,4 @@
-import { IN_CHOICES, OUT_CHOICES, labelQuestion, titleCase, type IngestOutcome, type Label } from "@/lib/bank/ingest";
+import { IN_CHOICES, OUT_CHOICES, labelQuestion, looksLikeOwner, titleCase, type IngestOutcome, type Label } from "@/lib/bank/ingest";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { MessageLog } from "@/lib/accounts/messages";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
@@ -24,13 +24,17 @@ export async function telegramChatFor(settings: SupabaseSettings, ownerId: strin
 }
 
 /** Category buttons under a question. Callback data is `b:<message id>:<code>`. */
-export function labelButtons(message: BankMessage): InlineButton[][] {
+export function labelButtons(message: BankMessage, ownerName = ""): InlineButton[][] {
   const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
   const buttons = choices.map((category, index) => ({ text: category, callbackData: `b:${message.id}:c${index}` }));
   const rows: InlineButton[][] = [];
+  const own: InlineButton = { text: message.direction === "in" ? "My own money" : "My own account", callbackData: `b:${message.id}:t` };
+  const ownerLike = looksLikeOwner(message.counterparty, ownerName);
+  // When the sender looks like the person, the likeliest answer goes first.
+  if (ownerLike) rows.push([own]);
   for (let index = 0; index < buttons.length; index += 4) rows.push(buttons.slice(index, index + 4));
   const extra: InlineButton[] = [];
-  if (message.direction === "in") extra.push({ text: "My own money", callbackData: `b:${message.id}:t` });
+  if (message.direction === "in" && !ownerLike) extra.push(own);
   extra.push({ text: "Skip", callbackData: `b:${message.id}:s` });
   rows.push(extra);
   return rows;
@@ -106,7 +110,12 @@ export async function announceOutcomes(delivery: Delivery, outcomes: IngestOutco
 }
 
 async function askAbout(delivery: Delivery, chatId: number, message: BankMessage) {
-  await send(delivery, chatId, labelQuestion(message, delivery.profile.timezone), labelButtons(message));
+  await send(
+    delivery,
+    chatId,
+    labelQuestion(message, delivery.profile.timezone, delivery.profile.preferredName),
+    labelButtons(message, delivery.profile.preferredName),
+  );
   await delivery.bank.updateMessage(delivery.profile.profileId, message.id, { askedAt: delivery.now.toISOString() });
 }
 

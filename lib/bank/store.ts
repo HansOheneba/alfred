@@ -45,6 +45,8 @@ export interface BankStore {
   getRule(ownerId: string, payeeKey: string): Promise<PayeeRule | null>;
   saveRule(ownerId: string, rule: PayeeRule): Promise<void>;
   accountNames(ownerId: string): Promise<string[]>;
+  /** Remembers another name on the person's own accounts. */
+  addAccountName(ownerId: string, name: string): Promise<void>;
 }
 
 type MessageRow = {
@@ -177,6 +179,14 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       const rows = await query<{ account_names: string }>(settings, "select account_names from public.profiles where id = $1::uuid", [ownerId]);
       return splitNames(rows[0]?.account_names ?? "");
     },
+    async addAccountName(ownerId, name) {
+      const current = await this.accountNames(ownerId);
+      if (current.some((item) => item.toLowerCase() === name.trim().toLowerCase())) return;
+      await query(settings, "update public.profiles set account_names = $2, updated_at = now() where id = $1::uuid", [
+        ownerId,
+        [...current, name.trim()].slice(0, 8).join("\n"),
+      ]);
+    },
   };
 }
 
@@ -239,6 +249,9 @@ export class MemoryBankStore implements BankStore {
   }
   async accountNames() {
     return this.names;
+  }
+  async addAccountName(_ownerId: string, name: string) {
+    if (!this.names.some((item) => item.toLowerCase() === name.toLowerCase())) this.names.push(name);
   }
 }
 

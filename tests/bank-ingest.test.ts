@@ -124,6 +124,57 @@ describe("payees Alfred already understands", () => {
   });
 });
 
+describe("smarter labelling", () => {
+  const FROM_ME =
+    "Payment received for GHS 1.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 344.94 . Available Balance: GHS 344.94. Reference: test. Transaction ID: 92300000001. TRANSACTION FEE: 0.00";
+  const FROM_ME_AGAIN =
+    "Payment received for GHS 2.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 346.94 . Available Balance: GHS 346.94. Reference: test. Transaction ID: 92300000002. TRANSACTION FEE: 0.00";
+
+  it("asks whether money from someone with your name is your own, then learns the name", async () => {
+    const { deps, bank, owner } = setup();
+    bank.names = [];
+    const me = { ...owner, preferredName: "Hans" };
+    const held = (await ingestBankText(deps, me, FROM_ME, { channel: "shortcut" })).outcomes[0].message;
+    expect(labelQuestion(held, "Africa/Accra", "Hans")).toContain("That looks like you. Was it your own money");
+    expect(labelButtons(held, "Hans")[0].map((button) => button.text)).toEqual(["My own money"]);
+
+    const done = await applyLabel(deps, me, held.id, { kind: "transfer" });
+    expect(done.text).toContain("I'll treat Hans Oheneba Aduse Opoku as you from now on.");
+    const next = await ingestBankText(deps, me, FROM_ME_AGAIN, { channel: "shortcut" });
+    expect(next.outcomes[0].outcome).toBe("transfer");
+  });
+
+  it("never learns a payee from a vague label or from your own name", async () => {
+    const { deps, bank, owner } = setup();
+    const held = (await ingestBankText(deps, owner, RUKAYA, { channel: "shortcut" })).outcomes[0].message;
+    await applyLabel(deps, owner, held.id, { kind: "category", category: "Misc" });
+    expect(bank.rules.size).toBe(0);
+  });
+
+  const AMOS =
+    "Payment made for GHS 31.50 to AMOS SEKYI SAM Current Balance: GHS 374.82 . Available Balance: GHS 374.82. Reference: . Transaction ID: 92243526792. Fee charged: GHS0.00";
+
+  it("answers 'what are those' with the next waiting payment, and moves on after each answer", async () => {
+    const { deps, owner } = setup();
+    await ingestBankText(deps, owner, `Sun, 4 Oct at 8:15 AM\n${RUKAYA}\nMon, 5 Oct at 9:00 AM\n${AMOS}`, { channel: "screenshot" });
+    const listed = await answerLabelReply(deps, owner, "What are those", async () => null);
+    expect(listed?.text).toContain("2 payments are waiting for a label.");
+    expect(listed?.next?.counterparty).toBe("RUKAYA ISSIFU");
+
+    const answered = await answerLabelReply(deps, owner, "food", async () => ({ kind: "category", category: "Food" }));
+    expect(answered?.text).toContain("Next: GH₵31.50 to Amos Sekyi Sam");
+    expect(answered?.text).not.toContain("above");
+  });
+
+  it("files other waiting payments to a payee once it's learned", async () => {
+    const { deps, bank, owner } = setup();
+    const result = await ingestBankText(deps, owner, `${RUKAYA}\n${RUKAYA_AGAIN}`, { channel: "screenshot" });
+    const done = await applyLabel(deps, owner, result.outcomes[0].message.id, { kind: "category", category: "Food" });
+    expect(done.text).toContain("I've also filed 1 other payment to Rukaya Issifu the same way.");
+    expect(await bank.listMessages("42", "needs_label")).toHaveLength(0);
+  });
+});
+
 describe("telegram label buttons", () => {
   it("records the tapped category and edits the question", async () => {
     const bank = new MemoryBankStore();

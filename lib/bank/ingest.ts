@@ -31,6 +31,18 @@ function learnable(counterparty: string): boolean {
   return Boolean(counterparty) && !/^gcb prepaid card/i.test(counterparty) && classifyPayee(counterparty).kind !== "channel";
 }
 
+/**
+ * True when a sender shares the person's first name, e.g. HANS OHENEBA… for Hans.
+ * Used only to ask the right question; it never files anything on its own.
+ */
+export function looksLikeOwner(counterparty: string, preferredName: string): boolean {
+  const first = preferredName.trim().split(/\s+/)[0]?.toLowerCase();
+  return Boolean(first && first.length > 1 && counterparty.trim().toLowerCase().split(/\s+/)[0] === first);
+}
+
+/** Labels too vague to teach Alfred anything about a payee. */
+const VAGUE = new Set(["Other", "Misc"]);
+
 export function titleCase(value: string): string {
   return value.toLowerCase().replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
 }
@@ -216,7 +228,15 @@ export async function applyLabel(
   }
   if (label.kind === "transfer") {
     await deps.bank.updateMessage(profile.profileId, message.id, { status: "transfer", kind: "transfer_own" });
-    return { ok: true, text: `Noted. ${money} was your own money moving between accounts, so it isn't counted as income or spending.` };
+    // A named sender or recipient that is "my own money" is one of the person's own accounts; remember it.
+    const named = learnable(message.counterparty) && classifyPayee(message.counterparty).kind === "person";
+    if (named) await deps.bank.addAccountName(profile.profileId, titleCase(message.counterparty));
+    return {
+      ok: true,
+      text: named
+        ? `Noted. ${money} was your own money moving between accounts, so it isn't counted. I'll treat ${titleCase(message.counterparty)} as you from now on.`
+        : `Noted. ${money} was your own money moving between accounts, so it isn't counted as income or spending.`,
+    };
   }
 
   const type = message.direction === "out" ? "expense" : "income";
@@ -225,29 +245,44 @@ export async function applyLabel(
   const description = label.description?.trim() || describe(message);
   const id = await record(deps, profile, message, { type, amount: message.amount, category, description });
   await deps.bank.updateMessage(profile.profileId, message.id, { status: "recorded", transactionId: id });
-  const remembers = learnable(message.counterparty);
+  const remembers = learnable(message.counterparty) && !VAGUE.has(category) && !looksLikeOwner(message.counterparty, profile.preferredName);
+  let alsoFiled = 0;
   if (remembers) {
-    await deps.bank.saveRule(profile.profileId, {
-      payeeKey: payeeKey(message.counterparty),
-      category,
-      description: label.description?.trim() ? description : "",
-    });
+    const key = payeeKey(message.counterparty);
+    const ruleDescription = label.description?.trim() ? description : "";
+    await deps.bank.saveRule(profile.profileId, { payeeKey: key, category, description: ruleDescription });
+    // Other payments to the same payee that were waiting can be filed now too.
+    const same = (await deps.bank.listMessages(profile.profileId, "needs_label")).filter(
+      (item) => item.direction === message.direction && payeeKey(item.counterparty) === key,
+    );
+    for (const item of same) {
+      const otherId = await record(deps, profile, item, { type, amount: item.amount, category, description: ruleDescription || describe(item) });
+      await deps.bank.updateMessage(profile.profileId, item.id, { status: "recorded", transactionId: otherId });
+      alsoFiled += 1;
+    }
   }
   const who = titleCase(message.counterparty);
+  const extra = alsoFiled > 0 ? ` I've also filed ${alsoFiled} other payment${alsoFiled === 1 ? "" : "s"} to ${who} the same way.` : "";
   return {
     ok: true,
     text: remembers
-      ? `Filed ${money} under ${category}. I'll file ${who} as ${category} from now on.`
+      ? `Filed ${money} under ${category}. I'll file ${who} as ${category} from now on.${extra}`
       : `Filed ${money} under ${category}.`,
   };
 }
 
 /** The question Alfred asks about a held payment. */
-export function labelQuestion(message: BankMessage, timeZone: string): string {
+export function labelQuestion(message: BankMessage, timeZone: string, ownerName = ""): string {
   const money = formatAmount(message.amount, message.currency);
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone }).format(
     new Date(message.occurredAt),
   );
+  if (looksLikeOwner(message.counterparty, ownerName)) {
+    const who = titleCase(message.counterparty);
+    return message.direction === "in"
+      ? `${money} came in from ${who} · ${when}. That looks like you. Was it your own money moving from another account, or something else?`
+      : `${money} went to ${who} · ${when}. That looks like you. Was it a transfer to your own account, or something else?`;
+  }
   const payee = classifyPayee(message.counterparty);
   if (payee.kind === "channel") {
     const network = titleCase(message.counterparty);

@@ -140,7 +140,7 @@ async function loadBank(settings: StudioSettings, profile: UserProfile): Promise
       currency: message.currency,
       counterparty: message.counterparty,
       occurredAt: message.occurredAt,
-      question: labelQuestion(message, profile.timezone),
+      question: labelQuestion(message, profile.timezone, profile.preferredName),
     })),
     balances: balances.map((row) => ({
       source: row.source,

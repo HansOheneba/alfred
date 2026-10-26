@@ -4,8 +4,8 @@ import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import { applyLabel, labelQuestion } from "@/lib/bank/ingest";
-import { labelFromCode, parseLabelCallback } from "@/lib/bank/notify";
-import { answerLabelReply, createReplyClassifier, type ReplyClassifier } from "@/lib/bank/reply";
+import { labelButtons, labelFromCode, parseLabelCallback } from "@/lib/bank/notify";
+import { answerLabelReply, askNext, createReplyClassifier, type ReplyClassifier } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { readImageText, type ImageText } from "@/lib/ocr/read-image";
@@ -134,7 +134,14 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
         text,
         deps.classifyReply,
       );
-      if (labelled) return { kind: "text", text: labelled.text, intent: "bank:label" };
+      if (labelled) {
+        return {
+          kind: "text",
+          text: labelled.text,
+          intent: "bank:label",
+          buttons: labelled.next ? labelButtons(labelled.next, profile.preferredName) : undefined,
+        };
+      }
     }
     const { action, context, cue } = await interpretWithContext({
       text,
@@ -214,8 +221,22 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     const choice = !label ? "" : label.kind === "category" ? label.category : label.kind === "transfer" ? "My own money" : "Skip";
     return withClaim(update.update_id, actor, profile, deps, { userText: choice || "Label", channel: "telegram" }, async () => {
       if (!message || !label) return { kind: "text", text: "That button is no longer valid." };
-      const result = await applyLabel({ bank, ledger: store, now: deps.now(), createId: deps.createId }, profile, message.id, label);
-      return { kind: "text", text: `${labelQuestion(message, profile.timezone)}\n\n${result.ok ? "✓ " : ""}${result.text}`, intent: "bank:label" };
+      const ingest = { bank, ledger: store, now: deps.now(), createId: deps.createId };
+      const result = await applyLabel(ingest, profile, message.id, label);
+      // Keep the conversation moving: ask about the next waiting payment, with its own buttons.
+      const next = result.ok ? await askNext(ingest, profile) : null;
+      if (next) {
+        const question = labelQuestion(next, profile.timezone, profile.preferredName);
+        await deps.telegram.sendMessage(actor.chatId, question, labelButtons(next, profile.preferredName));
+        await deps.messages
+          ?.append({ ownerId: profile.profileId, role: "assistant", body: question, channel: "telegram", intent: "bank:notice" })
+          .catch((error) => logError("bank_message_log", error));
+      }
+      return {
+        kind: "text",
+        text: `${labelQuestion(message, profile.timezone, profile.preferredName)}\n\n${result.ok ? "✓ " : ""}${result.text}`,
+        intent: "bank:label",
+      };
     });
   }
   const decision = callback.data ? parseCallbackData(callback.data) : null;
@@ -246,7 +267,7 @@ async function withClaim(
   profile: NonNullable<Awaited<ReturnType<AccountDirectory["resolveTelegram"]>>>,
   deps: HandlerDeps,
   exchange: { userText: string; channel: "telegram" },
-  produce: (ctx: ActionContext) => Promise<Delivery & { intent?: string }>,
+  produce: (ctx: ActionContext) => Promise<TelegramDelivery>,
 ): Promise<{ httpStatus: number }> {
   const store = deps.store;
   if (!store) return { httpStatus: 200 };
@@ -278,7 +299,7 @@ async function withClaim(
     return { httpStatus: 200 };
   }
 
-  let delivery: Delivery & { intent?: string };
+  let delivery: TelegramDelivery;
   try {
     delivery = await produce(actionContext(actor, deps, profile, updateId));
   } catch (error) {
@@ -340,14 +361,17 @@ function actionContext(
   };
 }
 
-async function deliver(deps: HandlerDeps, actor: Actor, delivery: Delivery): Promise<void> {
-  const buttons: InlineButton[] | undefined =
+/** A reply plus what to store with it, and any buttons beyond Confirm and Cancel. */
+type TelegramDelivery = Delivery & { intent?: string; buttons?: InlineButton[][] };
+
+async function deliver(deps: HandlerDeps, actor: Actor, delivery: TelegramDelivery): Promise<void> {
+  const buttons: InlineButton[] | InlineButton[][] | undefined =
     delivery.kind === "confirm" && delivery.actionId
       ? [
           { text: "Confirm", callbackData: `c:${delivery.actionId}` },
           { text: "Cancel", callbackData: `x:${delivery.actionId}` },
         ]
-      : undefined;
+      : delivery.buttons;
   if (actor.callbackId && actor.messageId) {
     try {
       await deps.telegram.editMessageText(actor.chatId, actor.messageId, delivery.text);
