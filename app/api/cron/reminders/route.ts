@@ -1,6 +1,7 @@
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { askHeldQuestions } from "@/lib/bank/notify";
+import { createSupabaseLoanStore } from "@/lib/finance/loans";
 import { createSupabaseBankStore } from "@/lib/bank/store";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { getSettings } from "@/lib/env";
@@ -47,7 +48,7 @@ async function askHeldBankQuestions(settings: SupabaseSettings, telegram: Telegr
     (profile): profile is UserProfile => profile != null,
   );
   return askHeldQuestions(
-    { settings, bank: createSupabaseBankStore(settings), telegram, messages: createSupabaseMessageLog(settings), now: new Date() },
+    { settings, bank: createSupabaseBankStore(settings), loans: createSupabaseLoanStore(settings), telegram, messages: createSupabaseMessageLog(settings), now: new Date() },
     profiles,
   );
 }

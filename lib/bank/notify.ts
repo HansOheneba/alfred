@@ -1,7 +1,9 @@
-import { IN_CHOICES, OUT_CHOICES, labelQuestion, looksLikeOwner, titleCase, type IngestOutcome, type Label } from "@/lib/bank/ingest";
+import { IN_CHOICES, OUT_CHOICES, labelQuestion, learnable, looksLikeOwner, titleCase, type IngestOutcome, type Label } from "@/lib/bank/ingest";
+import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { MessageLog } from "@/lib/accounts/messages";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
+import { owedBy, type LoanStore } from "@/lib/finance/loans";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
 import { query } from "@/lib/supabase/connection";
@@ -23,36 +25,6 @@ export async function telegramChatFor(settings: SupabaseSettings, ownerId: strin
   return chat ? Number(chat) : null;
 }
 
-/** Category buttons under a question. Callback data is `b:<message id>:<code>`. */
-export function labelButtons(message: BankMessage, ownerName = ""): InlineButton[][] {
-  const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
-  const buttons = choices.map((category, index) => ({ text: category, callbackData: `b:${message.id}:c${index}` }));
-  const rows: InlineButton[][] = [];
-  const own: InlineButton = { text: message.direction === "in" ? "My own money" : "My own account", callbackData: `b:${message.id}:t` };
-  const ownerLike = looksLikeOwner(message.counterparty, ownerName);
-  // When the sender looks like the person, the likeliest answer goes first.
-  if (ownerLike) rows.push([own]);
-  for (let index = 0; index < buttons.length; index += 4) rows.push(buttons.slice(index, index + 4));
-  const extra: InlineButton[] = [];
-  if (message.direction === "in" && !ownerLike) extra.push(own);
-  extra.push({ text: "Skip", callbackData: `b:${message.id}:s` });
-  rows.push(extra);
-  return rows;
-}
-
-export function parseLabelCallback(data: string): { messageId: string; code: string } | null {
-  const match = /^b:([0-9a-f-]{36}):(c\d|t|s)$/i.exec(data);
-  return match ? { messageId: match[1].toLowerCase(), code: match[2] } : null;
-}
-
-export function labelFromCode(message: BankMessage, code: string): Label | null {
-  if (code === "s") return { kind: "skip" };
-  if (code === "t") return { kind: "transfer" };
-  const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
-  const category = choices[Number(code.slice(1))];
-  return category ? { kind: "category", category } : null;
-}
-
 function summaryLine(outcome: IngestOutcome): string | null {
   const message = outcome.message;
   const money = formatAmount(message.amount, message.currency);
@@ -71,6 +43,7 @@ type Delivery = {
   messages: MessageLog | null;
   profile: UserProfile;
   now: Date;
+  loans?: LoanStore;
 };
 
 async function send(delivery: Delivery, chatId: number, text: string, buttons?: InlineButton[][]) {
@@ -82,55 +55,150 @@ async function send(delivery: Delivery, chatId: number, text: string, buttons?: 
     .catch((error) => logError("bank_message_log", error));
 }
 
+/** Category buttons under a question. Callback data is `b:<message id>:<code>`. */
+export function labelButtons(message: BankMessage, ownerName = "", options: { owed?: boolean; lending?: boolean } = {}): InlineButton[][] {
+  const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
+  const buttons = choices.map((category, index) => ({ text: category, callbackData: `b:${message.id}:c${index}` }));
+  const rows: InlineButton[][] = [];
+  const own: InlineButton = { text: message.direction === "in" ? "My own money" : "My own account", callbackData: `b:${message.id}:t` };
+  const ownerLike = looksLikeOwner(message.counterparty, ownerName);
+  // When the sender looks like the person, or owes them money, the likeliest answer goes first.
+  if (options.owed && message.direction === "in") rows.push([{ text: "Yes, paying me back", callbackData: `b:${message.id}:r` }]);
+  if (ownerLike) rows.push([own]);
+  for (let index = 0; index < buttons.length; index += 4) rows.push(buttons.slice(index, index + 4));
+  const extra: InlineButton[] = [];
+  if (message.direction === "in" && !ownerLike) extra.push(own);
+  // Lending needs a name, so it's offered only when the message names a person.
+  if (options.lending && message.direction === "out" && !ownerLike && learnable(message.counterparty) && classifyPayee(message.counterparty).kind === "person") {
+    extra.push({ text: "I lent it", callbackData: `b:${message.id}:l` });
+  }
+  extra.push({ text: "Skip", callbackData: `b:${message.id}:s` });
+  rows.push(extra);
+  return rows;
+}
+
+export function parseLabelCallback(data: string): { messageId: string; code: string } | null {
+  const match = /^b:([0-9a-f-]{36}):(c\d|t|s|r|l)$/i.exec(data);
+  return match ? { messageId: match[1].toLowerCase(), code: match[2] } : null;
+}
+
+export function labelFromCode(message: BankMessage, code: string): Label | null {
+  if (code === "s") return { kind: "skip" };
+  if (code === "t") return { kind: "transfer" };
+  if (code === "r") return { kind: "repaid" };
+  if (code === "l") return { kind: "lent" };
+  const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
+  const category = choices[Number(code.slice(1))];
+  return category ? { kind: "category", category } : null;
+}
+
+/** What a button press reads as in the conversation. */
+export function labelChoiceText(label: Label): string {
+  if (label.kind === "category") return label.category;
+  if (label.kind === "transfer") return "My own money";
+  if (label.kind === "repaid") return "Paying me back";
+  if (label.kind === "lent") return "I lent it";
+  return "Skip";
+}
+
+export type Question = { text: string; buttons: InlineButton[][] };
+
 /**
- * Tells the person what happened to newly read messages: one short note for
- * everything filed automatically, and a question with buttons for each payment
- * Alfred couldn't place. Questions wait during quiet hours.
+ * The question and buttons for one waiting payment. Money from someone who
+ * owes the person is asked about as a possible repayment.
+ */
+export async function questionFor(loans: LoanStore | undefined, profile: UserProfile, message: BankMessage): Promise<Question> {
+  const owed =
+    loans && message.direction === "in" && learnable(message.counterparty) ? await owedBy(loans, profile.profileId, message.counterparty) : null;
+  return {
+    text: labelQuestion(message, profile.timezone, profile.preferredName, owed),
+    buttons: labelButtons(message, profile.preferredName, { owed: Boolean(owed), lending: Boolean(loans) }),
+  };
+}
+
+/** How to answer several at once, shown when more than one payment is waiting. */
+export const NATURAL_HINT =
+  "You can answer in your own words, even several at once, like “everything to Adisah was office snacks” or “the 400 to Deborah was a loan”.";
+
+function plural(count: number, one: string, many = `${one}s`): string {
+  return `${count} ${count === 1 ? one : many}`;
+}
+
+/** One line per outcome when there are a few, or a single tally when there are many. */
+function summarize(outcomes: IngestOutcome[], currency: string): string[] {
+  const fees = outcomes.filter((item) => item.feeRecorded).reduce((sum, item) => sum + Math.round(Number(item.message.fee) * 100), 0);
+  const feeLine = fees > 0 ? `${formatAmount((fees / 100).toFixed(2), currency)} in fees went under Fees.` : null;
+  const settled = outcomes.filter((item) => item.outcome !== "needs_label");
+  if (outcomes.length <= 3) {
+    const lines = settled.map(summaryLine).filter((line): line is string => Boolean(line));
+    return feeLine ? [...lines, feeLine] : lines;
+  }
+  const count = (kind: IngestOutcome["outcome"]) => outcomes.filter((item) => item.outcome === kind).length;
+  const filed = outcomes.filter((item) => item.outcome === "recorded");
+  const categories = [...new Set(filed.map((item) => item.category).filter(Boolean))].join(", ");
+  const parts = [
+    filed.length ? `${filed.length} filed automatically${categories ? ` (${categories})` : ""}` : "",
+    count("matched") ? `${count("matched")} matched something you'd logged` : "",
+    count("transfer") ? `${plural(count("transfer"), "was", "were")} your own money moving` : "",
+    count("loan") ? `${plural(count("loan"), "loan deposit")}` : "",
+    count("needs_label") ? `${count("needs_label")} need${count("needs_label") === 1 ? "s" : ""} a label` : "",
+  ].filter(Boolean);
+  const lines = [`I read ${plural(outcomes.length, "new payment")}: ${parts.join(", ")}.`];
+  return feeLine ? [...lines, feeLine] : lines;
+}
+
+/**
+ * Tells the person what happened to newly read messages in one message: a
+ * summary, then the first payment that needs a label, with buttons. The rest
+ * are asked one at a time as they answer. Questions wait during quiet hours.
  */
 export async function announceOutcomes(delivery: Delivery, outcomes: IngestOutcome[]): Promise<{ asked: number }> {
   const chatId = await telegramChatFor(delivery.settings, delivery.profile.profileId);
-  if (!chatId || !delivery.telegram) return { asked: 0 };
+  if (!chatId || !delivery.telegram || outcomes.length === 0) return { asked: 0 };
   const quiet = isQuietHours(delivery.now, delivery.profile.timezone);
+  const lines = summarize(outcomes, delivery.profile.currency);
+  const waiting = outcomes.filter((item) => item.outcome === "needs_label").length;
 
-  const notes = outcomes.map(summaryLine).filter((line): line is string => Boolean(line));
-  const fees = outcomes.filter((item) => item.feeRecorded);
-  if (fees.length > 0) {
-    const total = fees.reduce((sum, item) => sum + Number(item.message.fee), 0).toFixed(2);
-    notes.push(`Logged ${formatAmount(total, delivery.profile.currency)} in fees under Fees.`);
+  if (quiet || waiting === 0) {
+    if (quiet && waiting > 0) lines.push(`I'll ask about the ${waiting === 1 ? "one" : waiting} that need${waiting === 1 ? "s" : ""} a label in the morning.`);
+    if (lines.length > 0) await send(delivery, chatId, lines.join("\n"));
+    return { asked: 0 };
   }
-  if (notes.length > 0 && !quiet) await send(delivery, chatId, notes.join("\n"));
-
-  if (quiet) return { asked: 0 };
-  let asked = 0;
-  for (const outcome of outcomes.filter((item) => item.outcome === "needs_label")) {
-    await askAbout(delivery, chatId, outcome.message);
-    asked += 1;
+  const next = await askNextWaiting(delivery);
+  if (!next) {
+    if (lines.length > 0) await send(delivery, chatId, lines.join("\n"));
+    return { asked: 0 };
   }
-  return { asked };
+  const question = await questionFor(delivery.loans, delivery.profile, next);
+  const total = (await delivery.bank.listMessages(delivery.profile.profileId, "needs_label")).length;
+  const intro = total > 1 ? [`${NATURAL_HINT}`, "", `First of ${total}:`] : [];
+  await send(delivery, chatId, [...lines, ...(lines.length ? [""] : []), ...intro, question.text].join("\n"), question.buttons);
+  return { asked: 1 };
 }
 
-async function askAbout(delivery: Delivery, chatId: number, message: BankMessage) {
-  await send(
-    delivery,
-    chatId,
-    labelQuestion(message, delivery.profile.timezone, delivery.profile.preferredName),
-    labelButtons(message, delivery.profile.preferredName),
-  );
-  await delivery.bank.updateMessage(delivery.profile.profileId, message.id, { askedAt: delivery.now.toISOString() });
+/** The oldest payment still waiting, marked as the one being asked about now. */
+async function askNextWaiting(delivery: Pick<Delivery, "bank" | "profile" | "now">): Promise<BankMessage | null> {
+  const waiting = await delivery.bank.listMessages(delivery.profile.profileId, "needs_label");
+  const next = [...waiting].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))[0] ?? null;
+  if (next) await delivery.bank.updateMessage(delivery.profile.profileId, next.id, { askedAt: delivery.now.toISOString() });
+  return next;
 }
 
-/** Asks about anything held overnight or never asked. Runs from the daily cron. */
+/** Morning nudge about payments held overnight or never asked: one message per person. Runs from the daily cron. */
 export async function askHeldQuestions(delivery: Omit<Delivery, "profile">, profiles: UserProfile[]): Promise<number> {
   let asked = 0;
   for (const profile of profiles) {
     if (isQuietHours(delivery.now, profile.timezone)) continue;
     const chatId = await telegramChatFor(delivery.settings, profile.profileId);
     if (!chatId) continue;
-    const held = (await delivery.bank.listMessages(profile.profileId, "needs_label")).filter((item) => !item.askedAt).slice(0, 10);
-    for (const message of held.reverse()) {
-      await askAbout({ ...delivery, profile }, chatId, message);
-      asked += 1;
-    }
+    const waiting = await delivery.bank.listMessages(profile.profileId, "needs_label");
+    if (!waiting.some((item) => !item.askedAt)) continue;
+    const next = await askNextWaiting({ ...delivery, profile });
+    if (!next) continue;
+    const question = await questionFor(delivery.loans, profile, next);
+    const intro = waiting.length > 1 ? [`${plural(waiting.length, "payment")} still need a label. ${NATURAL_HINT}`, "", "First:"] : [];
+    await send({ ...delivery, profile }, chatId, [...intro, question.text].join("\n"), question.buttons);
+    asked += 1;
   }
   return asked;
 }

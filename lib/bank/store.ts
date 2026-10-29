@@ -4,8 +4,8 @@ import type { SupabaseSettings } from "@/lib/config";
 import { query } from "@/lib/supabase/connection";
 import type { BankSource } from "@/lib/bank/parse";
 
-export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped";
-export type BankKind = "payment" | "transfer_own" | "loan_in" | "unknown";
+export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid";
+export type BankKind = "payment" | "transfer_own" | "loan_in" | "unknown" | "loan_out" | "loan_repay";
 
 export type BankMessage = {
   id: string;
@@ -32,6 +32,15 @@ export type NewBankMessage = Omit<BankMessage, "id" | "transactionId" | "feeTran
 
 export type PayeeRule = { payeeKey: string; category: string; description: string };
 
+/** One thing a label changed, recorded so "undo" can put it back. */
+export type LabelChange = {
+  messageId: string;
+  previous: { status: BankStatus; kind: BankKind };
+  transactionIds: string[];
+  loanId?: string;
+  rule?: { payeeKey: string; previous: PayeeRule | null };
+};
+
 export interface BankStore {
   /** Inserts a message, or returns null when the same message was already stored. */
   insertMessage(row: NewBankMessage): Promise<BankMessage | null>;
@@ -47,6 +56,16 @@ export interface BankStore {
   accountNames(ownerId: string): Promise<string[]>;
   /** Remembers another name on the person's own accounts. */
   addAccountName(ownerId: string, name: string): Promise<void>;
+  deleteRule(ownerId: string, payeeKey: string): Promise<void>;
+  /** Keeps the latest batch of label changes, replacing the one before. */
+  saveUndo(ownerId: string, changes: LabelChange[]): Promise<void>;
+  /** Hands back the latest batch, if it's recent, and forgets it. */
+  takeUndo(ownerId: string, since: Date): Promise<LabelChange[] | null>;
+  /**
+   * Marks forwarded messages as announced and returns them, but only once
+   * none has arrived for `quietMs`, so a burst of texts gets one summary.
+   */
+  claimUnannounced(ownerId: string, quietMs: number): Promise<BankMessage[]>;
 }
 
 type MessageRow = {
@@ -179,6 +198,41 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       const rows = await query<{ account_names: string }>(settings, "select account_names from public.profiles where id = $1::uuid", [ownerId]);
       return splitNames(rows[0]?.account_names ?? "");
     },
+    async deleteRule(ownerId, payeeKey) {
+      await query(settings, "delete from public.payee_rules where owner_id = $1::uuid and payee_key = $2", [ownerId, payeeKey]);
+    },
+    async saveUndo(ownerId, changes) {
+      await query(
+        settings,
+        `insert into public.label_undo (owner_id, changes) values ($1::uuid, $2::jsonb)
+         on conflict (owner_id) do update set changes = excluded.changes, created_at = now()`,
+        [ownerId, JSON.stringify(changes)],
+      );
+    },
+    async takeUndo(ownerId, since) {
+      const rows = await query<{ changes: LabelChange[] }>(
+        settings,
+        "delete from public.label_undo where owner_id = $1::uuid returning changes, created_at >= $2 as fresh",
+        [ownerId, since.toISOString()],
+      );
+      const row = rows[0] as { changes: LabelChange[]; fresh?: boolean } | undefined;
+      return row?.fresh ? row.changes : null;
+    },
+    async claimUnannounced(ownerId, quietMs) {
+      const rows = await query<MessageRow>(
+        settings,
+        `update public.bank_messages set announced_at = now()
+         where owner_id = $1::uuid and announced_at is null and channel in ('shortcut', 'mac')
+           and not exists (
+             select 1 from public.bank_messages recent
+             where recent.owner_id = $1::uuid and recent.announced_at is null and recent.channel in ('shortcut', 'mac')
+               and recent.created_at > now() - make_interval(secs => $2::double precision / 1000)
+           )
+         returning ${columns}`,
+        [ownerId, quietMs],
+      );
+      return rows.map(fromRow).sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
+    },
     async addAccountName(ownerId, name) {
       const current = await this.accountNames(ownerId);
       if (current.some((item) => item.toLowerCase() === name.trim().toLowerCase())) return;
@@ -203,6 +257,8 @@ export class MemoryBankStore implements BankStore {
   messages: (BankMessage & { textHash: string })[] = [];
   rules = new Map<string, PayeeRule>();
   names: string[] = [];
+  undo: { changes: LabelChange[]; at: Date } | null = null;
+  announced = new Set<string>();
 
   async insertMessage(row: NewBankMessage) {
     const duplicate = this.messages.some(
@@ -252,6 +308,22 @@ export class MemoryBankStore implements BankStore {
   }
   async addAccountName(_ownerId: string, name: string) {
     if (!this.names.some((item) => item.toLowerCase() === name.toLowerCase())) this.names.push(name);
+  }
+  async deleteRule(_ownerId: string, payeeKey: string) {
+    this.rules.delete(payeeKey);
+  }
+  async saveUndo(_ownerId: string, changes: LabelChange[]) {
+    this.undo = { changes, at: new Date() };
+  }
+  async takeUndo(_ownerId: string, since: Date) {
+    const undo = this.undo;
+    this.undo = null;
+    return undo && undo.at >= since ? undo.changes : null;
+  }
+  async claimUnannounced(ownerId: string) {
+    const fresh = this.messages.filter((item) => item.ownerId === ownerId && !this.announced.has(item.id) && (item.channel === "shortcut" || item.channel === "mac"));
+    for (const item of fresh) this.announced.add(item.id);
+    return fresh.map((item) => ({ ...item })).sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
   }
 }
 

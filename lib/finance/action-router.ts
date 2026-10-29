@@ -16,6 +16,7 @@ import {
 import { formatMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
 import { buildInsights } from "@/lib/finance/insights";
+import { findPerson, loanBalances, owedBy, type LoanStore } from "@/lib/finance/loans";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
 import type { FinanceAction, PendingPayload } from "@/lib/finance/schemas";
 import { pendingPayloadSchema } from "@/lib/finance/schemas";
@@ -69,6 +70,8 @@ export type ActionContext = {
   createId: () => string;
   createActionId: () => string;
   conversation?: ConversationContext | null;
+  /** Money lent out. Loan actions say they're unavailable without it. */
+  loans?: LoanStore | null;
 };
 
 export async function handleAction(action: FinanceAction, ctx: ActionContext): Promise<Delivery> {
@@ -89,6 +92,10 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return overview(action, ctx);
     case "get_insights":
       return insights(action, ctx);
+    case "get_loans":
+      return loansOwed(action, ctx);
+    case "record_loan":
+      return recordLoan(action, ctx);
     case "get_transaction_history":
       return history(action, ctx);
     case "set_budget":
@@ -123,6 +130,21 @@ export async function executeConfirmed(
       now: ctx.now,
     });
     return { text: await loggedReply(ctx, result), context: savedContext(ctx, result.succeeded) };
+  }
+  if (payload.type === "record_loan") {
+    if (!ctx.loans) return { text: "I can't track loans right now. Nothing was saved." };
+    await ctx.loans.add(userId, {
+      person: payload.person,
+      kind: payload.direction,
+      amount: payload.amount,
+      currency: payload.currency,
+      occurredAt: new Date(`${payload.date}T12:00:00Z`).toISOString(),
+      note: payload.note,
+      bankMessageId: null,
+    });
+    const left = await owedBy(ctx.loans, userId, payload.person);
+    const owes = left ? `${payload.person} owes you ${formatMoneyAmount(left.owed, left.currency)} in total.` : `${payload.person} has paid you back in full.`;
+    return { text: `Done. ${owes}` };
   }
   if (payload.type === "set_budget") {
     const timestamp = ctx.now.toISOString();
@@ -567,6 +589,44 @@ async function history(
   shown.forEach((item, index) => lines.push(`${index + 1}. ${oneLine(item)}`));
   if (rows.length > shown.length) lines.push(`${rows.length - shown.length} more are not shown.`);
   return { kind: "text", text: lines.join("\n") };
+}
+
+async function loansOwed(action: Extract<FinanceAction, { type: "get_loans" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.loans) return { kind: "text", text: "I can't see loans right now." };
+  const balances = loanBalances(await ctx.loans.list(ctx.profile.profileId));
+  if (action.person) {
+    const match = findPerson(balances, action.person);
+    if (!match) return { kind: "text", text: `I don't have any loans to ${action.person} on record.` };
+    const lent = formatMoneyAmount(match.lent, match.currency);
+    if (Number(match.owed) === 0) return { kind: "text", text: `${match.person} has paid back everything you lent (${lent}).` };
+    const repaid = Number(match.repaid) > 0 ? `, and has paid back ${formatMoneyAmount(match.repaid, match.currency)}` : "";
+    return { kind: "text", text: `${match.person} owes you ${formatMoneyAmount(match.owed, match.currency)}. You lent ${lent} in total${repaid}.` };
+  }
+  const owing = balances.filter((item) => Number(item.owed) > 0);
+  if (owing.length === 0) return { kind: "text", text: "No one owes you anything right now." };
+  const lines = owing.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owed, item.currency)}`);
+  return { kind: "text", text: [`${owing.length === 1 ? "One person owes" : `${owing.length} people owe`} you money:`, ...lines].join("\n") };
+}
+
+async function recordLoan(action: Extract<FinanceAction, { type: "record_loan" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.loans) return { kind: "text", text: "I can't track loans right now." };
+  // "Debby paid me back" should land on the Deborah Alfred already knows.
+  const known = findPerson(loanBalances(await ctx.loans.list(ctx.profile.profileId)), action.person);
+  const person = known?.person ?? action.person.trim().replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+  const today = zonedYmd(ctx.now, ctx.profile.timezone);
+  const date = action.date && isSaneTransactionDate(action.date, today) && action.date <= today ? action.date : today;
+  const amount = formatMoneyAmount(action.amount, action.currency);
+  const line = action.direction === "lent" ? `Record that you lent ${person} ${amount} on ${formatDisplayDate(date)}?` : `Record that ${person} paid you back ${amount} on ${formatDisplayDate(date)}?`;
+  return saveConfirmation(ctx, [line, action.direction === "lent" ? "It won't count as spending." : "It won't count as income.", "", "Confirm or cancel."].join("\n"), {
+    type: "record_loan",
+    originUpdateId: String(ctx.updateId),
+    direction: action.direction,
+    person,
+    amount: action.amount,
+    currency: action.currency,
+    date,
+    note: action.note?.trim() ?? "",
+  });
 }
 
 async function setBudget(

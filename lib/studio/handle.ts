@@ -3,7 +3,8 @@ import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
-import { answerLabelReply, createReplyClassifier, type ReplyClassifier } from "@/lib/bank/reply";
+import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
+import { answerLabelReply, createLabelResolver, type LabelResolver } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
@@ -43,7 +44,8 @@ export type StudioDeps = {
   messages?: MessageLog | null;
   voice?: Voice | null;
   bank?: BankStore | null;
-  classifyReply?: ReplyClassifier | null;
+  resolveLabels?: LabelResolver | null;
+  loans?: LoanStore | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -112,6 +114,7 @@ export async function handleProfileTurn(
     pendingTtlMs: LIMITS.pendingTtlMs,
     createId: deps.createId,
     createActionId: deps.createActionId,
+    loans: deps.loans ?? null,
   };
 
   let result: StudioResult;
@@ -149,12 +152,12 @@ async function respond(
 ): Promise<Delivery & { intent?: string }> {
   const settled = await answerTypedDecision(text, ctx);
   if (settled) return { kind: "text", text: settled.text, context: settled.context };
-  if (deps.bank && deps.classifyReply) {
+  if (deps.bank && deps.resolveLabels) {
     const labelled = await answerLabelReply(
-      { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId },
+      { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined },
       ctx.profile,
       text,
-      deps.classifyReply,
+      deps.resolveLabels,
     );
     if (labelled) return { kind: "text", text: labelled.text, intent: "bank:label" };
   }
@@ -264,6 +267,7 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     messages: createSupabaseMessageLog(settings.supabase),
     voice: createVoice(settings.deepseek),
     bank: createSupabaseBankStore(settings.supabase),
-    classifyReply: createReplyClassifier(settings.deepseek),
+    resolveLabels: createLabelResolver(settings.deepseek),
+    loans: createSupabaseLoanStore(settings.supabase),
   };
 }

@@ -1,7 +1,7 @@
 import type { IngestOutcome } from "@/lib/bank/ingest";
 import { titleCase } from "@/lib/bank/ingest";
 import { parseBankText } from "@/lib/bank/parse";
-import { ingestAndAnnounce } from "@/lib/bank/service";
+import { ingestBankMessages } from "@/lib/bank/service";
 import { createSupabaseBankStore } from "@/lib/bank/store";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { formatAmount } from "@/lib/finance/money";
@@ -29,7 +29,7 @@ function line(outcome: IngestOutcome): string {
 export async function bankScreenshotReply(settings: SupabaseSettings, profile: UserProfile, image: ImageText): Promise<string | null> {
   const parsed = parseBankText(image.text, { now: new Date(), timeZone: profile.timezone });
   if (parsed.length === 0) return null;
-  const result = await ingestAndAnnounce(settings, profile, image.text, { channel: "screenshot", announce: false });
+  const result = await ingestBankMessages(settings, profile, image.text, { channel: "screenshot" });
 
   // These questions were asked here in chat, so a typed reply can answer them.
   const bank = createSupabaseBankStore(settings);

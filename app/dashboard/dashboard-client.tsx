@@ -292,7 +292,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
+      <div className="grid gap-4 lg:grid-cols-3">
         <Card title="Budgets · this month" action={<Link href="/settings" className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">Manage</Link>}>
           {budgets.length === 0 ? (
             <EmptyState>No budgets for this month. Ask Alfred, e.g. &ldquo;Set a food budget of 800&rdquo;.</EmptyState>
@@ -367,9 +367,52 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             </ul>
           )}
         </Card>
+        <OwedCard owed={ledger.owed} />
       </div>
 
       {hasAny ? <TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} /> : null}
     </div>
+  );
+}
+
+/** Money the person lent out and hasn't had back yet. */
+function OwedCard({ owed }: { owed: Ledger["owed"] }) {
+  const total = owed.reduce((sum, item) => sum + toMinor(item.owed), 0);
+  return (
+    <Card title="Owed to you" action={total > 0 ? <span className="tabular-nums text-xs text-muted">{formatMinor(total, owed[0].currency)}</span> : undefined}>
+      {owed.length === 0 ? (
+        <EmptyState>No one owes you money. Tell Alfred when you lend some, e.g. &ldquo;I lent Kofi 100&rdquo;.</EmptyState>
+      ) : (
+        <ul className="flex flex-col gap-4">
+          {owed.map((item) => {
+            const lent = toMinor(item.lent);
+            const repaid = toMinor(item.repaid);
+            const progress = lent > 0 ? Math.min(100, Math.round((repaid / lent) * 100)) : 0;
+            return (
+              <li key={item.personKey}>
+                <div className="flex items-baseline justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate">{item.person}</span>
+                  <span className="shrink-0 tabular-nums font-medium">{formatMinor(toMinor(item.owed), item.currency)}</span>
+                </div>
+                <div
+                  className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2"
+                  role="progressbar"
+                  aria-label={`${item.person} paid back`}
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={progress}
+                >
+                  <div className="h-full rounded-full bg-gold" style={{ width: `${progress}%` }} />
+                </div>
+                <p className="mt-1 text-xs text-muted">
+                  {repaid > 0 ? `${compactMoney(repaid, item.currency)} of ${compactMoney(lent, item.currency)} paid back` : `Lent ${compactMoney(lent, item.currency)}`} · since{" "}
+                  {formatDisplayDate(item.since.slice(0, 10))}
+                </p>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </Card>
   );
 }

@@ -1,9 +1,10 @@
 import { isOwnName, parseBankText, payeeKey, type ParsedBankMessage } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
-import type { BankMessage, BankStore } from "@/lib/bank/store";
+import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { normalizeCategory } from "@/lib/finance/categories";
 import { addDays, zonedYmd } from "@/lib/finance/dates";
+import { findPerson, owedBy, personKey, type LoanStore } from "@/lib/finance/loans";
 import { formatAmount } from "@/lib/finance/money";
 import type { FinanceStore } from "@/lib/finance/store";
 
@@ -12,6 +13,8 @@ export type IngestDeps = {
   ledger: FinanceStore;
   now: Date;
   createId: () => string;
+  /** Money lent out. Without it, lending labels aren't offered. */
+  loans?: LoanStore;
 };
 
 export type IngestOutcome = {
@@ -26,7 +29,7 @@ export const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilitie
 export const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"] as const;
 
 /** Card messages name no payee, so there's nothing to learn from them. */
-function learnable(counterparty: string): boolean {
+export function learnable(counterparty: string): boolean {
   // A channel like TELECEL PUSH reaches a different person each time, so filing it by name would be wrong.
   return Boolean(counterparty) && !/^gcb prepaid card/i.test(counterparty) && classifyPayee(counterparty).kind !== "channel";
 }
@@ -179,6 +182,12 @@ export async function ingestBankText(
       continue;
     }
 
+    // Money from someone who owes the person is asked about, even when Alfred knows the payee: it may be them paying back.
+    if (stored.direction === "in" && deps.loans && learnable(stored.counterparty) && (await owedBy(deps.loans, profile.profileId, stored.counterparty))) {
+      outcomes.push({ message: stored, outcome: "needs_label", feeRecorded });
+      continue;
+    }
+
     const rule = learnable(stored.counterparty) ? await deps.bank.getRule(profile.profileId, payeeKey(stored.counterparty)) : null;
     const type = stored.direction === "out" ? "expense" : "income";
     const category = rule ? normalizeCategory(rule.category, type) : null;
@@ -208,23 +217,33 @@ export async function ingestBankText(
 export type Label =
   | { kind: "category"; category: string; description?: string | null }
   | { kind: "transfer" }
-  | { kind: "skip" };
+  | { kind: "skip" }
+  /** Money the person lent out; `person` names who, when the message doesn't. */
+  | { kind: "lent"; person?: string | null; note?: string | null }
+  /** Money coming back from someone who owed the person. */
+  | { kind: "repaid"; person?: string | null };
+
+export type LabelResult = { ok: true; text: string; changes: LabelChange[] } | { ok: false; text: string };
+
+/** Who a payment was to or from, as a name a person would say. */
+function personFor(message: BankMessage, named?: string | null): string | null {
+  const payee = learnable(message.counterparty) && classifyPayee(message.counterparty).kind === "person" ? titleCase(message.counterparty) : null;
+  // "Debby" for a payment to DEBORAH AMA… is the payee, by their full name.
+  if (named?.trim() && !(payee && findPerson([{ personKey: personKey(payee) }], named))) return titleCase(named.trim()).slice(0, 120);
+  return payee;
+}
 
 /** Files a held message once the person says what it was, and remembers the payee for next time. */
-export async function applyLabel(
-  deps: IngestDeps,
-  profile: UserProfile,
-  messageId: string,
-  label: Label,
-): Promise<{ ok: true; text: string } | { ok: false; text: string }> {
+export async function applyLabel(deps: IngestDeps, profile: UserProfile, messageId: string, label: Label): Promise<LabelResult> {
   const message = await deps.bank.getMessage(profile.profileId, messageId);
   if (!message) return { ok: false, text: "I couldn't find that payment anymore." };
   if (message.status !== "needs_label") return { ok: false, text: "That one is already sorted." };
   const money = formatAmount(message.amount, message.currency);
+  const change: LabelChange = { messageId: message.id, previous: { status: message.status, kind: message.kind }, transactionIds: [] };
 
   if (label.kind === "skip") {
     await deps.bank.updateMessage(profile.profileId, message.id, { status: "skipped" });
-    return { ok: true, text: `Left ${money} out of your books.` };
+    return { ok: true, text: `Left ${money} out of your books.`, changes: [change] };
   }
   if (label.kind === "transfer") {
     await deps.bank.updateMessage(profile.profileId, message.id, { status: "transfer", kind: "transfer_own" });
@@ -236,6 +255,33 @@ export async function applyLabel(
       text: named
         ? `Noted. ${money} was your own money moving between accounts, so it isn't counted. I'll treat ${titleCase(message.counterparty)} as you from now on.`
         : `Noted. ${money} was your own money moving between accounts, so it isn't counted as income or spending.`,
+      changes: [change],
+    };
+  }
+  if (label.kind === "lent" || label.kind === "repaid") {
+    if (!deps.loans) return { ok: false, text: "I can't track loans right now." };
+    if (label.kind === "lent" && message.direction !== "out") return { ok: false, text: `${money} came in, so it can't be money you lent. Was it someone paying you back?` };
+    if (label.kind === "repaid" && message.direction !== "in") return { ok: false, text: `${money} went out, so it can't be someone paying you back.` };
+    const known = label.person ? await owedBy(deps.loans, profile.profileId, label.person) : null;
+    const person = known?.person ?? personFor(message, label.person);
+    if (!person) return { ok: false, text: label.kind === "lent" ? `Who did you lend the ${money} to?` : `Who paid back the ${money}?` };
+    const entry = await deps.loans.add(profile.profileId, {
+      person,
+      kind: label.kind,
+      amount: message.amount,
+      currency: message.currency,
+      occurredAt: message.occurredAt,
+      note: label.kind === "lent" ? (label.note ?? "").trim() : "",
+      bankMessageId: message.id,
+    });
+    await deps.bank.updateMessage(profile.profileId, message.id, label.kind === "lent" ? { status: "lent", kind: "loan_out" } : { status: "repaid", kind: "loan_repay" });
+    change.loanId = entry.id;
+    const left = await owedBy(deps.loans, profile.profileId, person);
+    const owes = left ? `${person} owes you ${formatAmount(left.owed, left.currency)} in total.` : `${person} has paid you back in full.`;
+    return {
+      ok: true,
+      text: label.kind === "lent" ? `Noted: you lent ${person} ${money}. It isn't counted as spending. ${owes}` : `Marked ${money} from ${person} as paying you back. ${owes}`,
+      changes: [change],
     };
   }
 
@@ -245,11 +291,14 @@ export async function applyLabel(
   const description = label.description?.trim() || describe(message);
   const id = await record(deps, profile, message, { type, amount: message.amount, category, description });
   await deps.bank.updateMessage(profile.profileId, message.id, { status: "recorded", transactionId: id });
+  change.transactionIds.push(id);
+  const changes = [change];
   const remembers = learnable(message.counterparty) && !VAGUE.has(category) && !looksLikeOwner(message.counterparty, profile.preferredName);
   let alsoFiled = 0;
   if (remembers) {
     const key = payeeKey(message.counterparty);
     const ruleDescription = label.description?.trim() ? description : "";
+    change.rule = { payeeKey: key, previous: await deps.bank.getRule(profile.profileId, key) };
     await deps.bank.saveRule(profile.profileId, { payeeKey: key, category, description: ruleDescription });
     // Other payments to the same payee that were waiting can be filed now too.
     const same = (await deps.bank.listMessages(profile.profileId, "needs_label")).filter(
@@ -258,6 +307,7 @@ export async function applyLabel(
     for (const item of same) {
       const otherId = await record(deps, profile, item, { type, amount: item.amount, category, description: ruleDescription || describe(item) });
       await deps.bank.updateMessage(profile.profileId, item.id, { status: "recorded", transactionId: otherId });
+      changes.push({ messageId: item.id, previous: { status: item.status, kind: item.kind }, transactionIds: [otherId] });
       alsoFiled += 1;
     }
   }
@@ -268,15 +318,37 @@ export async function applyLabel(
     text: remembers
       ? `Filed ${money} under ${category}. I'll file ${who} as ${category} from now on.${extra}`
       : `Filed ${money} under ${category}.`,
+    changes,
   };
 }
 
+/** Puts back everything a batch of labels changed, newest first. Returns how many payments were reopened. */
+export async function undoLabels(deps: IngestDeps, profile: UserProfile, changes: LabelChange[]): Promise<number> {
+  let reopened = 0;
+  for (const change of [...changes].reverse()) {
+    for (const id of change.transactionIds) {
+      await deps.ledger.updateTransaction(profile.profileId, id, { status: "deleted" }).catch(() => undefined);
+    }
+    if (change.loanId && deps.loans) await deps.loans.remove(profile.profileId, change.loanId);
+    if (change.rule) {
+      if (change.rule.previous) await deps.bank.saveRule(profile.profileId, change.rule.previous);
+      else await deps.bank.deleteRule(profile.profileId, change.rule.payeeKey);
+    }
+    await deps.bank.updateMessage(profile.profileId, change.messageId, { status: change.previous.status, kind: change.previous.kind, transactionId: null });
+    reopened += 1;
+  }
+  return reopened;
+}
+
 /** The question Alfred asks about a held payment. */
-export function labelQuestion(message: BankMessage, timeZone: string, ownerName = ""): string {
+export function labelQuestion(message: BankMessage, timeZone: string, ownerName = "", owed?: { person: string; owed: string } | null): string {
   const money = formatAmount(message.amount, message.currency);
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone }).format(
     new Date(message.occurredAt),
   );
+  if (owed && message.direction === "in") {
+    return `${money} came in from ${titleCase(message.counterparty)} · ${when}. ${owed.person} owes you ${formatAmount(owed.owed, message.currency)}. Is this paying you back?`;
+  }
   if (looksLikeOwner(message.counterparty, ownerName)) {
     const who = titleCase(message.counterparty);
     return message.direction === "in"

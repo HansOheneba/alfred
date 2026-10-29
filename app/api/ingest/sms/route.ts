@@ -1,4 +1,6 @@
-import { ingestAndAnnounce, ownerForToken } from "@/lib/bank/service";
+import { after } from "next/server";
+
+import { announceWhenQuiet, ingestBankMessages, ownerForToken } from "@/lib/bank/service";
 import { LIMITS } from "@/lib/config";
 import { getDatabaseSettings } from "@/lib/env";
 import { logError, logInfo } from "@/lib/log";
@@ -120,7 +122,9 @@ export async function POST(request: Request): Promise<Response> {
     if (!(await limiter.allow(`ingest:${profile.profileId}`, Date.now()))) {
       return Response.json({ ok: false, text: "Too many messages at once." }, { status: 429 });
     }
-    const result = await ingestAndAnnounce(settings, profile, input.text, { channel: input.source, sender: input.sender, receivedAt: input.receivedAt });
+    const result = await ingestBankMessages(settings, profile, input.text, { channel: input.source, sender: input.sender, receivedAt: input.receivedAt });
+    // Texts often arrive in bursts; the summary goes out once they stop.
+    if (result.outcomes.length > 0) after(() => announceWhenQuiet(settings, profile).catch((error) => logError("sms_announce", error)));
     return Response.json({
       ok: true,
       found: result.found,

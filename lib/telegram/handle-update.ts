@@ -3,9 +3,10 @@ import { ConfigError } from "@/lib/errors";
 import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
-import { applyLabel, labelQuestion } from "@/lib/bank/ingest";
-import { labelButtons, labelFromCode, parseLabelCallback } from "@/lib/bank/notify";
-import { answerLabelReply, askNext, createReplyClassifier, type ReplyClassifier } from "@/lib/bank/reply";
+import { applyLabel } from "@/lib/bank/ingest";
+import { labelChoiceText, labelFromCode, parseLabelCallback, questionFor } from "@/lib/bank/notify";
+import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
+import { answerLabelReply, askNext, createLabelResolver, type LabelResolver } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { readImageText, type ImageText } from "@/lib/ocr/read-image";
@@ -42,7 +43,8 @@ export type HandlerDeps = {
   messages?: MessageLog | null;
   voice?: Voice | null;
   bank?: BankStore | null;
-  classifyReply?: ReplyClassifier | null;
+  resolveLabels?: LabelResolver | null;
+  loans?: LoanStore | null;
   /** Downloads and reads a photo the person sent. */
   readPhoto?: ((fileId: string) => Promise<ImageText>) | null;
   /** Files a screenshot of bank texts; null when it isn't one. */
@@ -127,19 +129,19 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async (ctx) => {
     const settled = await answerTypedDecision(text, ctx);
     if (settled) return { kind: "text", text: settled.text, context: settled.context };
-    if (deps.bank && deps.classifyReply) {
+    if (deps.bank && deps.resolveLabels) {
       const labelled = await answerLabelReply(
-        { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId },
+        { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined },
         profile,
         text,
-        deps.classifyReply,
+        deps.resolveLabels,
       );
       if (labelled) {
         return {
           kind: "text",
           text: labelled.text,
           intent: "bank:label",
-          buttons: labelled.next ? labelButtons(labelled.next, profile.preferredName) : undefined,
+          buttons: labelled.buttons,
         };
       }
     }
@@ -218,23 +220,25 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     const store = deps.store;
     const message = await bank.getMessage(profile.profileId, bankChoice.messageId);
     const label = message ? labelFromCode(message, bankChoice.code) : null;
-    const choice = !label ? "" : label.kind === "category" ? label.category : label.kind === "transfer" ? "My own money" : "Skip";
+    const choice = label ? labelChoiceText(label) : "";
     return withClaim(update.update_id, actor, profile, deps, { userText: choice || "Label", channel: "telegram" }, async () => {
       if (!message || !label) return { kind: "text", text: "That button is no longer valid." };
-      const ingest = { bank, ledger: store, now: deps.now(), createId: deps.createId };
+      const ingest = { bank, ledger: store, now: deps.now(), createId: deps.createId, loans: deps.loans ?? undefined };
+      const asked = await questionFor(ingest.loans, profile, message);
       const result = await applyLabel(ingest, profile, message.id, label);
+      if (result.ok) await bank.saveUndo(profile.profileId, result.changes);
       // Keep the conversation moving: ask about the next waiting payment, with its own buttons.
       const next = result.ok ? await askNext(ingest, profile) : null;
       if (next) {
-        const question = labelQuestion(next, profile.timezone, profile.preferredName);
-        await deps.telegram.sendMessage(actor.chatId, question, labelButtons(next, profile.preferredName));
+        const question = await questionFor(ingest.loans, profile, next);
+        await deps.telegram.sendMessage(actor.chatId, question.text, question.buttons);
         await deps.messages
-          ?.append({ ownerId: profile.profileId, role: "assistant", body: question, channel: "telegram", intent: "bank:notice" })
+          ?.append({ ownerId: profile.profileId, role: "assistant", body: question.text, channel: "telegram", intent: "bank:notice" })
           .catch((error) => logError("bank_message_log", error));
       }
       return {
         kind: "text",
-        text: `${labelQuestion(message, profile.timezone, profile.preferredName)}\n\n${result.ok ? "✓ " : ""}${result.text}`,
+        text: `${asked.text}\n\n${result.ok ? "✓ " : ""}${result.text}`,
         intent: "bank:label",
       };
     });
@@ -358,6 +362,7 @@ function actionContext(
     pendingTtlMs: LIMITS.pendingTtlMs,
     createId: deps.createId,
     createActionId: deps.createActionId,
+    loans: deps.loans ?? null,
   };
 }
 
@@ -416,7 +421,8 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     messages: settings.supabase ? createSupabaseMessageLog(settings.supabase) : null,
     voice: settings.deepseek ? createVoice(settings.deepseek, fetchImpl) : null,
     bank: settings.supabase ? createSupabaseBankStore(settings.supabase) : null,
-    classifyReply: settings.deepseek ? createReplyClassifier(settings.deepseek, fetchImpl) : null,
+    resolveLabels: settings.deepseek ? createLabelResolver(settings.deepseek, fetchImpl) : null,
+    loans: settings.supabase ? createSupabaseLoanStore(settings.supabase) : null,
     readPhoto: settings.deepseek
       ? async (fileId) => {
           const bytes = await downloadTelegramFile(settings.telegramBotToken, fileId, fetchImpl);

@@ -5,6 +5,7 @@ import { announceOutcomes } from "@/lib/bank/notify";
 import { createSupabaseBankStore, hashIngestToken, type BankMessage } from "@/lib/bank/store";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { newTransactionId } from "@/lib/finance/ids";
+import { createSupabaseLoanStore } from "@/lib/finance/loans";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { query } from "@/lib/supabase/connection";
 import { createTelegramClient } from "@/lib/telegram/client";
@@ -21,30 +22,74 @@ export async function ownerForToken(settings: SupabaseSettings, token: string): 
   return ownerId ? createSupabaseAccountDirectory(settings).loadOwner(ownerId) : null;
 }
 
-/**
- * Reads bank text for one person, files what it can, and tells them on
- * Telegram about the rest. Shared by the Shortcut endpoint and screenshots.
- */
-export async function ingestAndAnnounce(
+/** Reads bank text for one person and files what it can. Announcing is separate: see announceWhenQuiet. */
+export async function ingestBankMessages(
   settings: SupabaseSettings,
   profile: UserProfile,
   text: string,
-  options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date; announce?: boolean },
+  options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
 ): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number }> {
-  const now = new Date();
-  const bank = createSupabaseBankStore(settings);
-  const result = await ingestBankText(
-    { bank, ledger: createSupabaseFinanceStore(settings), now, createId: newTransactionId },
+  return ingestBankText(
+    {
+      bank: createSupabaseBankStore(settings),
+      ledger: createSupabaseFinanceStore(settings),
+      loans: createSupabaseLoanStore(settings),
+      now: new Date(),
+      createId: newTransactionId,
+    },
     profile,
     text,
     options,
   );
+}
+
+/** How long a burst of forwarded texts must go quiet before Alfred sums it up. */
+export const ANNOUNCE_QUIET_MS = 6_000;
+
+function outcomeOf(message: BankMessage, categories: Map<string, string>): IngestOutcome {
+  const outcome = message.status === "needs_label" || message.status === "recorded" || message.status === "matched" || message.status === "transfer" || message.status === "loan" ? message.status : "recorded";
+  return {
+    message,
+    outcome,
+    category: message.transactionId ? categories.get(message.transactionId) : undefined,
+    feeRecorded: Boolean(message.feeTransactionId),
+  };
+}
+
+/**
+ * Waits for forwarded texts to stop arriving, then tells the person about all
+ * of them in one Telegram message. Every request schedules this; only the one
+ * that finds the burst finished claims and announces it.
+ */
+export async function announceWhenQuiet(
+  settings: SupabaseSettings,
+  profile: UserProfile,
+  wait: (ms: number) => Promise<void> = (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+): Promise<void> {
+  await wait(ANNOUNCE_QUIET_MS + 500);
+  const bank = createSupabaseBankStore(settings);
+  const claimed = await bank.claimUnannounced(profile.profileId, ANNOUNCE_QUIET_MS);
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
-  if (options.announce !== false && result.outcomes.length > 0 && token) {
-    await announceOutcomes(
-      { settings, bank, telegram: createTelegramClient(token), messages: createSupabaseMessageLog(settings), profile, now },
-      result.outcomes,
-    );
-  }
-  return result;
+  if (claimed.length === 0 || !token) return;
+  const ids = claimed.map((item) => item.transactionId).filter((id): id is string => Boolean(id));
+  const rows = ids.length
+    ? await query<{ transaction_id: string; category: string }>(
+        settings,
+        "select transaction_id::text, category from public.transactions where owner_id = $1::uuid and transaction_id::text = any($2::text[])",
+        [profile.profileId, ids],
+      )
+    : [];
+  const categories = new Map(rows.map((row) => [row.transaction_id, row.category]));
+  await announceOutcomes(
+    {
+      settings,
+      bank,
+      loans: createSupabaseLoanStore(settings),
+      telegram: createTelegramClient(token),
+      messages: createSupabaseMessageLog(settings),
+      profile,
+      now: new Date(),
+    },
+    claimed.map((message) => outcomeOf(message, categories)),
+  );
 }
