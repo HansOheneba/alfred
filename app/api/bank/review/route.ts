@@ -12,7 +12,7 @@ const UNDO_WINDOW_MS = 30 * 60_000;
 
 const reviewBody = z.discriminatedUnion("action", [
   z.object({
-    action: z.enum(["category", "transfer", "skip", "lent", "repaid"]),
+    action: z.enum(["category", "chip_in", "transfer", "skip", "lent", "repaid"]),
     messageIds: z.array(z.string().uuid()).min(1).max(50),
     category: z.string().trim().min(1).max(40).optional(),
     description: z.string().trim().max(200).optional(),
@@ -48,15 +48,17 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, text: `Undone. ${reopened === 1 ? "That payment is" : `Those ${reopened} payments are`} waiting again.`, sorted: 0 });
     }
 
-    if (body.action === "category" && !body.category) return fail("Pick a category.", 400);
+    if ((body.action === "category" || body.action === "chip_in") && !body.category) return fail("Pick a category.", 400);
     const label: Label =
       body.action === "category"
         ? { kind: "category", category: body.category ?? "", description: body.description || null }
-        : body.action === "lent"
-          ? { kind: "lent", person: body.person || null, note: body.description || null }
-          : body.action === "repaid"
-            ? { kind: "repaid", person: body.person || null }
-            : { kind: body.action };
+        : body.action === "chip_in"
+          ? { kind: "chip_in", category: body.category ?? "", description: body.description || null, person: body.person || null }
+          : body.action === "lent"
+            ? { kind: "lent", person: body.person || null, note: body.description || null }
+            : body.action === "repaid"
+              ? { kind: "repaid", person: body.person || null }
+              : { kind: body.action };
 
     const changes: LabelChange[] = [];
     const problems: string[] = [];

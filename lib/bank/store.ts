@@ -30,7 +30,8 @@ export type BankMessage = {
 
 export type NewBankMessage = Omit<BankMessage, "id" | "transactionId" | "feeTransactionId" | "askedAt"> & { textHash: string };
 
-export type PayeeRule = { payeeKey: string; category: string; description: string };
+/** What a payee means: a category, or someone chipping in toward bills in that category. */
+export type PayeeRule = { payeeKey: string; category: string; description: string; kind?: "category" | "chip_in" };
 
 /** One thing a label changed, recorded so "undo" can put it back. */
 export type LabelChange = {
@@ -179,19 +180,19 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       return new Set(rows.map((row) => row.id));
     },
     async getRule(ownerId, payeeKey) {
-      const rows = await query<{ payee_key: string; category: string; description: string }>(
+      const rows = await query<{ payee_key: string; category: string; description: string; kind: "category" | "chip_in" }>(
         settings,
-        "select payee_key, category, description from public.payee_rules where owner_id = $1::uuid and payee_key = $2",
+        "select payee_key, category, description, kind from public.payee_rules where owner_id = $1::uuid and payee_key = $2",
         [ownerId, payeeKey],
       );
-      return rows[0] ? { payeeKey: rows[0].payee_key, category: rows[0].category, description: rows[0].description } : null;
+      return rows[0] ? { payeeKey: rows[0].payee_key, category: rows[0].category, description: rows[0].description, kind: rows[0].kind } : null;
     },
     async saveRule(ownerId, rule) {
       await query(
         settings,
-        `insert into public.payee_rules (owner_id, payee_key, category, description) values ($1::uuid, $2, $3, $4)
-         on conflict (owner_id, payee_key) do update set category = excluded.category, description = excluded.description, updated_at = now()`,
-        [ownerId, rule.payeeKey, rule.category, rule.description],
+        `insert into public.payee_rules (owner_id, payee_key, category, description, kind) values ($1::uuid, $2, $3, $4, $5)
+         on conflict (owner_id, payee_key) do update set category = excluded.category, description = excluded.description, kind = excluded.kind, updated_at = now()`,
+        [ownerId, rule.payeeKey, rule.category, rule.description, rule.kind ?? "category"],
       );
     },
     async accountNames(ownerId) {

@@ -3,7 +3,8 @@ import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { MessageLog } from "@/lib/accounts/messages";
 import { DASHBOARD_URL, type SupabaseSettings, type UserProfile } from "@/lib/config";
-import { owedBy, type LoanStore } from "@/lib/finance/loans";
+import { findPerson, owedBy, type LoanStore } from "@/lib/finance/loans";
+import type { PeopleStore } from "@/lib/people/store";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
 import { query } from "@/lib/supabase/connection";
@@ -29,6 +30,7 @@ function summaryLine(outcome: IngestOutcome): string | null {
   const message = outcome.message;
   const money = formatAmount(message.amount, message.currency);
   const who = message.counterparty ? titleCase(message.counterparty) : "";
+  if (outcome.outcome === "recorded" && outcome.chipIn) return `Counted ${money}${who ? ` from ${who}` : ""} as their share of ${outcome.category}.`;
   if (outcome.outcome === "recorded") return `Filed ${money}${who ? ` to ${who}` : ""} under ${outcome.category}.`;
   if (outcome.outcome === "matched") return `${money}${who ? ` to ${who}` : ""} matches something you already logged, so I've linked it.`;
   if (outcome.outcome === "transfer") return `${money} moved between your own accounts. Not counted as income or spending.`;
@@ -45,6 +47,7 @@ type Delivery = {
   profile: UserProfile;
   now: Date;
   loans?: LoanStore;
+  people?: PeopleStore | null;
 };
 
 async function send(delivery: Delivery, chatId: number, text: string, buttons?: InlineButton[][]) {
@@ -113,13 +116,24 @@ export type Question = { text: string; buttons: InlineButton[][] };
  * The question and buttons for one waiting payment. Money from someone who
  * owes the person is asked about as a possible repayment.
  */
-export async function questionFor(loans: LoanStore | undefined, profile: UserProfile, message: BankMessage): Promise<Question> {
+export async function questionFor(loans: LoanStore | undefined, profile: UserProfile, message: BankMessage, people?: PeopleStore | null): Promise<Question> {
   const owed =
     loans && message.direction === "in" && learnable(message.counterparty) ? await owedBy(loans, profile.profileId, message.counterparty) : null;
   return {
-    text: labelQuestion(message, profile.timezone, profile.preferredName, owed),
+    text: `${labelQuestion(message, profile.timezone, profile.preferredName, owed)}${owed ? "" : await whoTheyAre(people, profile, message)}`,
     buttons: labelButtons(message, profile.preferredName, { owed: Boolean(owed), lending: Boolean(loans) }),
   };
+}
+
+/**
+ * What the person told Alfred about the payee, or, for someone new, a nudge
+ * to say who they are, since that's what makes the next payment easy.
+ */
+async function whoTheyAre(people: PeopleStore | null | undefined, profile: UserProfile, message: BankMessage): Promise<string> {
+  if (!people || !learnable(message.counterparty) || classifyPayee(message.counterparty).kind !== "person" || looksLikeOwner(message.counterparty, profile.preferredName)) return "";
+  const name = titleCase(message.counterparty);
+  const known = findPerson(await people.list(profile.profileId), name);
+  return known ? `\n(You told me: ${known.note})` : `\nIf they're someone regular, tell me who ${name} is and I'll remember.`;
 }
 
 /** How to answer several at once, shown when more than one payment is waiting. */
@@ -131,7 +145,7 @@ function plural(count: number, one: string, many = `${one}s`): string {
 }
 
 /** One line per outcome when there are a few, or a single tally when there are many. */
-function summarize(outcomes: IngestOutcome[], currency: string): string[] {
+export function summarize(outcomes: IngestOutcome[], currency: string): string[] {
   const fees = outcomes.filter((item) => item.feeRecorded).reduce((sum, item) => sum + Math.round(Number(item.message.fee) * 100), 0);
   const feeLine = fees > 0 ? `${formatAmount((fees / 100).toFixed(2), currency)} in fees went under Fees.` : null;
   const settled = outcomes.filter((item) => item.outcome !== "needs_label");
@@ -176,7 +190,7 @@ export async function announceOutcomes(delivery: Delivery, outcomes: IngestOutco
     if (lines.length > 0) await send(delivery, chatId, lines.join("\n"));
     return { asked: 0 };
   }
-  const question = await questionFor(delivery.loans, delivery.profile, next);
+  const question = await questionFor(delivery.loans, delivery.profile, next, delivery.people);
   const total = (await delivery.bank.listMessages(delivery.profile.profileId, "needs_label")).length;
   const intro = total > 1 ? [`${NATURAL_HINT}`, "", `First of ${total}:`] : [];
   await send(delivery, chatId, [...lines, ...(lines.length ? [""] : []), ...intro, question.text].join("\n"), [...question.buttons, ...reviewRow(total)]);
@@ -202,7 +216,7 @@ export async function askHeldQuestions(delivery: Omit<Delivery, "profile">, prof
     if (!waiting.some((item) => !item.askedAt)) continue;
     const next = await askNextWaiting({ ...delivery, profile });
     if (!next) continue;
-    const question = await questionFor(delivery.loans, profile, next);
+    const question = await questionFor(delivery.loans, profile, next, delivery.people);
     const intro = waiting.length > 1 ? [`${plural(waiting.length, "payment")} still need a label. ${NATURAL_HINT}`, "", "First:"] : [];
     await send({ ...delivery, profile }, chatId, [...intro, question.text].join("\n"), [...question.buttons, ...reviewRow(waiting.length)]);
     asked += 1;

@@ -3,6 +3,7 @@ import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { createSupabasePeopleStore, notesForPrompt, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
 import { applyResolved, LABEL_MODEL, labelShortcut, resolvedFrom, UNMATCHED_LABEL, waitingPayments } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
@@ -45,6 +46,7 @@ export type StudioDeps = {
   voice?: Voice | null;
   bank?: BankStore | null;
   loans?: LoanStore | null;
+  people?: PeopleStore | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -114,6 +116,8 @@ export async function handleProfileTurn(
     createId: deps.createId,
     createActionId: deps.createActionId,
     loans: deps.loans ?? null,
+    people: deps.people ?? null,
+    payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
   };
 
   let result: StudioResult;
@@ -151,7 +155,7 @@ async function respond(
 ): Promise<Delivery & { intent?: string }> {
   const settled = await answerTypedDecision(text, ctx);
   if (settled) return { kind: "text", text: settled.text, context: settled.context };
-  const ingest = deps.bank ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined } : null;
+  const ingest = deps.bank ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people } : null;
   const shortcut = ingest ? await labelShortcut(ingest, ctx.profile, text) : null;
   if (shortcut) return { kind: "text", text: shortcut.text, intent: "bank:label" };
   // Waiting payments are part of the conversation, so "Mitch was business" or "who's Mitch?" both work.
@@ -166,6 +170,7 @@ async function respond(
     excludeClientId: clientId,
     channel: "web",
     waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
+    people: await notesForPrompt(deps.people, ctx.profile.profileId),
     model: waiting ? LABEL_MODEL : undefined,
   });
   if (action.type === "label_payments") {
@@ -269,5 +274,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     voice: createVoice(settings.deepseek),
     bank: createSupabaseBankStore(settings.supabase),
     loans: createSupabaseLoanStore(settings.supabase),
+    people: createSupabasePeopleStore(settings.supabase),
   };
 }

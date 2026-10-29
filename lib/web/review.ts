@@ -1,5 +1,5 @@
 import { titleCase } from "@/lib/bank/ingest";
-import { payeeKey } from "@/lib/bank/parse";
+import { payeeKey, purposeOf } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import { createSupabaseBankStore } from "@/lib/bank/store";
 import type { StudioSettings, UserProfile } from "@/lib/config";
@@ -18,6 +18,8 @@ export type ReviewItem = {
   payeeKey: string;
   /** A named person can be lent to; a network transfer doesn't say who received it. */
   payee: "person" | "channel" | "card";
+  /** The sender's note from the text's reference, like "WiFi". */
+  purpose: string;
   /** What the sender still owes, when money comes in from someone who borrowed. */
   owed: string | null;
 };
@@ -44,6 +46,7 @@ export async function loadReview(profile: UserProfile, settings: StudioSettings)
         payeeKey: named ? payeeKey(message.counterparty) : "",
         payee: !named ? "card" : kind === "channel" ? "channel" : "person",
         owed: debtor ? debtor.owed : null,
+        purpose: purposeOf(message),
       };
     });
 }

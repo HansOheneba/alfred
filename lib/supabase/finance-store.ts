@@ -33,6 +33,11 @@ type TransactionRow = {
   source_update_id: string;
 };
 
+/** A transaction amount; chip-ins toward a bill are negative expenses. */
+function signedMoney(value: string): string {
+  return value.trim().startsWith("-") ? `-${money(value.trim().slice(1))}` : money(value);
+}
+
 function money(value: string, allowZero = false): string {
   const canonical = canonicalizeAmount(value, { allowZero });
   if (!canonical) throw new DatabaseError("The ledger returned an amount that could not be read.");
@@ -70,7 +75,7 @@ function transactionFrom(row: TransactionRow): TransactionRecord {
     transactionDate: row.transaction_date,
     userId: row.user_id,
     type: row.type,
-    amount: money(row.amount),
+    amount: signedMoney(row.amount),
     currency: row.currency.trim(),
     category: row.category,
     description: row.description,
