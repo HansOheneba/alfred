@@ -1,0 +1,38 @@
+;; macOS sandbox for the Alfred relay. install.sh compiles it into the program,
+;; which applies it to itself before reading anything.
+;; Full Disk Access lets a program read anything; this profile takes that back,
+;; so macOS itself refuses the relay everything except what it needs.
+;; HOME is passed in at start-up. Later rules win over earlier ones.
+(version 1)
+(allow default)
+
+;; Nothing in your home folder: not Documents, Desktop, Photos, Mail, keychains or anything else.
+(deny file-read* file-write* (subpath (param "HOME")))
+;; Except the Messages database, read-only.
+(allow file-read*
+  (literal (string-append (param "HOME") "/Library/Messages/chat.db"))
+  (literal (string-append (param "HOME") "/Library/Messages/chat.db-wal"))
+  (literal (string-append (param "HOME") "/Library/Messages/chat.db-shm")))
+;; SQLite keeps a shared-memory index next to a WAL database, even for readers.
+(allow file-write-data (literal (string-append (param "HOME") "/Library/Messages/chat.db-shm")))
+;; And its own folder, read-only: the key and these rules.
+(allow file-read* (subpath (string-append (param "HOME") "/Library/Application Support/AlfredRelay")))
+;; The paths leading there, so files can be found (listing contents stays blocked).
+(allow file-read-metadata (subpath (param "HOME")))
+
+;; No writing anywhere else on the disk, apart from temporary files.
+(deny file-write* (subpath "/"))
+(allow file-write* (subpath "/private/var/folders") (subpath "/private/tmp") (literal "/dev/null"))
+;; It can write only two files: which message it sent last, and its log. Not its key, program or these rules.
+(allow file-write*
+  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/last-rowid"))
+  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/relay.log")))
+(allow file-write-data (literal (string-append (param "HOME") "/Library/Messages/chat.db-shm")))
+
+;; No starting other programs.
+(deny process-fork)
+
+;; Network: outgoing HTTPS only (Alfred), plus name lookups. No listening, no other ports.
+(deny network*)
+(allow network-outbound (remote tcp "*:443"))
+(allow network-outbound (literal "/private/var/run/mDNSResponder"))

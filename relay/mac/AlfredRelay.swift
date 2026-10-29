@@ -6,7 +6,12 @@
 //   alfred-relay --check   show what would be sent, without sending
 //
 // Config lives in ~/Library/Application Support/AlfredRelay/config.json:
-//   { "key": "alf_…", "endpoint": "https://alfred.hansopoku.com/api/ingest/sms" }
+//   { "key": "alf_…" }
+//
+// What it can touch is limited twice over: this code only reads chat.db and
+// only sends bank texts to Alfred, and before doing anything it locks itself
+// into sandbox.sb (built into the program), so macOS refuses every other file
+// in your home folder and any other network use. It won't run unsandboxed.
 
 import Foundation
 import SQLite3
@@ -17,6 +22,8 @@ let stateURL = support.appendingPathComponent("last-rowid")
 let chatDB = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Messages/chat.db").path
 let checkOnly = CommandLine.arguments.contains("--check")
 
+/// The only place texts are sent. Not configurable, so a changed config file can't redirect them.
+let endpoint = URL(string: "https://alfred.hansopoku.com/api/ingest/sms")!
 /// Only money texts leave this Mac, the same filter as the iPhone automation.
 let moneyPattern = try! NSRegularExpression(pattern: "\\b(GHS|GH₵|CEDIS)\\b", options: [.caseInsensitive])
 /// On the first run, catch up on the last week. Alfred skips anything it already has.
@@ -24,7 +31,6 @@ let firstRunLookback: TimeInterval = 7 * 86_400
 
 struct Config: Decodable {
     let key: String
-    let endpoint: String?
 }
 
 struct Text {
@@ -113,10 +119,20 @@ func isMoney(_ body: String) -> Bool {
     moneyPattern.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)) != nil
 }
 
+/// Banks and MoMo send from named sender IDs such as "MobileMoney" or "GCB Bank". People text from a
+/// phone number or an email address, so their messages are never sent, even if they mention cedis.
+func isFromBank(_ sender: String) -> Bool {
+    !sender.contains("@") && sender.rangeOfCharacter(from: .letters) != nil
+}
+
+func shouldSend(_ text: Text) -> Bool {
+    isFromBank(text.sender) && isMoney(text.body)
+}
+
 enum SendResult { case sent, rejected, retryLater }
 
 func send(_ text: Text, config: Config) -> SendResult {
-    var request = URLRequest(url: URL(string: config.endpoint ?? "https://alfred.hansopoku.com/api/ingest/sms")!)
+    var request = URLRequest(url: endpoint)
     request.httpMethod = "POST"
     request.timeoutInterval = 30
     request.setValue("Bearer \(config.key)", forHTTPHeaderField: "Authorization")
@@ -149,7 +165,28 @@ func send(_ text: Text, config: Config) -> SendResult {
     return result
 }
 
+@_silgen_name("sandbox_init_with_parameters")
+func sandbox_init_with_parameters(_ profile: UnsafePointer<CChar>, _ flags: UInt64, _ parameters: UnsafePointer<UnsafePointer<CChar>?>, _ errorbuf: UnsafeMutablePointer<UnsafeMutablePointer<CChar>?>) -> Int32
+
+/// Applies sandboxProfile (from sandbox.sb, compiled in by install.sh) to this process for good.
+func lockDown() -> Bool {
+    let home = FileManager.default.homeDirectoryForCurrentUser.path
+    var error: UnsafeMutablePointer<CChar>?
+    let status = home.withCString { homePath in
+        "HOME".withCString { key in
+            var parameters: [UnsafePointer<CChar>?] = [key, homePath, nil]
+            return sandbox_init_with_parameters(sandboxProfile, 0, &parameters, &error)
+        }
+    }
+    if status != 0 {
+        log("Refusing to run: the sandbox could not be applied (\(error.map { String(cString: $0) } ?? "unknown error")).")
+        return false
+    }
+    return true
+}
+
 func run() -> Int32 {
+    guard lockDown() else { return 1 }
     let config = try? JSONDecoder().decode(Config.self, from: Data(contentsOf: configURL))
     if config == nil && !checkOnly {
         log("Missing or unreadable \(configURL.path). Run install.sh again.")
@@ -168,7 +205,7 @@ func run() -> Int32 {
     var last = saved ?? 0
     var sent = 0
     for text in texts {
-        if isMoney(text.body) {
+        if shouldSend(text) {
             if checkOnly {
                 print("[\(text.receivedAt)] \(text.sender): \(text.body.prefix(90).replacingOccurrences(of: "\n", with: " "))")
                 continue
@@ -181,12 +218,12 @@ func run() -> Int32 {
     }
 
     if checkOnly {
-        print("\(texts.filter { isMoney($0.body) }.count) money text(s) would be sent from \(texts.count) message(s) read.")
+        print("\(texts.filter(shouldSend).count) money text(s) would be sent from \(texts.count) message(s) read.")
         return 0
     }
     // Never save 0: with nothing read yet, the next run looks back a week again instead of reading all history.
     if last > (saved ?? 0) {
-        try? String(last).write(to: stateURL, atomically: true, encoding: .utf8)
+        try? String(last).write(to: stateURL, atomically: false, encoding: .utf8)
     }
     if sent > 0 { log("sent \(sent) text(s) to Alfred") }
     return 0
