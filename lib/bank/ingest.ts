@@ -5,7 +5,7 @@ import type { UserProfile } from "@/lib/config";
 import { normalizeCategory } from "@/lib/finance/categories";
 import { addDays, zonedYmd } from "@/lib/finance/dates";
 import type { PeopleStore } from "@/lib/people/store";
-import { findPerson, owedBy, personKey, type LoanStore } from "@/lib/finance/loans";
+import { findPerson, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
 import { formatAmount } from "@/lib/finance/money";
 import type { FinanceStore } from "@/lib/finance/store";
 
@@ -196,8 +196,9 @@ export async function ingestBankText(
       continue;
     }
 
-    // Money from someone who owes the person is asked about, even when Alfred knows the payee: it may be them paying back.
-    if (stored.direction === "in" && deps.loans && learnable(stored.counterparty) && (await owedBy(deps.loans, profile.profileId, stored.counterparty))) {
+    // Money from someone who owes the person, or to someone the person owes, is asked about even when Alfred knows the payee: it may be paying back.
+    const settling = stored.direction === "in" ? owedBy : oweTo;
+    if (deps.loans && learnable(stored.counterparty) && (await settling(deps.loans, profile.profileId, stored.counterparty))) {
       outcomes.push({ message: stored, outcome: "needs_label", feeRecorded });
       continue;
     }
@@ -248,6 +249,10 @@ export type Label =
   | { kind: "lent"; person?: string | null; note?: string | null }
   /** Money coming back from someone who owed the person. */
   | { kind: "repaid"; person?: string | null }
+  /** Money someone lent the person, which they now owe back. */
+  | { kind: "borrowed"; person?: string | null; note?: string | null }
+  /** The person paying back money they borrowed. */
+  | { kind: "paid_back"; person?: string | null }
   /** Someone's share of a bill the person paid, like a housemate's part of the internet. */
   /** `person` is whose share it is when someone else sent it for them, like a friend paying on a housemate's behalf. */
   | { kind: "chip_in"; category: string; description?: string | null; person?: string | null };
@@ -265,6 +270,29 @@ function personFor(message: BankMessage, named?: string | null): string | null {
   // "Debby" for a payment to DEBORAH AMA… is the payee, by their full name.
   if (named?.trim() && !(payee && findPerson([{ personKey: personKey(payee) }], named))) return titleCase(named.trim()).slice(0, 120);
   return payee;
+}
+
+const LOAN_KINDS = { lent: "loan_out", repaid: "loan_repay", borrowed: "loan_in", paid_back: "loan_repay" } as const;
+
+/** Why a loan label can't fit the way the money moved, or null when it fits. */
+function loanDirectionProblem(kind: keyof typeof LOAN_KINDS, direction: BankMessage["direction"], money: string): string | null {
+  if (kind === "lent" && direction !== "out") return `${money} came in, so it can't be money you lent. Did someone lend it to you, or pay you back?`;
+  if (kind === "repaid" && direction !== "in") return `${money} went out, so it can't be someone paying you back.`;
+  if (kind === "borrowed" && direction !== "in") return `${money} went out, so it can't be money someone lent you. Did you lend it, or pay someone back?`;
+  if (kind === "paid_back" && direction !== "out") return `${money} came in, so it can't be you paying someone back.`;
+  return null;
+}
+
+/** What Alfred says after a loan label, with where things now stand with that person. */
+async function loanReply(loans: LoanStore, ownerId: string, kind: keyof typeof LOAN_KINDS, person: string, money: string): Promise<string> {
+  if (kind === "lent" || kind === "repaid") {
+    const left = await owedBy(loans, ownerId, person);
+    const owes = left ? `${person} owes you ${formatAmount(left.owed, left.currency)} in total.` : `${person} has paid you back in full.`;
+    return kind === "lent" ? `Noted: you lent ${person} ${money}. It isn't counted as spending. ${owes}` : `Marked ${money} from ${person} as paying you back. ${owes}`;
+  }
+  const left = await oweTo(loans, ownerId, person);
+  const owe = left ? `You owe ${person} ${formatAmount(left.owe, left.currency)} in total.` : `You've paid ${person} back in full.`;
+  return kind === "borrowed" ? `Noted: ${person} lent you ${money}. It isn't counted as income. ${owe}` : `Marked ${money} to ${person} as paying them back. It isn't counted as spending. ${owe}`;
 }
 
 /**
@@ -295,31 +323,38 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
       changes: [change],
     };
   }
-  if (label.kind === "lent" || label.kind === "repaid") {
+  if (label.kind === "lent" || label.kind === "repaid" || label.kind === "borrowed" || label.kind === "paid_back") {
     if (!deps.loans) return { ok: false, text: "I can't track loans right now." };
-    if (label.kind === "lent" && message.direction !== "out") return { ok: false, text: `${money} came in, so it can't be money you lent. Was it someone paying you back?` };
-    if (label.kind === "repaid" && message.direction !== "in") return { ok: false, text: `${money} went out, so it can't be someone paying you back.` };
-    const known = label.person ? await owedBy(deps.loans, profile.profileId, label.person) : null;
+    const wrongWay = loanDirectionProblem(label.kind, message.direction, money);
+    if (wrongWay) return { ok: false, text: wrongWay };
+    // Paying back only settles a debt Alfred knows about, so a guess can't invent one.
+    const settles = label.kind === "repaid" ? owedBy : label.kind === "paid_back" ? oweTo : null;
+    const named = label.person?.trim() || personFor(message, null) || "";
+    const known = settles ? await settles(deps.loans, profile.profileId, named) : label.person ? await owedBy(deps.loans, profile.profileId, label.person) : null;
+    if (settles && !known) {
+      const who = named ? titleCase(named) : null;
+      return {
+        ok: false,
+        text:
+          label.kind === "repaid"
+            ? `${who ?? "That person"} doesn't owe you anything that I know of, so ${money} can't be them paying you back. If they lent it to you, say so and I'll note that you owe them.`
+            : `You don't owe ${who ?? "them"} anything that I know of, so I can't count ${money} as paying them back. Tell me what it was instead.`,
+      };
+    }
     const person = known?.person ?? personFor(message, label.person);
-    if (!person) return { ok: false, text: label.kind === "lent" ? `Who did you lend the ${money} to?` : `Who paid back the ${money}?` };
+    if (!person) return { ok: false, text: label.kind === "lent" ? `Who did you lend the ${money} to?` : label.kind === "borrowed" ? `Who lent you the ${money}?` : `Who was the ${money} with?` };
     const entry = await deps.loans.add(profile.profileId, {
       person,
       kind: label.kind,
       amount: message.amount,
       currency: message.currency,
       occurredAt: message.occurredAt,
-      note: label.kind === "lent" ? (label.note ?? "").trim() : "",
+      note: label.kind === "lent" || label.kind === "borrowed" ? (label.note ?? "").trim() : "",
       bankMessageId: message.id,
     });
-    await deps.bank.updateMessage(profile.profileId, message.id, label.kind === "lent" ? { status: "lent", kind: "loan_out" } : { status: "repaid", kind: "loan_repay" });
+    await deps.bank.updateMessage(profile.profileId, message.id, { status: label.kind, kind: LOAN_KINDS[label.kind] });
     change.loanId = entry.id;
-    const left = await owedBy(deps.loans, profile.profileId, person);
-    const owes = left ? `${person} owes you ${formatAmount(left.owed, left.currency)} in total.` : `${person} has paid you back in full.`;
-    return {
-      ok: true,
-      text: label.kind === "lent" ? `Noted: you lent ${person} ${money}. It isn't counted as spending. ${owes}` : `Marked ${money} from ${person} as paying you back. ${owes}`,
-      changes: [change],
-    };
+    return { ok: true, text: await loanReply(deps.loans, profile.profileId, label.kind, person, money), changes: [change] };
   }
 
   if (label.kind === "chip_in") {
@@ -404,13 +439,16 @@ export async function undoLabels(deps: IngestDeps, profile: UserProfile, changes
 }
 
 /** The question Alfred asks about a held payment. */
-export function labelQuestion(message: BankMessage, timeZone: string, ownerName = "", owed?: { person: string; owed: string } | null): string {
+export function labelQuestion(message: BankMessage, timeZone: string, ownerName = "", debt?: { person: string; owed: string; owe: string } | null): string {
   const money = formatAmount(message.amount, message.currency);
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone }).format(
     new Date(message.occurredAt),
   );
-  if (owed && message.direction === "in") {
-    return `${money} came in from ${titleCase(message.counterparty)} · ${when}. ${owed.person} owes you ${formatAmount(owed.owed, message.currency)}. Is this paying you back?`;
+  if (debt && message.direction === "in" && Number(debt.owed) > 0) {
+    return `${money} came in from ${titleCase(message.counterparty)} · ${when}. ${debt.person} owes you ${formatAmount(debt.owed, message.currency)}. Is this paying you back?`;
+  }
+  if (debt && message.direction === "out" && Number(debt.owe) > 0) {
+    return `${money} went to ${titleCase(message.counterparty)} · ${when}. You owe ${debt.person} ${formatAmount(debt.owe, message.currency)}. Is this paying them back?`;
   }
   if (looksLikeOwner(message.counterparty, ownerName)) {
     const who = titleCase(message.counterparty);

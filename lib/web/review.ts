@@ -22,6 +22,8 @@ export type ReviewItem = {
   purpose: string;
   /** What the sender still owes, when money comes in from someone who borrowed. */
   owed: string | null;
+  /** What the person still owes the recipient, when money goes to someone they borrowed from. */
+  owe: string | null;
 };
 
 export async function loadReview(profile: UserProfile, settings: StudioSettings): Promise<ReviewItem[]> {
@@ -29,13 +31,16 @@ export async function loadReview(profile: UserProfile, settings: StudioSettings)
     createSupabaseBankStore(settings.supabase).listMessages(profile.profileId, "needs_label"),
     createSupabaseLoanStore(settings.supabase).list(profile.profileId),
   ]);
-  const balances = loanBalances(loans).filter((item) => Number(item.owed) > 0);
+  const all = loanBalances(loans);
+  const balances = all.filter((item) => Number(item.owed) > 0);
+  const lenders = all.filter((item) => Number(item.owe) > 0);
   return held
     .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
     .map((message) => {
       const named = message.counterparty && !/^gcb/i.test(message.counterparty) ? titleCase(message.counterparty) : "";
       const kind = classifyPayee(message.counterparty).kind;
       const debtor = message.direction === "in" && named ? findPerson(balances, named) : null;
+      const lender = message.direction === "out" && named ? findPerson(lenders, named) : null;
       return {
         id: message.id,
         direction: message.direction,
@@ -46,6 +51,7 @@ export async function loadReview(profile: UserProfile, settings: StudioSettings)
         payeeKey: named ? payeeKey(message.counterparty) : "",
         payee: !named ? "card" : kind === "channel" ? "channel" : "person",
         owed: debtor ? debtor.owed : null,
+        owe: lender ? lender.owe : null,
         purpose: purposeOf(message),
       };
     });

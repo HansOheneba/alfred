@@ -16,7 +16,7 @@ import {
 import { formatMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
 import { buildInsights } from "@/lib/finance/insights";
-import { findPerson, loanBalances, owedBy, personKey, type LoanStore } from "@/lib/finance/loans";
+import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
 import type { FinanceAction, PendingPayload } from "@/lib/finance/schemas";
@@ -151,6 +151,10 @@ export async function executeConfirmed(
       note: payload.note,
       bankMessageId: null,
     });
+    if (payload.direction === "borrowed" || payload.direction === "paid_back") {
+      const owing = await oweTo(ctx.loans, userId, payload.person);
+      return { text: `Done. ${owing ? `You owe ${payload.person} ${formatMoneyAmount(owing.owe, owing.currency)} in total.` : `You've paid ${payload.person} back in full.`}` };
+    }
     const left = await owedBy(ctx.loans, userId, payload.person);
     const owes = left ? `${payload.person} owes you ${formatMoneyAmount(left.owed, left.currency)} in total.` : `${payload.person} has paid you back in full.`;
     return { text: `Done. ${owes}` };
@@ -605,16 +609,35 @@ async function loansOwed(action: Extract<FinanceAction, { type: "get_loans" }>, 
   const balances = loanBalances(await ctx.loans.list(ctx.profile.profileId));
   if (action.person) {
     const match = findPerson(balances, action.person);
-    if (!match) return { kind: "text", text: `I don't have any loans to ${action.person} on record.` };
-    const lent = formatMoneyAmount(match.lent, match.currency);
-    if (Number(match.owed) === 0) return { kind: "text", text: `${match.person} has paid back everything you lent (${lent}).` };
-    const repaid = Number(match.repaid) > 0 ? `, and has paid back ${formatMoneyAmount(match.repaid, match.currency)}` : "";
-    return { kind: "text", text: `${match.person} owes you ${formatMoneyAmount(match.owed, match.currency)}. You lent ${lent} in total${repaid}.` };
+    if (!match) return { kind: "text", text: `I don't have any loans with ${action.person} on record.` };
+    const lines: string[] = [];
+    if (Number(match.lent) > 0) {
+      const lent = formatMoneyAmount(match.lent, match.currency);
+      if (Number(match.owed) === 0) lines.push(`${match.person} has paid back everything you lent (${lent}).`);
+      else {
+        const repaid = Number(match.repaid) > 0 ? `, and has paid back ${formatMoneyAmount(match.repaid, match.currency)}` : "";
+        lines.push(`${match.person} owes you ${formatMoneyAmount(match.owed, match.currency)}. You lent ${lent} in total${repaid}.`);
+      }
+    }
+    if (Number(match.borrowed) > 0) {
+      const borrowed = formatMoneyAmount(match.borrowed, match.currency);
+      if (Number(match.owe) === 0) lines.push(`You've paid back everything ${match.person} lent you (${borrowed}).`);
+      else {
+        const paid = Number(match.paidBack) > 0 ? `, and you've paid back ${formatMoneyAmount(match.paidBack, match.currency)}` : "";
+        lines.push(`You owe ${match.person} ${formatMoneyAmount(match.owe, match.currency)}. They lent you ${borrowed} in total${paid}.`);
+      }
+    }
+    return { kind: "text", text: lines.join("\n") };
   }
   const owing = balances.filter((item) => Number(item.owed) > 0);
-  if (owing.length === 0) return { kind: "text", text: "No one owes you anything right now." };
-  const lines = owing.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owed, item.currency)}`);
-  return { kind: "text", text: [`${owing.length === 1 ? "One person owes" : `${owing.length} people owe`} you money:`, ...lines].join("\n") };
+  const owe = balances.filter((item) => Number(item.owe) > 0).sort((left, right) => Number(right.owe) - Number(left.owe));
+  if (owing.length === 0 && owe.length === 0) return { kind: "text", text: "No one owes you anything, and you don't owe anyone." };
+  const parts: string[] = [];
+  if (owing.length > 0) {
+    parts.push([`${owing.length === 1 ? "One person owes" : `${owing.length} people owe`} you money:`, ...owing.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owed, item.currency)}`)].join("\n"));
+  } else parts.push("No one owes you anything right now.");
+  if (owe.length > 0) parts.push(["You owe:", ...owe.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owe, item.currency)}`)].join("\n"));
+  return { kind: "text", text: parts.join("\n\n") };
 }
 
 /** The full name a person goes by in the person's notes or bank texts, for a name or nickname. */
@@ -648,8 +671,14 @@ async function recordLoan(action: Extract<FinanceAction, { type: "record_loan" }
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const date = action.date && isSaneTransactionDate(action.date, today) && action.date <= today ? action.date : today;
   const amount = formatMoneyAmount(action.amount, action.currency);
-  const line = action.direction === "lent" ? `Record that you lent ${person} ${amount} on ${formatDisplayDate(date)}?` : `Record that ${person} paid you back ${amount} on ${formatDisplayDate(date)}?`;
-  return saveConfirmation(ctx, [line, action.direction === "lent" ? "It won't count as spending." : "It won't count as income.", "", "Confirm or cancel."].join("\n"), {
+  const on = formatDisplayDate(date);
+  const [line, note] = {
+    lent: [`Record that you lent ${person} ${amount} on ${on}?`, "It won't count as spending."],
+    repaid: [`Record that ${person} paid you back ${amount} on ${on}?`, "It won't count as income."],
+    borrowed: [`Record that ${person} lent you ${amount} on ${on}, so you owe them?`, "It won't count as income."],
+    paid_back: [`Record that you paid ${person} back ${amount} on ${on}?`, "It won't count as spending."],
+  }[action.direction];
+  return saveConfirmation(ctx, [line, note, "", "Confirm or cancel."].join("\n"), {
     type: "record_loan",
     originUpdateId: String(ctx.updateId),
     direction: action.direction,
