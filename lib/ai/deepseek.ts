@@ -35,6 +35,10 @@ export type InterpretRequest = {
   budgets?: { period: string; category: string; amount: string; currency: string }[];
   goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
   history?: { role: "user" | "assistant"; body: string }[];
+  /** Bank payments waiting for a label, so the user can answer about them in their own words. */
+  waiting?: { lines: string[]; current: number } | null;
+  /** A model to use instead of the configured one, for turns that need more care. */
+  model?: string;
 };
 
 export async function interpretMessage(
@@ -56,7 +60,9 @@ export async function interpretMessage(
     budgets: request.budgets,
     goals: request.goals,
     history: request.history,
+    waiting: request.waiting,
   });
+  const turnSettings = request.model ? { ...settings, model: request.model } : settings;
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);
   const messages: ChatMessage[] = [
     { role: "system", content: system },
@@ -64,7 +70,7 @@ export async function interpretMessage(
   ];
   let first = "";
   try {
-    first = await chatCompletion(settings, messages, {}, fetchImpl);
+    first = await chatCompletion(turnSettings, messages, {}, fetchImpl);
   } catch (error) {
     if (!(error instanceof AiError) || error.code !== "invalid") throw error;
   }
@@ -80,7 +86,7 @@ export async function interpretMessage(
         },
       ]
     : messages;
-  const second = await chatCompletion(settings, retryMessages, {}, fetchImpl);
+  const second = await chatCompletion(turnSettings, retryMessages, {}, fetchImpl);
   const retry = parseModelOutput(second, { today });
   if (!retry.success) throw new AiError("invalid", "DeepSeek returned an invalid finance action.");
   return retry.data;

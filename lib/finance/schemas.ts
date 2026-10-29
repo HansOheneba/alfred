@@ -64,6 +64,17 @@ const changesSchema = z
     message: "At least one change is required.",
   });
 
+/** What some of the payments waiting for a label were, by their number in the list Alfred was shown. */
+export const labelAnswerSchema = z.object({
+  items: z.array(z.number().int().min(1).max(60)).min(1).max(60),
+  action: z.enum(["category", "own_transfer", "lent", "repaid", "skip"]),
+  category: z.string().max(40).nullable().optional(),
+  description: z.string().max(200).nullable().optional(),
+  person: z.string().max(120).nullable().optional(),
+});
+
+export type LabelAnswer = z.infer<typeof labelAnswerSchema>;
+
 export const financeActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("create_transaction"),
@@ -153,6 +164,10 @@ export const financeActionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("help"),
+  }),
+  z.object({
+    type: z.literal("label_payments"),
+    answers: z.array(labelAnswerSchema).min(1).max(20),
   }),
   z.object({
     type: z.literal("clarify"),

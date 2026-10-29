@@ -4,7 +4,7 @@ import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
-import { answerLabelReply, createLabelResolver, type LabelResolver } from "@/lib/bank/reply";
+import { applyResolved, LABEL_MODEL, labelShortcut, resolvedFrom, UNMATCHED_LABEL, waitingPayments } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
@@ -44,7 +44,6 @@ export type StudioDeps = {
   messages?: MessageLog | null;
   voice?: Voice | null;
   bank?: BankStore | null;
-  resolveLabels?: LabelResolver | null;
   loans?: LoanStore | null;
 };
 
@@ -152,15 +151,11 @@ async function respond(
 ): Promise<Delivery & { intent?: string }> {
   const settled = await answerTypedDecision(text, ctx);
   if (settled) return { kind: "text", text: settled.text, context: settled.context };
-  if (deps.bank && deps.resolveLabels) {
-    const labelled = await answerLabelReply(
-      { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined },
-      ctx.profile,
-      text,
-      deps.resolveLabels,
-    );
-    if (labelled) return { kind: "text", text: labelled.text, intent: "bank:label" };
-  }
+  const ingest = deps.bank ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined } : null;
+  const shortcut = ingest ? await labelShortcut(ingest, ctx.profile, text) : null;
+  if (shortcut) return { kind: "text", text: shortcut.text, intent: "bank:label" };
+  // Waiting payments are part of the conversation, so "Mitch was business" or "who's Mitch?" both work.
+  const waiting = ingest ? await waitingPayments(ingest, ctx.profile) : null;
   const { action, context, cue } = await interpretWithContext({
     text,
     profile: ctx.profile,
@@ -170,7 +165,13 @@ async function respond(
     messages: deps.messages,
     excludeClientId: clientId,
     channel: "web",
+    waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
+    model: waiting ? LABEL_MODEL : undefined,
   });
+  if (action.type === "label_payments") {
+    const labelled = ingest && waiting ? await applyResolved(ingest, ctx.profile, text, resolvedFrom(action.answers, waiting.listed), waiting) : null;
+    return { kind: "text", text: labelled?.text ?? UNMATCHED_LABEL, intent: "bank:label" };
+  }
   logInfo("studio_interpreted", { userId: ctx.profile.profileId, action: action.type });
   const delivery = await handleAction(action, { ...ctx, conversation: context });
   const voiced = await voiceDelivery(deps.voice, action, delivery, { userText: text, profile: ctx.profile, channel: "web", cue });
@@ -267,7 +268,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     messages: createSupabaseMessageLog(settings.supabase),
     voice: createVoice(settings.deepseek),
     bank: createSupabaseBankStore(settings.supabase),
-    resolveLabels: createLabelResolver(settings.deepseek),
     loans: createSupabaseLoanStore(settings.supabase),
   };
 }

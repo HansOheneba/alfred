@@ -59,6 +59,8 @@ export function buildSystemPrompt(input: {
   budgets?: { period: string; category: string; amount: string; currency: string }[];
   goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
   history?: { role: "user" | "assistant"; body: string }[];
+  /** Bank payments waiting for a label, numbered, and the one just asked about (0 for none). */
+  waiting?: { lines: string[]; current: number } | null;
 }): string {
   const yesterday = addDays(input.today, -1);
   const recent =
@@ -140,8 +142,10 @@ export function buildSystemPrompt(input: {
     "A bare yes, no, ok, or cancel is a reply to the previous assistant message, never a new transaction. Use chat and ask them to tap Confirm or Cancel, or to say what they meant.",
     "Descriptions are short and specific, in the user's words, such as Waakye, Uber to work, or October salary. Avoid vague words like Payment or Expense.",
     `Budget periods are YYYY-MM. This month is ${input.today.slice(0, 7)}.`,
+    ...waitingLines(input.waiting),
     "Field shapes for each action. Use these names exactly, and use null for anything not stated:",
     ...ACTION_SHAPES,
+    ...(input.waiting?.lines.length ? [LABEL_SHAPE] : []),
     "Conversation context for this user only:",
     context,
     "Saved budgets:",
@@ -153,6 +157,31 @@ export function buildSystemPrompt(input: {
     "Recent transactions:",
     recent,
   ].join("\n");
+}
+
+const LABEL_SHAPE =
+  '{"type":"label_payments","answers":[{"items":[1,2],"action":"category","category":"Food","description":"Office snacks","person":null},{"items":[3],"action":"lent","category":null,"description":null,"person":"Debby"}]}';
+
+/** The payments from bank texts that wait for the user to say what they were. */
+function waitingLines(waiting: { lines: string[]; current: number } | null | undefined): string[] {
+  if (!waiting?.lines.length) return [];
+  return [
+    "Payments read from the user's bank and mobile money texts are waiting for them to say what they were. Use label_payments when the message says what one or more of them were. Each answer has:",
+    "- items: the numbers of the payments it covers, from the list below.",
+    "- action category: spending or income; category from the lists above, description a short label in the user's words or null.",
+    "- action lent: money the user lent out, outgoing only; person is who borrowed it (the payee, or a name the user gives).",
+    "- action repaid: someone paying back money they borrowed, incoming only; person is who, or null for the sender.",
+    "- action own_transfer: the user's own money moving between their own accounts.",
+    "- action skip: a test, a mistake, a reversal, or something not to count.",
+    "Include a payment only when the message clearly points at it: by name (nicknames and first names count, like Debby for Deborah), amount, date, network, or words like all, both, the rest. \"Everything to X\" covers every listed payment to X and no one else's.",
+    "If the user names someone who isn't in the list, they're already sorted: leave that instruction out. Never move it onto other payments.",
+    waiting.current > 0
+      ? `A short reply that points at nothing, like "food" or "lunch with Kofi", answers payment ${waiting.current}, which the user was just asked about.`
+      : "A short reply that points at nothing doesn't answer any of them.",
+    "Questions about these payments, such as who someone is, what an amount was, or which are left, use chat and answer only from this list and the recent messages. Anything else, like a new expense or a summary, uses its normal action.",
+    "Waiting payments:",
+    ...waiting.lines,
+  ];
 }
 
 function describeContext(context: ConversationContext | null | undefined): string {

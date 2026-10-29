@@ -1,13 +1,14 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import { applyLabel, ingestBankText, type IngestDeps } from "@/lib/bank/ingest";
 import { labelButtons, questionFor } from "@/lib/bank/notify";
-import { answerLabelReply, createLabelResolver, type LabelResolver } from "@/lib/bank/reply";
+import { buildSystemPrompt } from "@/lib/ai/prompts";
+import { answerLabelReply, resolvedFrom, waitingPayments, type LabelResolver } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { executeConfirmed, handleAction, type ActionContext } from "@/lib/finance/action-router";
 import { findPerson, loanBalances, MemoryLoanStore } from "@/lib/finance/loans";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
-import { pendingPayloadSchema } from "@/lib/finance/schemas";
+import { parseModelOutput, pendingPayloadSchema } from "@/lib/finance/schemas";
 import { profile } from "./helpers";
 
 const DEBORAH =
@@ -55,6 +56,22 @@ describe("loan balances", () => {
     expect(findPerson(balances, "Debby")?.person).toBe("Deborah Ama Zenaba Konadu");
     expect(findPerson(balances, "deborah")?.person).toBe("Deborah Ama Zenaba Konadu");
     expect(findPerson(balances, "Ama")).toBeNull();
+  });
+});
+
+describe("names in a reply", () => {
+  it("doesn't take Samuel to mean Amos Sekyi Sam", async () => {
+    const { deps, bank, owner } = setup();
+    const amos = await held(deps, owner, "Payment made for GHS 31.50 to AMOS SEKYI SAM Current Balance: GHS 374.82 . Available Balance: GHS 374.82. Reference: . Transaction ID: 92400000020. Fee charged: GHS0.00");
+    await applyLabel(deps, owner, amos.id, { kind: "category", category: "Transport" });
+    const samuel = await held(deps, owner, "Payment made for GHS 8.00 to SAMUEL MPENIASAH Current Balance: GHS 366.82 . Available Balance: GHS 366.82. Reference: . Transaction ID: 92400000021. Fee charged: GHS0.00");
+    await held(deps, owner, GODWIN);
+    const reply = await answerLabelReply(deps, owner, "Samuel was office snacks", async () => [
+      { messageIds: [samuel.id], label: { kind: "category", category: "Food", description: "Office snacks" } },
+    ]);
+    expect(reply?.text).toContain("I'll file Samuel Mpeniasah as Food");
+    expect(reply?.text).not.toContain("Amos");
+    expect(bank.rules.get("amos sekyi sam")?.category).toBe("Transport");
   });
 });
 
@@ -176,23 +193,27 @@ describe("answering in your own words", () => {
   });
 });
 
-describe("label resolver", () => {
-  it("lists waiting payments by number and maps the model's answer back to them", async () => {
+describe("waiting payments in the main conversation", () => {
+  it("numbers them for the model and maps its answer back to them", async () => {
     const { deps, owner } = setup();
     const adisah = await held(deps, owner, ADISAH);
     const godwin = await held(deps, owner, GODWIN);
-    let prompt = "";
-    const fetchImpl = vi.fn(async (_url: string, init?: RequestInit) => {
-      prompt = (JSON.parse(String(init?.body)) as { messages: { content: string }[] }).messages[0].content;
-      const content = JSON.stringify({ answers: [{ items: [2, 9], action: "category", category: "Transport", description: "Fuel" }] });
-      return new Response(JSON.stringify({ choices: [{ finish_reason: "stop", message: { content } }] }), { headers: { "content-type": "application/json" } });
-    });
-    const resolve = createLabelResolver({ apiKey: "sk-test", model: "deepseek-flash" }, fetchImpl as typeof fetch);
-    const answers = await resolve({ text: "godwin was fuel", waiting: [adisah, godwin], current: adisah, profile: owner, owed: new Map(), today: "2026-10-29" });
-    expect(prompt).toContain("1. OUT GH₵10.50 to Adisah Anabzo");
-    expect(prompt).toContain("2. OUT GH₵61.50 to Godwin Abaya");
+    await answerLabelReply(deps, owner, "what are those?", async () => []);
+    const waiting = await waitingPayments(deps, owner);
+    expect(waiting?.lines[0]).toContain("1. OUT GH₵10.50 to Adisah Anabzo");
+    expect(waiting?.lines[1]).toContain("2. OUT GH₵61.50 to Godwin Abaya");
+    expect(waiting?.current?.id).toBe(adisah.id);
+
+    const prompt = buildSystemPrompt({ today: "2026-10-29", timezone: "Africa/Accra", currency: "GHS", recent: [], waiting: { lines: waiting!.lines, current: waiting!.currentNumber } });
+    expect(prompt).toContain("Waiting payments:\n1. OUT GH₵10.50 to Adisah Anabzo");
     expect(prompt).toContain("answers payment 1, which the user was just asked about");
-    expect(answers).toEqual([{ messageIds: [godwin.id], label: { kind: "category", category: "Transport", description: "Fuel" } }]);
+    expect(prompt).toContain('"type":"label_payments"');
+    expect(buildSystemPrompt({ today: "2026-10-29", timezone: "Africa/Accra", currency: "GHS", recent: [] })).not.toContain("label_payments");
+
+    const action = parseModelOutput('{"type":"label_payments","answers":[{"items":[2,9],"action":"category","category":"Transport","description":"Fuel"}]}');
+    expect(action.success && action.data.type === "label_payments" ? resolvedFrom(action.data.answers, waiting!.listed) : null).toEqual([
+      { messageIds: [godwin.id], label: { kind: "category", category: "Transport", description: "Fuel" } },
+    ]);
   });
 });
 

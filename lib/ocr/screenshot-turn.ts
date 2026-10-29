@@ -17,6 +17,7 @@ function line(outcome: IngestOutcome): string {
     transfer: "your own money moving, not counted",
     loan: "loan deposit, not counted as income",
     needs_label: "what was this?",
+    skipped: "tiny test charge, left out",
   }[outcome.outcome];
   return `• ${money}${who} · ${what}`;
 }

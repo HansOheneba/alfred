@@ -21,6 +21,9 @@ export async function interpretWithContext(input: {
   messages?: MessageLog | null;
   excludeClientId?: string | null;
   channel: Channel;
+  /** Bank payments waiting for a label, which the user may be answering about. */
+  waiting?: { lines: string[]; current: number } | null;
+  model?: string;
 }): Promise<{ action: FinanceAction; context: ConversationContext | null; cue: ChatCue }> {
   const ownerId = input.profile.profileId;
   const transactions = await input.store.listTransactions(ownerId);
@@ -78,6 +81,8 @@ export async function interpretWithContext(input: {
           role: item.role,
           body: item.body.slice(0, 500),
         })),
+      waiting: input.waiting,
+      model: input.model,
     });
   } catch (error) {
     if (error instanceof AiError && error.code === "invalid") {

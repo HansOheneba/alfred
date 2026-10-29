@@ -1,15 +1,13 @@
-import { z } from "zod";
-
-import { chatCompletion } from "@/lib/ai/deepseek";
 import { applyLabel, titleCase, undoLabels, type IngestDeps, type Label } from "@/lib/bank/ingest";
-import { NATURAL_HINT, questionFor } from "@/lib/bank/notify";
+import { NATURAL_HINT, questionFor, reviewRow } from "@/lib/bank/notify";
 import { payeeKey } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, LabelChange } from "@/lib/bank/store";
-import type { DeepSeekSettings, UserProfile } from "@/lib/config";
-import { categoryList, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
+import type { UserProfile } from "@/lib/config";
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { zonedYmd } from "@/lib/finance/dates";
 import { owedBy } from "@/lib/finance/loans";
+import type { LabelAnswer } from "@/lib/finance/schemas";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
 import type { InlineButton } from "@/lib/telegram/client";
@@ -19,36 +17,29 @@ const UNDO_WINDOW_MS = 30 * 60_000;
 /** How many waiting payments the model sees at once, oldest first. */
 const MAX_LISTED = 40;
 /**
- * Matching many payments to a loose sentence needs the stronger model; the
- * small one guesses, e.g. filing every unnamed payment as "office snacks".
+ * Turns with payments waiting use the stronger model: matching many payments
+ * to a loose sentence makes the small one guess, e.g. filing every unnamed
+ * payment as "office snacks".
  */
-const LABEL_MODEL = "deepseek-v4-pro";
+export const LABEL_MODEL = "deepseek-v4-pro";
 
 /** One instruction from the person: these payments get this label. */
 export type ResolvedLabel = { messageIds: string[]; label: Label };
 
-export type LabelResolver = (input: {
-  text: string;
-  waiting: BankMessage[];
+/** The payments waiting for a label, as Alfred's main conversation sees them. */
+export type WaitingPayments = {
+  all: BankMessage[];
+  /** The oldest ones, numbered from 1 in `lines`. */
+  listed: BankMessage[];
+  lines: string[];
+  /** The payment the person was just asked about; a bare reply answers it. */
   current: BankMessage | null;
-  profile: UserProfile;
-  owed: Map<string, string>;
-  today: string;
-}) => Promise<ResolvedLabel[]>;
+  /** Its number in `lines`, or 0. */
+  currentNumber: number;
+};
 
-const answerSchema = z.object({
-  answers: z
-    .array(
-      z.object({
-        items: z.array(z.number().int()).max(MAX_LISTED),
-        action: z.enum(["category", "own_transfer", "lent", "repaid", "skip"]),
-        category: z.string().max(40).nullable().optional(),
-        description: z.string().max(200).nullable().optional(),
-        person: z.string().max(120).nullable().optional(),
-      }),
-    )
-    .max(20),
-});
+/** Works out which payments a message is about and what each was, e.g. from the main conversation's answer. */
+export type LabelResolver = (input: { text: string; waiting: WaitingPayments; profile: UserProfile }) => Promise<ResolvedLabel[]>;
 
 function listLine(message: BankMessage, index: number, profile: UserProfile, owed: Map<string, string>): string {
   const money = formatAmount(message.amount, message.currency);
@@ -63,63 +54,62 @@ function listLine(message: BankMessage, index: number, profile: UserProfile, owe
   return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${debt ? ` · this person owes them ${debt}` : ""}`;
 }
 
-/** Asks the model which waiting payments a message is about and what each one was. */
-export function createLabelResolver(settings: DeepSeekSettings, fetchImpl: typeof fetch = fetch): LabelResolver {
-  return async ({ text, waiting, current, profile, owed, today }) => {
-    const listed = waiting.slice(0, MAX_LISTED);
-    const currentNumber = current ? listed.findIndex((item) => item.id === current.id) + 1 : 0;
-    const system = [
-      "You help a personal finance assistant file payments from the user's bank and mobile money texts. Some are waiting for the user to say what they were.",
-      "Decide which waiting payments the user's message is about, and what each one was. Reply with JSON only:",
-      '{"answers":[{"items":[1,2],"action":"category","category":"Food","description":"Office snacks","person":null}]}',
-      "Actions:",
-      "- category: spending or income. category must come from the lists below; description is a short label in the user's words, or null.",
-      "- lent: money the user lent out (a loan to someone, they'll pay it back). Outgoing only. person is who borrowed it: the payee, or a name the user gives.",
-      "- repaid: someone paying back money they borrowed. Incoming only. person is who paid back, or null for the sender.",
-      "- own_transfer: the user's own money moving between their own accounts.",
-      "- skip: a test, a mistake, a reversal, or something not to count.",
-      "Matching:",
-      "- Include a payment only when the message clearly points at it: by name (nicknames and first names count, like Debby for Deborah), amount, date, network, or words like all, every, both, the rest.",
-      "- \"All money to X\" or \"everything to X\" covers every listed payment to X, and no one else's.",
-      "- If the user names someone who isn't in the list, they're already sorted: leave that instruction out. Never move it onto other payments.",
-      currentNumber > 0
-        ? `- A short reply that points at nothing, like \"food\" or \"lunch with Kofi\", answers payment ${currentNumber}, which the user was just asked about.`
-        : "- A short reply that points at nothing answers nothing.",
-      "- Several instructions in one message become several answers.",
-      "- If the message isn't about these payments at all (a question, a new expense, small talk), reply {\"answers\":[]}.",
-      `Spending categories: ${categoryList("expense").join(", ")}.`,
-      `Income categories: ${categoryList("income").join(", ")}.`,
-      `Today is ${today}.`,
-      "Waiting payments:",
-      ...listed.map((message, index) => listLine(message, index, profile, owed)),
-    ].join("\n");
-    const content = await chatCompletion(
-      { ...settings, model: LABEL_MODEL },
-      [
-        { role: "system", content: system },
-        { role: "user", content: text },
-      ],
-      { temperature: 0, maxTokens: 600, timeoutMs: 25_000 },
-      fetchImpl,
-    );
-    const parsed = answerSchema.safeParse(JSON.parse(content));
-    if (!parsed.success) return [];
-    return parsed.data.answers
-      .map((answer): ResolvedLabel | null => {
-        const messageIds = [...new Set(answer.items)].map((number) => listed[number - 1]?.id).filter((id): id is string => Boolean(id));
-        if (messageIds.length === 0) return null;
-        if (answer.action === "skip") return { messageIds, label: { kind: "skip" } };
-        if (answer.action === "own_transfer") return { messageIds, label: { kind: "transfer" } };
-        if (answer.action === "lent") return { messageIds, label: { kind: "lent", person: answer.person ?? null, note: answer.description ?? null } };
-        if (answer.action === "repaid") return { messageIds, label: { kind: "repaid", person: answer.person ?? null } };
-        if (!answer.category) return null;
-        return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null } };
-      })
-      .filter((item): item is ResolvedLabel => item !== null);
+/** What's waiting for a label, numbered for the model, or null when nothing is. */
+export async function waitingPayments(deps: IngestDeps, profile: UserProfile): Promise<WaitingPayments | null> {
+  const all = oldestFirst(await deps.bank.listMessages(profile.profileId, "needs_label"));
+  if (all.length === 0) return null;
+  const listed = all.slice(0, MAX_LISTED);
+  // The most recently asked question is the one a bare reply most likely answers.
+  const current = [...all].filter((item) => item.askedAt).sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0] ?? null;
+  const owed = new Map<string, string>();
+  if (deps.loans) {
+    for (const message of listed.filter((item) => item.direction === "in")) {
+      const debt = await owedBy(deps.loans, profile.profileId, message.counterparty);
+      if (debt) owed.set(message.id, formatAmount(debt.owed, debt.currency));
+    }
+  }
+  return {
+    all,
+    listed,
+    lines: listed.map((message, index) => listLine(message, index, profile, owed)),
+    current,
+    currentNumber: current ? listed.findIndex((item) => item.id === current.id) + 1 : 0,
   };
 }
 
+/** Turns the model's numbered answers back into payments and labels. */
+export function resolvedFrom(answers: LabelAnswer[], listed: BankMessage[]): ResolvedLabel[] {
+  return answers
+    .map((answer): ResolvedLabel | null => {
+      const messageIds = [...new Set(answer.items)].map((number) => listed[number - 1]?.id).filter((id): id is string => Boolean(id));
+      if (messageIds.length === 0) return null;
+      if (answer.action === "skip") return { messageIds, label: { kind: "skip" } };
+      if (answer.action === "own_transfer") return { messageIds, label: { kind: "transfer" } };
+      if (answer.action === "lent") return { messageIds, label: { kind: "lent", person: answer.person ?? null, note: answer.description ?? null } };
+      if (answer.action === "repaid") return { messageIds, label: { kind: "repaid", person: answer.person ?? null } };
+      if (!answer.category) return null;
+      return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null } };
+    })
+    .filter((item): item is ResolvedLabel => item !== null);
+}
+
+/** When the model says a message labels payments but none it picked fit what was said. */
+export const UNMATCHED_LABEL =
+  "I couldn't tell which waiting payments you meant. Name the person or the amount, like “the 125 from Grace was a gift”, or ask “what are those?” to see them all.";
+
 export type LabelReply = { text: string; next: BankMessage | null; buttons?: InlineButton[][] };
+
+/** How many waiting payments "what are those?" lists before saying how many more. */
+const MAX_SHOWN = 15;
+
+/** One waiting payment as a short line: "GH₵61.50 to Godwin Abaya · Mon 26 Oct". */
+function waitingLine(message: BankMessage, profile: UserProfile): string {
+  const money = formatAmount(message.amount, message.currency);
+  const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: profile.timezone }).format(new Date(message.occurredAt));
+  const named = message.counterparty && !/^gcb/i.test(message.counterparty) ? titleCase(message.counterparty) : null;
+  const who = message.direction === "out" ? (named ? `to ${named}` : "on your GCB card") : named ? `from ${named}` : "onto your GCB card";
+  return `${money} ${who} · ${day}`;
+}
 
 /** "What are those?", "which ones?", "show me" while payments are waiting. */
 const LIST_QUERY = /^(?:what|which)\b.*\b(?:those|they|them|ones|payments?)\b|^(?:show|list)\b.*\b(?:them|those|payments?)\b|^(?:what's|whats) (?:left|pending|waiting)/i;
@@ -142,11 +132,15 @@ function words(text: string): string[] {
   return text.toLowerCase().match(/[a-z]+/g) ?? [];
 }
 
-/** Whether a word in the message refers to this name: the same word, or a nickname sharing its first three letters (Debby, Deborah). */
+/**
+ * Whether a word in the message refers to this name: the same word, or a
+ * nickname sharing its first three letters (Debby, Deborah). Short names
+ * only match exactly, so "Samuel" doesn't point at Amos Sekyi Sam.
+ */
 function namesIt(said: string[], name: string): boolean {
   const tokens = words(name);
   return said.some((word) =>
-    tokens.some((token) => token === word || (word.length >= 4 && !NOT_NAMES.has(word) && token.length >= 3 && token.slice(0, 3) === word.slice(0, 3))),
+    tokens.some((token) => token === word || (word.length >= 4 && !NOT_NAMES.has(word) && token.length >= 4 && token.slice(0, 3) === word.slice(0, 3))),
   );
 }
 
@@ -210,18 +204,13 @@ async function withNext(deps: IngestDeps, profile: UserProfile, text: string, in
   if (!next) return { text, next: null };
   const remaining = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
   const question = await questionFor(deps.loans, profile, next);
-  return { text: `${text}\n\n${intro(remaining)}${question.text}`, next, buttons: question.buttons };
+  return { text: `${text}\n\n${intro(remaining)}${question.text}`, next, buttons: [...question.buttons, ...reviewRow(remaining)] };
 }
 
 const nextIntro = (remaining: number) => (remaining > 1 ? `Next (${remaining - 1} more after this): ` : "Last one: ");
 
-/**
- * When payments are waiting for a label, handles the person's message if it's
- * about them: answers in their own words (one or many at once), "what are
- * those?", or "undo". Returns null to let the message go through as a normal
- * chat turn.
- */
-export async function answerLabelReply(deps: IngestDeps, profile: UserProfile, text: string, resolve: LabelResolver): Promise<LabelReply | null> {
+/** "undo" and "what are those?" while payments are waiting: answered without the model. */
+export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text: string): Promise<LabelReply | null> {
   if (UNDO.test(text)) {
     const changes = await deps.bank.takeUndo(profile.profileId, new Date(deps.now.getTime() - UNDO_WINDOW_MS));
     if (changes) {
@@ -229,34 +218,22 @@ export async function answerLabelReply(deps: IngestDeps, profile: UserProfile, t
       return withNext(deps, profile, `Undone. ${reopened === 1 ? "That payment is" : `Those ${reopened} payments are`} waiting for a label again.`, () => "");
     }
   }
-
+  if (!LIST_QUERY.test(text.trim())) return null;
   const waiting = oldestFirst(await deps.bank.listMessages(profile.profileId, "needs_label"));
   if (waiting.length === 0) return null;
+  if (waiting.length === 1) return withNext(deps, profile, "One payment is waiting for a label.", () => "");
+  const shown = waiting.slice(0, MAX_SHOWN).map((message, index) => `${index + 1}. ${waitingLine(message, profile)}`);
+  const more = waiting.length > MAX_SHOWN ? `\n…and ${waiting.length - MAX_SHOWN} more.` : "";
+  return withNext(deps, profile, `${waiting.length} payments are waiting for a label:\n${shown.join("\n")}${more}\n\n${NATURAL_HINT}`, () => "First: ");
+}
 
-  if (LIST_QUERY.test(text.trim())) {
-    const count = waiting.length === 1 ? "One payment is waiting for a label." : `${waiting.length} payments are waiting for a label. ${NATURAL_HINT}`;
-    return withNext(deps, profile, count, () => (waiting.length > 1 ? "First: " : ""));
-  }
-
-  // The most recently asked question is the one a bare reply most likely answers.
-  const current = [...waiting].filter((item) => item.askedAt).sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0] ?? null;
-  const owed = new Map<string, string>();
-  if (deps.loans) {
-    for (const message of waiting.filter((item) => item.direction === "in").slice(0, MAX_LISTED)) {
-      const debt = await owedBy(deps.loans, profile.profileId, message.counterparty);
-      if (debt) owed.set(message.id, formatAmount(debt.owed, debt.currency));
-    }
-  }
-
-  let resolved: ResolvedLabel[];
-  try {
-    resolved = await resolve({ text, waiting, current, profile, owed, today: zonedYmd(deps.now, profile.timezone) });
-  } catch (error) {
-    logError("label_reply", error);
-    return null;
-  }
-  if (resolved.length === 0) return null;
-
+/**
+ * Files what the person said about waiting payments, but only the payments
+ * their message really points at, then asks the next one. Returns null when
+ * nothing came of it.
+ */
+export async function applyResolved(deps: IngestDeps, profile: UserProfile, text: string, resolved: ResolvedLabel[], waiting: WaitingPayments): Promise<LabelReply | null> {
+  const current = waiting.current;
   const lines: string[] = [];
   const changes: LabelChange[] = [];
   const picked = resolved.flatMap((answer) => answer.messageIds);
@@ -265,7 +242,7 @@ export async function answerLabelReply(deps: IngestDeps, profile: UserProfile, t
     for (const messageId of answer.messageIds) {
       // An earlier label may already have filed this one, e.g. by learning the payee.
       if (changes.some((change) => change.messageId === messageId)) continue;
-      const message = waiting.find((item) => item.id === messageId);
+      const message = waiting.all.find((item) => item.id === messageId);
       if (!message) continue;
       // A bare reply like "food" answers the question just asked.
       const pointer = pointsAt(text, message, profile, deps.now) ?? (picked.length === 1 && messageId === current?.id ? "current" : null);
@@ -280,11 +257,33 @@ export async function answerLabelReply(deps: IngestDeps, profile: UserProfile, t
       if (result.ok || result.text !== "That one is already sorted.") lines.push(result.text);
     }
   }
-  if (lines.length > 0 || dropped > 0) lines.push(...(await alreadySorted(deps, profile, text, waiting)));
+  if (lines.length > 0 || dropped > 0) lines.push(...(await alreadySorted(deps, profile, text, waiting.all)));
   if (lines.length === 0) return null;
   if (changes.length > 0) await deps.bank.saveUndo(profile.profileId, changes);
 
   const body = lines.length === 1 ? lines[0] : lines.map((line) => `• ${line}`).join("\n");
   const undo = changes.length > 1 ? `\n\nSorted ${changes.length} payments. Say “undo” if I got any wrong.` : "";
   return withNext(deps, profile, `${body}${undo}`, nextIntro);
+}
+
+/**
+ * When payments are waiting for a label, handles the person's message if it's
+ * about them: "undo", "what are those?", or an answer in their own words
+ * worked out by `resolve`. Returns null to let the message go through as a
+ * normal chat turn.
+ */
+export async function answerLabelReply(deps: IngestDeps, profile: UserProfile, text: string, resolve: LabelResolver): Promise<LabelReply | null> {
+  const shortcut = await labelShortcut(deps, profile, text);
+  if (shortcut) return shortcut;
+  const waiting = await waitingPayments(deps, profile);
+  if (!waiting) return null;
+  let resolved: ResolvedLabel[];
+  try {
+    resolved = await resolve({ text, waiting, profile });
+  } catch (error) {
+    logError("label_reply", error);
+    return null;
+  }
+  if (resolved.length === 0) return null;
+  return applyResolved(deps, profile, text, resolved, waiting);
 }

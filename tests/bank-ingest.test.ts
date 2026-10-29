@@ -17,7 +17,7 @@ const LOAN = "Payment received for GHS 515.00 from Loan  Account  Current Balanc
 
 /** A resolver that answers whichever payment was just asked about. */
 function answersCurrent(label: Parameters<typeof applyLabel>[3]): LabelResolver {
-  return async ({ current }) => (current ? [{ messageIds: [current.id], label }] : []);
+  return async ({ waiting }) => (waiting.current ? [{ messageIds: [waiting.current.id], label }] : []);
 }
 const answersNothing: LabelResolver = async () => [];
 
@@ -132,7 +132,7 @@ describe("payees Alfred already understands", () => {
 
 describe("smarter labelling", () => {
   const FROM_ME =
-    "Payment received for GHS 1.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 344.94 . Available Balance: GHS 344.94. Reference: test. Transaction ID: 92300000001. TRANSACTION FEE: 0.00";
+    "Payment received for GHS 50.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 344.94 . Available Balance: GHS 344.94. Reference: test. Transaction ID: 92300000001. TRANSACTION FEE: 0.00";
   const FROM_ME_AGAIN =
     "Payment received for GHS 2.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 346.94 . Available Balance: GHS 346.94. Reference: test. Transaction ID: 92300000002. TRANSACTION FEE: 0.00";
 
@@ -150,6 +150,13 @@ describe("smarter labelling", () => {
     expect(next.outcomes[0].outcome).toBe("transfer");
   });
 
+  it("leaves out GH₵1 card checks and test sends without asking", async () => {
+    const { deps, owner } = setup();
+    const result = await ingestBankText(deps, owner, FROM_ME_AGAIN.replace("GHS 2.00", "GHS 1.00").replace("HANS OHENEBA ADUSE OPOKU", "KOFI MENSAH"), { channel: "shortcut" });
+    expect(result.outcomes[0].outcome).toBe("skipped");
+    expect(result.outcomes[0].message.status).toBe("skipped");
+  });
+
   it("never learns a payee from a vague label or from your own name", async () => {
     const { deps, bank, owner } = setup();
     const held = (await ingestBankText(deps, owner, RUKAYA, { channel: "shortcut" })).outcomes[0].message;
@@ -160,11 +167,13 @@ describe("smarter labelling", () => {
   const AMOS =
     "Payment made for GHS 31.50 to AMOS SEKYI SAM Current Balance: GHS 374.82 . Available Balance: GHS 374.82. Reference: . Transaction ID: 92243526792. Fee charged: GHS0.00";
 
-  it("answers 'what are those' with the next waiting payment, and moves on after each answer", async () => {
+  it("answers 'what are those' with every waiting payment, and moves on after each answer", async () => {
     const { deps, owner } = setup();
     await ingestBankText(deps, owner, `Sun, 4 Oct at 8:15 AM\n${RUKAYA}\nMon, 5 Oct at 9:00 AM\n${AMOS}`, { channel: "screenshot" });
-    const listed = await answerLabelReply(deps, owner, "What are those", answersNothing);
-    expect(listed?.text).toContain("2 payments are waiting for a label.");
+    const listed = await answerLabelReply(deps, owner, "What what other payments are those ?", answersNothing);
+    expect(listed?.text).toContain("2 payments are waiting for a label:\n1. GH₵");
+    expect(listed?.text).toContain("2. GH₵31.50 to Amos Sekyi Sam · Mon 5 Oct");
+    expect(listed?.text).toContain("First: ");
     expect(listed?.next?.counterparty).toBe("RUKAYA ISSIFU");
 
     const answered = await answerLabelReply(deps, owner, "food", answersCurrent({ kind: "category", category: "Food" }));

@@ -4,9 +4,9 @@ import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import { applyLabel } from "@/lib/bank/ingest";
-import { labelChoiceText, labelFromCode, parseLabelCallback, questionFor } from "@/lib/bank/notify";
+import { labelChoiceText, reviewRow, labelFromCode, parseLabelCallback, questionFor } from "@/lib/bank/notify";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
-import { answerLabelReply, askNext, createLabelResolver, type LabelResolver } from "@/lib/bank/reply";
+import { applyResolved, askNext, LABEL_MODEL, labelShortcut, resolvedFrom, UNMATCHED_LABEL, waitingPayments } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { readImageText, type ImageText } from "@/lib/ocr/read-image";
@@ -43,7 +43,6 @@ export type HandlerDeps = {
   messages?: MessageLog | null;
   voice?: Voice | null;
   bank?: BankStore | null;
-  resolveLabels?: LabelResolver | null;
   loans?: LoanStore | null;
   /** Downloads and reads a photo the person sent. */
   readPhoto?: ((fileId: string) => Promise<ImageText>) | null;
@@ -129,22 +128,11 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async (ctx) => {
     const settled = await answerTypedDecision(text, ctx);
     if (settled) return { kind: "text", text: settled.text, context: settled.context };
-    if (deps.bank && deps.resolveLabels) {
-      const labelled = await answerLabelReply(
-        { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined },
-        profile,
-        text,
-        deps.resolveLabels,
-      );
-      if (labelled) {
-        return {
-          kind: "text",
-          text: labelled.text,
-          intent: "bank:label",
-          buttons: labelled.buttons,
-        };
-      }
-    }
+    const ingest = deps.bank ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined } : null;
+    const shortcut = ingest ? await labelShortcut(ingest, profile, text) : null;
+    if (shortcut) return { kind: "text", text: shortcut.text, intent: "bank:label", buttons: shortcut.buttons };
+    // Waiting payments are part of the conversation, so "Mitch was business" or "who's Mitch?" both work.
+    const waiting = ingest ? await waitingPayments(ingest, profile) : null;
     const { action, context, cue } = await interpretWithContext({
       text,
       profile,
@@ -153,7 +141,13 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
       interpret: deps.interpret,
       messages: deps.messages,
       channel: "telegram",
+      waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
+      model: waiting ? LABEL_MODEL : undefined,
     });
+    if (action.type === "label_payments") {
+      const labelled = ingest && waiting ? await applyResolved(ingest, profile, text, resolvedFrom(action.answers, waiting.listed), waiting) : null;
+      return { kind: "text", text: labelled?.text ?? UNMATCHED_LABEL, intent: "bank:label", buttons: labelled?.buttons };
+    }
     logInfo("interpreted", { updateId: update.update_id, userId: profile.profileId, action: action.type });
     const delivery = await handleAction(action, { ...ctx, conversation: context });
     const voiced = await voiceDelivery(deps.voice, action, delivery, { userText: text, profile, channel: "telegram", cue });
@@ -231,7 +225,8 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
       const next = result.ok ? await askNext(ingest, profile) : null;
       if (next) {
         const question = await questionFor(ingest.loans, profile, next);
-        await deps.telegram.sendMessage(actor.chatId, question.text, question.buttons);
+        const remaining = (await bank.listMessages(profile.profileId, "needs_label")).length;
+        await deps.telegram.sendMessage(actor.chatId, question.text, [...question.buttons, ...reviewRow(remaining)]);
         await deps.messages
           ?.append({ ownerId: profile.profileId, role: "assistant", body: question.text, channel: "telegram", intent: "bank:notice" })
           .catch((error) => logError("bank_message_log", error));
@@ -421,7 +416,6 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     messages: settings.supabase ? createSupabaseMessageLog(settings.supabase) : null,
     voice: settings.deepseek ? createVoice(settings.deepseek, fetchImpl) : null,
     bank: settings.supabase ? createSupabaseBankStore(settings.supabase) : null,
-    resolveLabels: settings.deepseek ? createLabelResolver(settings.deepseek, fetchImpl) : null,
     loans: settings.supabase ? createSupabaseLoanStore(settings.supabase) : null,
     readPhoto: settings.deepseek
       ? async (fileId) => {
