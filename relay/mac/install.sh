@@ -25,7 +25,13 @@ mkdir -p "$SUPPORT" "$HOME/Library/LaunchAgents"
 chmod 700 "$SUPPORT"
 
 echo "Building the relay…"
-swiftc -O "$HERE/AlfredRelay.swift" -o "$BIN"
+# The sandbox rules are compiled into the program, so they can't be edited afterwards.
+BUILD="$(mktemp -d)"
+trap 'rm -rf "$BUILD"' EXIT
+{ print -r -- 'let sandboxProfile = #"""'; cat "$HERE/sandbox.sb"; print -r -- '"""#'; } > "$BUILD/Profile.swift"
+cp "$HERE/AlfredRelay.swift" "$BUILD/main.swift"
+swiftc -O "$BUILD/main.swift" "$BUILD/Profile.swift" -o "$BIN"
+rm -f "$SUPPORT/sandbox.sb"
 
 if [[ ! -f "$SUPPORT/config.json" ]]; then
   echo -n "Paste your Alfred forwarding key (Settings → Bank messages, starts with alf_): "
@@ -36,7 +42,7 @@ if [[ ! -f "$SUPPORT/config.json" ]]; then
     exit 1
   fi
   umask 077
-  printf '{ "key": "%s", "endpoint": "https://alfred.hansopoku.com/api/ingest/sms" }\n' "$KEY" > "$SUPPORT/config.json"
+  printf '{ "key": "%s" }\n' "$KEY" > "$SUPPORT/config.json"
 fi
 
 # Runs when the Messages database changes, and every two minutes as a backstop.
@@ -60,10 +66,8 @@ PLIST
 launchctl bootout "gui/$(id -u)/$LABEL" 2>/dev/null || true
 launchctl bootstrap "gui/$(id -u)" "$AGENT"
 
-if "$BIN" --check >/dev/null 2>&1; then
-  echo "Installed and running. Recent money texts it can see:"
-  "$BIN" --check | tail -5
-else
+sleep 3
+if tail -1 "$SUPPORT/relay.log" 2>/dev/null | grep -q "Can't open Messages"; then
   echo
   echo "Installed. One last step: give it Full Disk Access so it can read Messages."
   echo "  1. System Settings → Privacy & Security → Full Disk Access opens now."
@@ -71,4 +75,6 @@ else
   echo "     $BIN"
   echo "  3. Run ./install.sh again to confirm it can see your texts."
   open "x-apple.systempreferences:com.apple.preference.security?Privacy_AllFiles"
+else
+  echo "Installed and running. Log: $SUPPORT/relay.log"
 fi
