@@ -11,7 +11,7 @@ export type BankMessage = {
   id: string;
   ownerId: string;
   source: BankSource;
-  channel: "shortcut" | "screenshot" | "manual";
+  channel: "shortcut" | "screenshot" | "manual" | "mac";
   externalId: string | null;
   direction: "in" | "out";
   kind: BankKind;

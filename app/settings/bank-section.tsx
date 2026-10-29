@@ -141,6 +141,12 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
               Not connected
             </span>
           )}
+          {connected && bank.lastEmptyAt && bank.lastUsedAt && Date.parse(bank.lastEmptyAt) >= Date.parse(bank.lastUsedAt) - 10_000 ? (
+            <p className="w-full text-xs leading-5 text-muted">
+              Your iPhone ran the automation {relativeTime(bank.lastEmptyAt)} but sent no text. In the automation, tap <span className="font-medium text-ink">Run Shortcut</span> and set its{" "}
+              <span className="font-medium text-ink">Input</span> to <span className="font-medium text-ink">Shortcut Input</span>.
+            </p>
+          ) : null}
         </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
@@ -183,34 +189,28 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
       <Card title="Set up the iPhone Shortcut">
         <ol className="flex flex-col gap-3 text-sm text-muted">
           <Step n={1}>
-            Open <span className={em}>Shortcuts</span> → <span className={em}>Automation</span> tab → <span className={em}>New Automation (+)</span> →{" "}
-            <span className={em}>Message</span>.
+            On your iPhone, open{" "}
+            <a href="/send-to-alfred.shortcut" className="font-medium text-gold underline underline-offset-2">
+              the Send to Alfred shortcut
+            </a>{" "}
+            and tap <span className={em}>Add Shortcut</span>. When it asks, paste your forwarding key.
           </Step>
           <Step n={2}>
-            Set <span className={em}>Message Contains</span> to <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">GHS</code>. Sender can stay
-            Anyone (MoMo and GCB usually can&apos;t be picked as contacts). Choose <span className={em}>Run Immediately</span>, turn off{" "}
-            <span className={em}>Notify When Run</span>, then tap <span className={em}>Next</span> → <span className={em}>New Blank Automation</span>.
+            In <span className={em}>Shortcuts</span>, open the <span className={em}>Automation</span> tab → <span className={em}>New Automation (+)</span> →{" "}
+            <span className={em}>Message</span>. Set <span className={em}>Message Contains</span> to{" "}
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">GHS</code> and leave Sender as Anyone. Choose{" "}
+            <span className={em}>Run Immediately</span>, turn off <span className={em}>Notify When Run</span>, then tap <span className={em}>Next</span>.
           </Step>
           <Step n={3}>
-            Add the action <span className={em}>Get Contents of URL</span> and paste the endpoint URL. Tap ▸ to expand it:
-            <ul className="mt-1.5 list-disc space-y-1 pl-5">
-              <li>
-                Method: <span className={em}>POST</span>
-              </li>
-              <li>
-                Headers: add <code className="font-mono text-xs text-ink">Authorization</code> = <code className="font-mono text-xs text-ink">Bearer your-key</code>
-              </li>
-              <li>
-                Request Body: <span className={em}>JSON</span> with <code className="font-mono text-xs text-ink">text</code> = Shortcut Input → <span className={em}>Content</span>, and{" "}
-                <code className="font-mono text-xs text-ink">sender</code> = Shortcut Input → <span className={em}>Sender</span>
-              </li>
-            </ul>
+            Pick <span className={em}>New Blank Automation</span>, add the action <span className={em}>Run Shortcut</span> and choose{" "}
+            <span className={em}>Send to Alfred</span>. Then tap ▸ on that action and set <span className={em}>Input</span> to{" "}
+            <span className={em}>Shortcut Input</span>. This step matters most: without it the message never reaches Alfred.
           </Step>
           <Step n={4}>
-            Tap <span className={em}>Done</span>. Repeat steps 1–3 with <span className={em}>Message Contains</span>{" "}
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">CEDIS</code>, so GCB card debits (which say &ldquo;GHANA CEDIS&rdquo;) are caught too.
+            Tap <span className={em}>Done</span>, then repeat steps 2–3 with{" "}
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">CEDIS</code> for GCB texts.
           </Step>
-          <Step n={5}>Test it: wait for a MoMo text, or forward one to yourself. Alfred should message you on Telegram, or it&apos;ll show under &ldquo;Needs a label&rdquo; below.</Step>
+          <Step n={5}>Test it: wait for a MoMo text, or have someone send you one. Alfred will message you on Telegram, or it&apos;ll show under &ldquo;Needs a label&rdquo; below.</Step>
         </ol>
         <p className="mt-4 rounded-xl bg-surface-2 p-3 text-xs leading-5 text-muted">
           Privacy: the Shortcut only sends texts containing GHS or CEDIS. Alfred keeps only money messages and ignores the rest. You can reset or turn off the key at any time.
