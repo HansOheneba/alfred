@@ -233,8 +233,11 @@ function personFor(message: BankMessage, named?: string | null): string | null {
   return payee;
 }
 
-/** Files a held message once the person says what it was, and remembers the payee for next time. */
-export async function applyLabel(deps: IngestDeps, profile: UserProfile, messageId: string, label: Label): Promise<LabelResult> {
+/**
+ * Files a held message once the person says what it was, and remembers the
+ * payee for next time unless `learn` is false (the person didn't name them).
+ */
+export async function applyLabel(deps: IngestDeps, profile: UserProfile, messageId: string, label: Label, options: { learn?: boolean } = {}): Promise<LabelResult> {
   const message = await deps.bank.getMessage(profile.profileId, messageId);
   if (!message) return { ok: false, text: "I couldn't find that payment anymore." };
   if (message.status !== "needs_label") return { ok: false, text: "That one is already sorted." };
@@ -293,7 +296,7 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   await deps.bank.updateMessage(profile.profileId, message.id, { status: "recorded", transactionId: id });
   change.transactionIds.push(id);
   const changes = [change];
-  const remembers = learnable(message.counterparty) && !VAGUE.has(category) && !looksLikeOwner(message.counterparty, profile.preferredName);
+  const remembers = options.learn !== false && learnable(message.counterparty) && !VAGUE.has(category) && !looksLikeOwner(message.counterparty, profile.preferredName);
   let alsoFiled = 0;
   if (remembers) {
     const key = payeeKey(message.counterparty);
