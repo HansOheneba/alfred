@@ -119,6 +119,54 @@ describe("answering in your own words", () => {
     expect(bank.rules.size).toBe(0);
   });
 
+  it("only files what the message points at, even when the model guesses wider", async () => {
+    const { deps, bank, ledger, loans, owner } = setup();
+    // Adisah was sorted earlier, so nothing to Adisah is waiting.
+    const adisah = await held(deps, owner, ADISAH);
+    await applyLabel(deps, owner, adisah.id, { kind: "category", category: "Food", description: "Office snacks" });
+    const godwin = await held(deps, owner, GODWIN);
+    const deborah = await held(deps, owner, DEBORAH);
+    const mitch = await held(deps, owner, "Payment received for GHS 1,000.00 from MITCH IVAN ABAKAH Current Balance: GHS 1,210.00 . Available Balance: GHS 1,210.00. Reference: . Transaction ID: 92400000010. TRANSACTION FEE: 0.00");
+    await answerLabelReply(deps, owner, "what are those?", async () => []);
+
+    // What the small model actually did with this message: snacks for everyone it could see.
+    const resolve: LabelResolver = async () => [
+      { messageIds: [godwin.id, mitch.id], label: { kind: "category", category: "Food", description: "Office snacks" } },
+      { messageIds: [deborah.id], label: { kind: "lent", person: "Debby" } },
+    ];
+    const reply = await answerLabelReply(deps, owner, "everything to Adisah was office snacks, the 400 to Debby was a loan,", resolve);
+    expect(reply?.text).toContain("you lent Deborah Ama Zenaba Konadu GH₵400.00");
+    expect(reply?.text).toContain("Adisah Anabzo is already sorted: I file them under Food · Office snacks.");
+    expect(reply?.text).not.toContain("Godwin Abaya as Food");
+    expect(reply?.text).not.toContain("doesn't fit");
+    expect((await bank.listMessages("42", "needs_label")).map((item) => item.id).sort()).toEqual([godwin.id, mitch.id].sort());
+    expect(bank.rules.has("godwin abaya")).toBe(false);
+    expect((await ledger.listTransactions("42")).filter((item) => item.description === "Office snacks")).toHaveLength(1);
+    expect(await loans.list("42")).toHaveLength(1);
+  });
+
+  it("files a payment picked by amount without remembering the payee", async () => {
+    const { deps, bank, owner } = setup();
+    const godwin = await held(deps, owner, GODWIN);
+    await held(deps, owner, ADISAH);
+    const reply = await answerLabelReply(deps, owner, "the 61.50 was fuel", async () => [
+      { messageIds: [godwin.id], label: { kind: "category", category: "Transport", description: "Fuel" } },
+    ]);
+    expect(reply?.text).toContain("Filed GH₵61.50 under Transport.");
+    expect(bank.rules.size).toBe(0);
+  });
+
+  it("still answers the question just asked from a bare reply", async () => {
+    const { deps, bank, owner } = setup();
+    await held(deps, owner, GODWIN);
+    const asked = await answerLabelReply(deps, owner, "what are those?", async () => []);
+    const reply = await answerLabelReply(deps, owner, "fuel", async () => [
+      { messageIds: [asked!.next!.id], label: { kind: "category", category: "Transport", description: "Fuel" } },
+    ]);
+    expect(reply?.text).toContain("I'll file Godwin Abaya as Transport from now on.");
+    expect(bank.rules.get("godwin abaya")?.category).toBe("Transport");
+  });
+
   it("lets ordinary messages through", async () => {
     const { deps, owner } = setup();
     await held(deps, owner, GODWIN);

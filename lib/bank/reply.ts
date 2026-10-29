@@ -3,10 +3,11 @@ import { z } from "zod";
 import { chatCompletion } from "@/lib/ai/deepseek";
 import { applyLabel, titleCase, undoLabels, type IngestDeps, type Label } from "@/lib/bank/ingest";
 import { NATURAL_HINT, questionFor } from "@/lib/bank/notify";
+import { payeeKey } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { DeepSeekSettings, UserProfile } from "@/lib/config";
-import { categoryList } from "@/lib/finance/categories";
+import { categoryList, EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { zonedYmd } from "@/lib/finance/dates";
 import { owedBy } from "@/lib/finance/loans";
 import { formatAmount } from "@/lib/finance/money";
@@ -17,6 +18,11 @@ import type { InlineButton } from "@/lib/telegram/client";
 const UNDO_WINDOW_MS = 30 * 60_000;
 /** How many waiting payments the model sees at once, oldest first. */
 const MAX_LISTED = 40;
+/**
+ * Matching many payments to a loose sentence needs the stronger model; the
+ * small one guesses, e.g. filing every unnamed payment as "office snacks".
+ */
+const LABEL_MODEL = "deepseek-v4-pro";
 
 /** One instruction from the person: these payments get this label. */
 export type ResolvedLabel = { messageIds: string[]; label: Label };
@@ -74,7 +80,8 @@ export function createLabelResolver(settings: DeepSeekSettings, fetchImpl: typeo
       "- skip: a test, a mistake, a reversal, or something not to count.",
       "Matching:",
       "- Include a payment only when the message clearly points at it: by name (nicknames and first names count, like Debby for Deborah), amount, date, network, or words like all, every, both, the rest.",
-      "- \"All money to X\" or \"everything to X\" covers every listed payment to X.",
+      "- \"All money to X\" or \"everything to X\" covers every listed payment to X, and no one else's.",
+      "- If the user names someone who isn't in the list, they're already sorted: leave that instruction out. Never move it onto other payments.",
       currentNumber > 0
         ? `- A short reply that points at nothing, like \"food\" or \"lunch with Kofi\", answers payment ${currentNumber}, which the user was just asked about.`
         : "- A short reply that points at nothing answers nothing.",
@@ -87,12 +94,12 @@ export function createLabelResolver(settings: DeepSeekSettings, fetchImpl: typeo
       ...listed.map((message, index) => listLine(message, index, profile, owed)),
     ].join("\n");
     const content = await chatCompletion(
-      settings,
+      { ...settings, model: LABEL_MODEL },
       [
         { role: "system", content: system },
         { role: "user", content: text },
       ],
-      { temperature: 0, maxTokens: 600, timeoutMs: 15_000 },
+      { temperature: 0, maxTokens: 600, timeoutMs: 25_000 },
       fetchImpl,
     );
     const parsed = answerSchema.safeParse(JSON.parse(content));
@@ -117,6 +124,71 @@ export type LabelReply = { text: string; next: BankMessage | null; buttons?: Inl
 /** "What are those?", "which ones?", "show me" while payments are waiting. */
 const LIST_QUERY = /^(?:what|which)\b.*\b(?:those|they|them|ones|payments?)\b|^(?:show|list)\b.*\b(?:them|those|payments?)\b|^(?:what's|whats) (?:left|pending|waiting)/i;
 const UNDO = /^\s*(?:undo|undo (?:that|it|those|this)|revert (?:that|it))\s*[.!]?\s*$/i;
+
+/** "The rest were…", "all of them", "both": the person means every waiting payment. */
+const EVERYTHING = /\b(?:the rest|the others|all the others|everything else|all (?:of )?(?:them|those|these)|remaining|both)\b/i;
+const WEEKDAYS = ["sun", "mon", "tue", "wed", "thu", "fri", "sat"];
+/** Words that look like the start of a name but are part of the instruction. */
+const NOT_NAMES = new Set(
+  [
+    ...EXPENSE_CATEGORIES,
+    ...INCOME_CATEGORIES,
+    ...["was", "were", "with", "from", "going", "money", "that", "this", "those", "these", "them", "they", "everything", "every", "each"],
+    ...["payment", "payments", "sent", "paid", "loan", "lent", "back", "rest", "others", "office", "snacks", "lunch", "airtime", "data", "fuel", "gift"],
+  ].map((word) => word.toLowerCase()),
+);
+
+function words(text: string): string[] {
+  return text.toLowerCase().match(/[a-z]+/g) ?? [];
+}
+
+/** Whether a word in the message refers to this name: the same word, or a nickname sharing its first three letters (Debby, Deborah). */
+function namesIt(said: string[], name: string): boolean {
+  const tokens = words(name);
+  return said.some((word) =>
+    tokens.some((token) => token === word || (word.length >= 4 && !NOT_NAMES.has(word) && token.length >= 3 && token.slice(0, 3) === word.slice(0, 3))),
+  );
+}
+
+type Pointer = "name" | "amount" | "date" | "everything";
+
+/**
+ * How the person's message points at a payment, or null when it doesn't. The
+ * model picks the payments, but only the ones the message really points at
+ * get filed, so a guess can't spread a label onto payments never mentioned.
+ */
+function pointsAt(text: string, message: BankMessage, profile: UserProfile, now: Date): Pointer | null {
+  const said = words(text);
+  if (message.counterparty ? namesIt(said, message.counterparty) : message.source === "gcb" && (said.includes("gcb") || said.includes("card"))) return "name";
+  const amounts = (text.match(/\d[\d,]*(?:\.\d+)?/g) ?? []).map((value) => Number(value.replace(/,/g, "")));
+  if (amounts.some((value) => Math.abs(value - Number(message.amount)) < 0.005)) return "amount";
+  const occurred = new Date(message.occurredAt);
+  const weekday = WEEKDAYS[new Date(`${zonedYmd(occurred, profile.timezone)}T12:00:00Z`).getUTCDay()];
+  const day = zonedYmd(occurred, profile.timezone);
+  if (said.some((word) => word.length >= 3 && word.slice(0, 3) === weekday && /^(?:mon|tues?|wed(?:nes)?|thu(?:rs)?|fri|sat(?:ur)?|sun)(?:day)?$/.test(word))) return "date";
+  if (said.includes("today") && day === zonedYmd(now, profile.timezone)) return "date";
+  if (said.includes("yesterday") && day === zonedYmd(new Date(now.getTime() - 86_400_000), profile.timezone)) return "date";
+  if (EVERYTHING.test(text)) return "everything";
+  return null;
+}
+
+/** People the message names who were already sorted, so the person knows why nothing changed for them. */
+async function alreadySorted(deps: IngestDeps, profile: UserProfile, text: string, waiting: BankMessage[]): Promise<string[]> {
+  const said = words(text);
+  const waitingKeys = new Set(waiting.map((item) => payeeKey(item.counterparty)));
+  const seen = new Set<string>();
+  const notes: string[] = [];
+  for (const message of await deps.bank.listMessages(profile.profileId)) {
+    const key = payeeKey(message.counterparty);
+    if (message.status === "needs_label" || !key || seen.has(key) || waitingKeys.has(key) || !namesIt(said, message.counterparty)) continue;
+    seen.add(key);
+    const rule = await deps.bank.getRule(profile.profileId, key);
+    const filed = rule ? `: I file them under ${rule.category}${rule.description ? ` · ${rule.description}` : ""}` : "";
+    notes.push(`${titleCase(message.counterparty)} is already sorted${filed}. Tell me if that should change.`);
+    if (notes.length >= 3) break;
+  }
+  return notes;
+}
 
 function oldestFirst(messages: BankMessage[]): BankMessage[] {
   return [...messages].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
@@ -187,15 +259,28 @@ export async function answerLabelReply(deps: IngestDeps, profile: UserProfile, t
 
   const lines: string[] = [];
   const changes: LabelChange[] = [];
+  const picked = resolved.flatMap((answer) => answer.messageIds);
+  let dropped = 0;
   for (const answer of resolved) {
     for (const messageId of answer.messageIds) {
       // An earlier label may already have filed this one, e.g. by learning the payee.
       if (changes.some((change) => change.messageId === messageId)) continue;
-      const result = await applyLabel(deps, profile, messageId, answer.label);
+      const message = waiting.find((item) => item.id === messageId);
+      if (!message) continue;
+      // A bare reply like "food" answers the question just asked.
+      const pointer = pointsAt(text, message, profile, deps.now) ?? (picked.length === 1 && messageId === current?.id ? "current" : null);
+      if (!pointer) {
+        dropped += 1;
+        continue;
+      }
+      // Only someone the person named, or the one they were asked about, is remembered for next time.
+      const learn = pointer === "name" || pointer === "current";
+      const result = await applyLabel(deps, profile, messageId, answer.label, { learn });
       if (result.ok) changes.push(...result.changes);
       if (result.ok || result.text !== "That one is already sorted.") lines.push(result.text);
     }
   }
+  if (lines.length > 0 || dropped > 0) lines.push(...(await alreadySorted(deps, profile, text, waiting)));
   if (lines.length === 0) return null;
   if (changes.length > 0) await deps.bank.saveUndo(profile.profileId, changes);
 
