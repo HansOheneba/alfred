@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "eval:labels": "tsx scripts/eval-labels.ts",
     "seed:users": "tsx scripts/seed-users.ts",
     "setup:webhook": "tsx scripts/set-webhook.ts",
     "telegram:user-ids": "tsx scripts/print-telegram-user-ids.ts"
