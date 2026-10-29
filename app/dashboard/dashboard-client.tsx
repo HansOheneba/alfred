@@ -367,7 +367,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             </ul>
           )}
         </Card>
-        <OwedCard owed={ledger.owed} />
+        <OwedCard owed={ledger.owed} owe={ledger.owe} />
       </div>
 
       {hasAny ? <TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} /> : null}
@@ -375,12 +375,14 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
   );
 }
 
-/** Money the person lent out and hasn't had back yet. */
-function OwedCard({ owed }: { owed: Ledger["owed"] }) {
+/** Money the person lent out and hasn't had back yet, and what they borrowed and still owe. */
+function OwedCard({ owed, owe }: { owed: Ledger["owed"]; owe: Ledger["owe"] }) {
   const total = owed.reduce((sum, item) => sum + toMinor(item.owed), 0);
   return (
     <Card title="Owed to you" action={total > 0 ? <span className="tabular-nums text-xs text-muted">{formatMinor(total, owed[0].currency)}</span> : undefined}>
-      {owed.length === 0 ? (
+      {owed.length === 0 && owe.length > 0 ? (
+        <p className="text-sm text-muted">No one owes you money.</p>
+      ) : owed.length === 0 ? (
         <EmptyState>No one owes you money. Tell Alfred when you lend some, e.g. &ldquo;I lent Kofi 100&rdquo;.</EmptyState>
       ) : (
         <ul className="flex flex-col gap-4">
@@ -413,6 +415,19 @@ function OwedCard({ owed }: { owed: Ledger["owed"] }) {
           })}
         </ul>
       )}
+      {owe.length > 0 ? (
+        <div className="mt-5 border-t border-line pt-4">
+          <p className="text-xs text-muted">You owe</p>
+          <ul className="mt-2 flex flex-col gap-2">
+            {owe.map((item) => (
+              <li key={item.personKey} className="flex items-baseline justify-between gap-3 text-sm">
+                <span className="min-w-0 truncate">{item.person}</span>
+                <span className="shrink-0 tabular-nums font-medium">{formatMinor(toMinor(item.owe), item.currency)}</span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </Card>
   );
 }

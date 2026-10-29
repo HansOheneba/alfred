@@ -2,12 +2,15 @@ import { payeeKey } from "@/lib/bank/parse";
 import type { SupabaseSettings } from "@/lib/config";
 import { query } from "@/lib/supabase/connection";
 
-/** One movement of lent money: lending it out, or getting some back. */
+/**
+ * One movement of borrowed money: the person lending some out or getting it
+ * back, or borrowing from someone and paying them back.
+ */
 export type LoanEntry = {
   id: string;
   person: string;
   personKey: string;
-  kind: "lent" | "repaid";
+  kind: "lent" | "repaid" | "borrowed" | "paid_back";
   amount: string;
   currency: string;
   occurredAt: string;
@@ -17,8 +20,22 @@ export type LoanEntry = {
 
 export type NewLoanEntry = Omit<LoanEntry, "id" | "personKey">;
 
-/** What one person still owes, from everything lent to them and paid back. */
-export type LoanBalance = { person: string; personKey: string; lent: string; repaid: string; owed: string; currency: string; since: string };
+/**
+ * Where the person stands with someone: what they still owe the person
+ * (`owed`), and what the person still owes them (`owe`).
+ */
+export type LoanBalance = {
+  person: string;
+  personKey: string;
+  lent: string;
+  repaid: string;
+  owed: string;
+  borrowed: string;
+  paidBack: string;
+  owe: string;
+  currency: string;
+  since: string;
+};
 
 export interface LoanStore {
   add(ownerId: string, entry: NewLoanEntry): Promise<LoanEntry>;
@@ -33,13 +50,12 @@ export function personKey(name: string): string {
 const cents = (value: string) => Math.round(Number(value) * 100);
 const money = (value: number) => (value / 100).toFixed(2);
 
-/** Everyone who has borrowed from the person, with what they still owe, largest first. */
+/** Everyone the person has lent to or borrowed from, with what's still owed either way, largest owed to them first. */
 export function loanBalances(entries: LoanEntry[]): LoanBalance[] {
-  const people = new Map<string, { person: string; lent: number; repaid: number; currency: string; since: string }>();
+  const people = new Map<string, { person: string; lent: number; repaid: number; borrowed: number; paid_back: number; currency: string; since: string }>();
   for (const entry of [...entries].sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))) {
-    const current = people.get(entry.personKey) ?? { person: entry.person, lent: 0, repaid: 0, currency: entry.currency, since: entry.occurredAt };
-    if (entry.kind === "lent") current.lent += cents(entry.amount);
-    else current.repaid += cents(entry.amount);
+    const current = people.get(entry.personKey) ?? { person: entry.person, lent: 0, repaid: 0, borrowed: 0, paid_back: 0, currency: entry.currency, since: entry.occurredAt };
+    current[entry.kind] += cents(entry.amount);
     // The fullest version of a name wins, so "Deborah Ama Konadu" beats "Deborah".
     if (entry.person.length > current.person.length) current.person = entry.person;
     people.set(entry.personKey, current);
@@ -51,6 +67,9 @@ export function loanBalances(entries: LoanEntry[]): LoanBalance[] {
       lent: money(item.lent),
       repaid: money(item.repaid),
       owed: money(Math.max(0, item.lent - item.repaid)),
+      borrowed: money(item.borrowed),
+      paidBack: money(item.paid_back),
+      owe: money(Math.max(0, item.borrowed - item.paid_back)),
       currency: item.currency,
       since: item.since,
     }))
@@ -80,6 +99,13 @@ export async function owedBy(loans: LoanStore, ownerId: string, name: string): P
   if (!name.trim()) return null;
   const match = findPerson(loanBalances(await loans.list(ownerId)), name);
   return match && Number(match.owed) > 0 ? match : null;
+}
+
+/** What the person still owes a sender or recipient, or null when they owe them nothing. */
+export async function oweTo(loans: LoanStore, ownerId: string, name: string): Promise<LoanBalance | null> {
+  if (!name.trim()) return null;
+  const match = findPerson(loanBalances(await loans.list(ownerId)).filter((item) => Number(item.owe) > 0), name);
+  return match ?? null;
 }
 
 type LoanRow = {

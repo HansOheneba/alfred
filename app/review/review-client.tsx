@@ -14,7 +14,7 @@ import type { ReviewItem } from "@/lib/web/review";
 const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"];
 const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"];
 
-type Action = "category" | "chip_in" | "transfer" | "skip" | "lent" | "repaid";
+type Action = "category" | "chip_in" | "transfer" | "skip" | "lent" | "repaid" | "borrowed" | "paid_back";
 type Group = { key: string; who: string; items: ReviewItem[] };
 
 const cents = (value: string) => Math.round(Number(value) * 100);
@@ -51,6 +51,8 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
   const lendable = direction === "out" && chosen.every((item) => item.payee !== "card");
   const needsPerson = direction === "out" && chosen.some((item) => item.payee === "channel");
   const repayable = direction === "in" && chosen.some((item) => item.owed);
+  const borrowable = direction === "in" && chosen.every((item) => item.payee === "person");
+  const payable = direction === "out" && chosen.some((item) => item.owe);
   const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone });
 
   function toggle(ids: string[], on: boolean) {
@@ -164,6 +166,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                       {group.items.length > 1 ? `${group.items.length} payments` : day.format(new Date(first.occurredAt))}
                       {first.payee === "channel" ? " · the text doesn't say who received it" : ""}
                       {first.owed ? ` · owes you ${formatAmount(first.owed, first.currency)}` : ""}
+                      {first.owe ? ` · you owe them ${formatAmount(first.owe, first.currency)}` : ""}
                       {group.items.length === 1 && first.purpose ? ` · “${first.purpose}”` : ""}
                     </span>
                   </span>
@@ -247,6 +250,16 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                     {repayable ? (
                       <button type="button" className={chip} disabled={busy !== null} onClick={() => label("repaid", "repaid")}>
                         {busy === "repaid" ? <Spinner className="size-3" /> : null}Paying me back
+                      </button>
+                    ) : null}
+                    {borrowable ? (
+                      <button type="button" className={chip} disabled={busy !== null} onClick={() => label("borrowed", "borrowed")}>
+                        {busy === "borrowed" ? <Spinner className="size-3" /> : null}Lent to me
+                      </button>
+                    ) : null}
+                    {payable ? (
+                      <button type="button" className={chip} disabled={busy !== null} onClick={() => label("paid_back", "paid_back")}>
+                        {busy === "paid_back" ? <Spinner className="size-3" /> : null}Paying them back
                       </button>
                     ) : null}
                     <button type="button" className={chip} disabled={busy !== null} onClick={() => label("transfer", "transfer")}>

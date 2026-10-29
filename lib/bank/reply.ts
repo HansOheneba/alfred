@@ -6,7 +6,7 @@ import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { zonedYmd } from "@/lib/finance/dates";
-import { owedBy } from "@/lib/finance/loans";
+import { owedBy, oweTo } from "@/lib/finance/loans";
 import type { LabelAnswer } from "@/lib/finance/schemas";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
@@ -29,7 +29,12 @@ export type ResolvedLabel = { messageIds: string[]; label: Label };
 /** The payments waiting for a label, as Alfred's main conversation sees them. */
 export type WaitingPayments = {
   all: BankMessage[];
-  /** The oldest ones, numbered from 1 in `lines`. */
+  /**
+   * Payments the last label just filed, which the person may be correcting
+   * ("no, I mean he lent it to me"), with what each change did.
+   */
+  recent: { message: BankMessage; change: LabelChange }[];
+  /** The oldest waiting ones, then the just-filed ones, numbered from 1 in `lines`. */
   listed: BankMessage[];
   lines: string[];
   /** The payment the person was just asked about; a bare reply answers it. */
@@ -41,7 +46,7 @@ export type WaitingPayments = {
 /** Works out which payments a message is about and what each was, e.g. from the main conversation's answer. */
 export type LabelResolver = (input: { text: string; waiting: WaitingPayments; profile: UserProfile }) => Promise<ResolvedLabel[]>;
 
-function listLine(message: BankMessage, index: number, profile: UserProfile, owed: Map<string, string>): string {
+function listLine(message: BankMessage, index: number, profile: UserProfile, debts: Map<string, string>, filedAs?: string): string {
   const money = formatAmount(message.amount, message.currency);
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: profile.timezone }).format(
     new Date(message.occurredAt),
@@ -50,32 +55,62 @@ function listLine(message: BankMessage, index: number, profile: UserProfile, owe
   const name = message.counterparty ? titleCase(message.counterparty) : message.source === "gcb" ? "GCB card" : "unknown";
   const who =
     payee.kind === "channel" ? `${name} (sent to ${payee.channel}; the recipient isn't named)` : name;
-  const debt = owed.get(message.id);
+  const debt = debts.get(message.id);
   const purpose = purposeOf(message);
-  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${purpose ? ` · marked "${purpose}"` : ""}${debt ? ` · this person owes them ${debt}` : ""}`;
+  const owing = debt ? (message.direction === "in" ? ` · this person owes the user ${debt}` : ` · the user owes this person ${debt}`) : "";
+  const filed = filedAs ? ` · JUST FILED as ${filedAs}` : "";
+  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${purpose ? ` · marked "${purpose}"` : ""}${owing}${filed}`;
 }
 
-/** What's waiting for a label, numbered for the model, or null when nothing is. */
+/** What a label filed a payment as, in a few words, e.g. "Transport · Okada" or "paying you back". */
+export function filedAs(label: Label): string {
+  if (label.kind === "category") return label.description ? `${label.category} · ${label.description}` : label.category;
+  if (label.kind === "chip_in") return `${label.person ? `${label.person}'s` : "their"} share of ${label.category}`;
+  if (label.kind === "transfer") return "the user's own money";
+  if (label.kind === "skip") return "left out";
+  if (label.kind === "lent") return "money the user lent";
+  if (label.kind === "repaid") return "paying the user back";
+  if (label.kind === "borrowed") return "money lent to the user";
+  return "the user paying back a debt";
+}
+
+/**
+ * What's waiting for a label, plus what the last label just filed, numbered
+ * for the model, or null when there's neither.
+ */
 export async function waitingPayments(deps: IngestDeps, profile: UserProfile): Promise<WaitingPayments | null> {
   const all = oldestFirst(await deps.bank.listMessages(profile.profileId, "needs_label"));
-  if (all.length === 0) return null;
-  const listed = all.slice(0, MAX_LISTED);
+  const recent = await justFiled(deps, profile);
+  if (all.length === 0 && recent.length === 0) return null;
+  const listed = [...all.slice(0, MAX_LISTED), ...recent.map((item) => item.message)];
   // The most recently asked question is the one a bare reply most likely answers.
   const current = [...all].filter((item) => item.askedAt).sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0] ?? null;
-  const owed = new Map<string, string>();
+  const debts = new Map<string, string>();
   if (deps.loans) {
-    for (const message of listed.filter((item) => item.direction === "in")) {
-      const debt = await owedBy(deps.loans, profile.profileId, message.counterparty);
-      if (debt) owed.set(message.id, formatAmount(debt.owed, debt.currency));
+    for (const message of listed) {
+      const debt = await (message.direction === "in" ? owedBy : oweTo)(deps.loans, profile.profileId, message.counterparty);
+      if (debt) debts.set(message.id, formatAmount(message.direction === "in" ? debt.owed : debt.owe, debt.currency));
     }
   }
   return {
     all,
+    recent,
     listed,
-    lines: listed.map((message, index) => listLine(message, index, profile, owed)),
+    lines: listed.map((message, index) => listLine(message, index, profile, debts, recent.find((item) => item.message.id === message.id)?.change.filedAs)),
     current,
     currentNumber: current ? listed.findIndex((item) => item.id === current.id) + 1 : 0,
   };
+}
+
+/** The payments the last label filed, while "undo" could still reverse it. */
+async function justFiled(deps: IngestDeps, profile: UserProfile): Promise<WaitingPayments["recent"]> {
+  const changes = await deps.bank.peekUndo(profile.profileId, new Date(deps.now.getTime() - UNDO_WINDOW_MS));
+  const recent: WaitingPayments["recent"] = [];
+  for (const change of changes ?? []) {
+    const message = await deps.bank.getMessage(profile.profileId, change.messageId);
+    if (message && message.status !== "needs_label") recent.push({ message, change });
+  }
+  return recent;
 }
 
 /** Turns the model's numbered answers back into payments and labels. */
@@ -88,6 +123,8 @@ export function resolvedFrom(answers: LabelAnswer[], listed: BankMessage[]): Res
       if (answer.action === "own_transfer") return { messageIds, label: { kind: "transfer" } };
       if (answer.action === "lent") return { messageIds, label: { kind: "lent", person: answer.person ?? null, note: answer.description ?? null } };
       if (answer.action === "repaid") return { messageIds, label: { kind: "repaid", person: answer.person ?? null } };
+      if (answer.action === "borrowed") return { messageIds, label: { kind: "borrowed", person: answer.person ?? null, note: answer.description ?? null } };
+      if (answer.action === "paid_back") return { messageIds, label: { kind: "paid_back", person: answer.person ?? null } };
       if (!answer.category) return null;
       if (answer.action === "chip_in") return { messageIds, label: { kind: "chip_in", category: answer.category, description: answer.description ?? null, person: answer.person ?? null } };
       return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null } };
@@ -168,19 +205,31 @@ function pointsAt(text: string, message: BankMessage, profile: UserProfile, now:
   return null;
 }
 
-/** People the message names who were already sorted, so the person knows why nothing changed for them. */
-async function alreadySorted(deps: IngestDeps, profile: UserProfile, text: string, waiting: BankMessage[]): Promise<string[]> {
+/** The words in a message that refer to a name. */
+function namingWords(said: string[], name: string): string[] {
+  return said.filter((word) => namesIt([word], name));
+}
+
+/**
+ * People the message names who were already sorted, so the person knows why
+ * nothing changed for them. A name that also fits someone just filed is left
+ * out: "Debra" for Benjamin Debrah needs no note about Deborah.
+ */
+async function alreadySorted(deps: IngestDeps, profile: UserProfile, text: string, waiting: BankMessage[], filed: BankMessage[]): Promise<string[]> {
   const said = words(text);
-  const waitingKeys = new Set(waiting.map((item) => payeeKey(item.counterparty)));
+  const skipKeys = new Set([...waiting, ...filed].map((item) => payeeKey(item.counterparty)));
+  const filedWords = new Set(filed.flatMap((item) => namingWords(said, item.counterparty)));
   const seen = new Set<string>();
   const notes: string[] = [];
   for (const message of await deps.bank.listMessages(profile.profileId)) {
     const key = payeeKey(message.counterparty);
-    if (message.status === "needs_label" || !key || seen.has(key) || waitingKeys.has(key) || !namesIt(said, message.counterparty)) continue;
+    if (message.status === "needs_label" || !key || seen.has(key) || skipKeys.has(key)) continue;
+    const naming = namingWords(said, message.counterparty);
+    if (naming.length === 0 || naming.every((word) => filedWords.has(word))) continue;
     seen.add(key);
     const rule = await deps.bank.getRule(profile.profileId, key);
-    const filed = rule ? `: I file them under ${rule.category}${rule.description ? ` · ${rule.description}` : ""}` : "";
-    notes.push(`${titleCase(message.counterparty)} is already sorted${filed}. Tell me if that should change.`);
+    const filedUnder = rule ? `: I file them under ${rule.category}${rule.description ? ` · ${rule.description}` : ""}` : "";
+    notes.push(`${titleCase(message.counterparty)} is already sorted${filedUnder}. Tell me if that should change.`);
     if (notes.length >= 3) break;
   }
   return notes;
@@ -238,28 +287,40 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
   const current = waiting.current;
   const lines: string[] = [];
   const changes: LabelChange[] = [];
+  const filed: BankMessage[] = [];
   const picked = resolved.flatMap((answer) => answer.messageIds);
   let dropped = 0;
   for (const answer of resolved) {
     for (const messageId of answer.messageIds) {
       // An earlier label may already have filed this one, e.g. by learning the payee.
       if (changes.some((change) => change.messageId === messageId)) continue;
-      const message = waiting.all.find((item) => item.id === messageId);
+      const correcting = waiting.recent.find((item) => item.message.id === messageId);
+      const message = correcting?.message ?? waiting.all.find((item) => item.id === messageId);
       if (!message) continue;
-      // A bare reply like "food" answers the question just asked.
-      const pointer = pointsAt(text, message, profile, deps.now) ?? (picked.length === 1 && messageId === current?.id ? "current" : null);
+      // A bare reply like "food" answers the question just asked; "no, I mean…" corrects what was just filed.
+      const pointer =
+        pointsAt(text, message, profile, deps.now) ?? (picked.length === 1 && (messageId === current?.id || correcting) ? "current" : null);
       if (!pointer) {
         dropped += 1;
         continue;
       }
+      // A correction puts the payment back first, so the new label replaces the old one.
+      if (correcting) await undoLabels(deps, profile, [correcting.change]);
       // Only someone the person named, or the one they were asked about, is remembered for next time.
-      const learn = pointer === "name" || pointer === "current";
+      const learn = pointer === "name" || (pointer === "current" && !correcting);
       const result = await applyLabel(deps, profile, messageId, answer.label, { learn });
-      if (result.ok) changes.push(...result.changes);
-      if (result.ok || result.text !== "That one is already sorted.") lines.push(result.text);
+      if (result.ok) {
+        changes.push(...result.changes.map((change) => ({ ...change, filedAs: filedAs(answer.label) })));
+        filed.push(message);
+        lines.push(correcting ? `Fixed. ${result.text}` : result.text);
+      } else if (correcting) {
+        lines.push(`${result.text} I've taken off the earlier label, so it's waiting for one again.`);
+      } else if (result.text !== "That one is already sorted.") {
+        lines.push(result.text);
+      }
     }
   }
-  if (lines.length > 0 || dropped > 0) lines.push(...(await alreadySorted(deps, profile, text, waiting.all)));
+  if (lines.length > 0 || dropped > 0) lines.push(...(await alreadySorted(deps, profile, text, waiting.all, filed)));
   if (lines.length === 0) return null;
   if (changes.length > 0) await deps.bank.saveUndo(profile.profileId, changes);
 

@@ -67,7 +67,7 @@ const changesSchema = z
 /** What some of the payments waiting for a label were, by their number in the list Alfred was shown. */
 export const labelAnswerSchema = z.object({
   items: z.array(z.number().int().min(1).max(60)).min(1).max(60),
-  action: z.enum(["category", "chip_in", "own_transfer", "lent", "repaid", "skip"]),
+  action: z.enum(["category", "chip_in", "own_transfer", "lent", "repaid", "borrowed", "paid_back", "skip"]),
   category: z.string().max(40).nullable().optional(),
   description: z.string().max(200).nullable().optional(),
   person: z.string().max(120).nullable().optional(),
@@ -118,7 +118,7 @@ export const financeActionSchema = z.discriminatedUnion("type", [
   }),
   z.object({
     type: z.literal("record_loan"),
-    direction: z.enum(["lent", "repaid"]),
+    direction: z.enum(["lent", "repaid", "borrowed", "paid_back"]),
     person: z.string().min(1).max(120),
     amount: amountSchema,
     currency: currencySchema,
@@ -217,7 +217,7 @@ export const pendingPayloadSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("record_loan"),
     originUpdateId: z.string().regex(/^\d+$/),
-    direction: z.enum(["lent", "repaid"]),
+    direction: z.enum(["lent", "repaid", "borrowed", "paid_back"]),
     person: z.string().min(1).max(120),
     amount: amountSchema,
     currency: currencySchema,

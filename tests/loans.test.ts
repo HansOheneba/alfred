@@ -249,6 +249,103 @@ describe("loans by chat", () => {
     const one = await handleAction({ type: "get_loans", person: "Kofi" }, ctx);
     expect(one.text).toBe("Kofi owes you GH₵100.00. You lent GH₵100.00 in total.");
     const nobody = await handleAction({ type: "get_loans", person: "Ama" }, ctx);
-    expect(nobody.text).toBe("I don't have any loans to Ama on record.");
+    expect(nobody.text).toBe("I don't have any loans with Ama on record.");
+  });
+});
+
+const MITCH =
+  "Payment received for GHS 1,000.00 from MITCH IVAN ABAKAH Current Balance: GHS 1,210.00 . Available Balance: GHS 1,210.00. Reference: . Transaction ID: 92400000030. TRANSACTION FEE: 0.00";
+const TO_MITCH =
+  "Payment made for GHS 300.00 to MITCH IVAN ABAKAH Current Balance: GHS 910.00 . Available Balance: GHS 910.00. Reference: . Transaction ID: 92400000031. Fee charged: GHS0.00";
+
+describe("borrowing through bank labels", () => {
+  it("records money someone lent you, then asks if money to them is paying it back", async () => {
+    const { deps, ledger, owner } = setup();
+    const lent = await held(deps, owner, MITCH);
+    expect(labelButtons(lent, "Hans", { lending: true }).flat().map((button) => button.text)).toContain("Lent to me");
+
+    const reply = await answerLabelReply(deps, owner, "the 1000 from Mitch was a loan to me, so I owe him", async () => [
+      { messageIds: [lent.id], label: { kind: "borrowed", person: null } },
+    ]);
+    expect(reply?.text).toBe("Noted: Mitch Ivan Abakah lent you GH₵1,000.00. It isn't counted as income. You owe Mitch Ivan Abakah GH₵1,000.00 in total.");
+    expect(await ledger.listTransactions("42")).toEqual([]);
+
+    const back = await ingestBankText(deps, owner, TO_MITCH, { channel: "mac" });
+    expect(back.outcomes[0].outcome).toBe("needs_label");
+    const question = await questionFor(deps.loans, owner, back.outcomes[0].message);
+    expect(question.text).toContain("You owe Mitch Ivan Abakah GH₵1,000.00. Is this paying them back?");
+    expect(question.buttons[0][0].text).toBe("Yes, paying them back");
+    const paid = await applyLabel(deps, owner, back.outcomes[0].message.id, { kind: "paid_back" });
+    expect(paid.text).toBe("Marked GH₵300.00 to Mitch Ivan Abakah as paying them back. It isn't counted as spending. You owe Mitch Ivan Abakah GH₵700.00 in total.");
+  });
+
+  it("won't call money a repayment from someone who owes nothing", async () => {
+    const { deps, bank, owner } = setup();
+    const lent = await held(deps, owner, MITCH);
+    const result = await applyLabel(deps, owner, lent.id, { kind: "repaid" });
+    expect(result).toEqual({
+      ok: false,
+      text: "Mitch Ivan Abakah doesn't owe you anything that I know of, so GH₵1,000.00 can't be them paying you back. If they lent it to you, say so and I'll note that you owe them.",
+    });
+    expect((await bank.getMessage("42", lent.id))?.status).toBe("needs_label");
+  });
+
+  it("fixes what was just filed when you correct it", async () => {
+    const { deps, bank, ledger, loans, owner } = setup();
+    const lent = await held(deps, owner, MITCH);
+    await held(deps, owner, GODWIN);
+    await answerLabelReply(deps, owner, "Mitch was a gift", async () => [{ messageIds: [lent.id], label: { kind: "category", category: "Gift" } }]);
+    expect((await ledger.listTransactions("42")).filter((item) => item.status === "active").map((item) => item.category)).toContain("Gift");
+
+    const waiting = await waitingPayments(deps, owner);
+    expect(waiting?.lines.at(-1)).toContain("IN GH₵1,000.00 from Mitch Ivan Abakah");
+    expect(waiting?.lines.at(-1)).toContain("JUST FILED as Gift");
+
+    // "he" names no one, but a correction of the one payment just filed still lands on it.
+    const fixed = await answerLabelReply(deps, owner, "No I mean he gave me a loan so now I owe him", async ({ waiting: list }) => [
+      { messageIds: [list.recent[0].message.id], label: { kind: "borrowed", person: null } },
+    ]);
+    expect(fixed?.text).toContain("Fixed. Noted: Mitch Ivan Abakah lent you GH₵1,000.00.");
+    expect((await ledger.listTransactions("42")).filter((item) => item.status === "active").map((item) => item.category)).not.toContain("Gift");
+    expect(loans.entries.map((item) => item.kind)).toEqual(["borrowed"]);
+    expect(bank.rules.get("mitch ivan abakah")).toBeUndefined();
+    expect((await bank.getMessage("42", lent.id))?.status).toBe("borrowed");
+  });
+
+  it("says who you owe when asked", async () => {
+    const loans = new MemoryLoanStore();
+    const base = { currency: "GHS", note: "", bankMessageId: null };
+    await loans.add("42", { ...base, person: "Mitch Ivan Abakah", kind: "borrowed", amount: "1000.00", occurredAt: "2026-10-28T11:44:00.000Z" });
+    await loans.add("42", { ...base, person: "Kofi", kind: "lent", amount: "100.00", occurredAt: "2026-10-20T09:00:00.000Z" });
+    const ctx = {
+      profile: profile(42),
+      store: new MemoryFinanceStore(),
+      now: new Date("2026-10-29T10:00:00.000Z"),
+      updateId: 78,
+      chatId: 100,
+      confirmTransactions: "auto",
+      pendingTtlMs: 60_000,
+      createId: () => "3f2a1c4e-1111-4111-8111-111111111301",
+      createActionId: () => "loanaction02",
+      loans,
+    } satisfies ActionContext;
+    expect((await handleAction({ type: "get_loans", person: null }, ctx)).text).toBe("One person owes you money:\n• Kofi: GH₵100.00\n\nYou owe:\n• Mitch Ivan Abakah: GH₵1,000.00");
+    expect((await handleAction({ type: "get_loans", person: "Mitch" }, ctx)).text).toBe("You owe Mitch Ivan Abakah GH₵1,000.00. They lent you GH₵1,000.00 in total.");
+    const asked = await handleAction({ type: "record_loan", direction: "borrowed", person: "Ama", amount: "50.00", currency: "GHS", date: null, note: null }, ctx);
+    expect(asked.text).toContain("Record that Ama lent you GH₵50.00");
+  });
+});
+
+describe("notes about people already sorted", () => {
+  it("doesn't mention Deborah when Debra was the one just filed", async () => {
+    const { deps, owner } = setup();
+    const deborah = await held(deps, owner, DEBORAH);
+    await applyLabel(deps, owner, deborah.id, { kind: "lent" });
+    const debrah = await held(deps, owner, "Payment made for GHS 40.50 to BENJAMIN DEBRAH Current Balance: GHS 159.50 . Available Balance: GHS 159.50. Reference: . Transaction ID: 92400000032. Fee charged: GHS0.00");
+    const reply = await answerLabelReply(deps, owner, "Debra was okada home just now", async () => [
+      { messageIds: [debrah.id], label: { kind: "category", category: "Transport", description: "Okada" } },
+    ]);
+    expect(reply?.text).toContain("Filed GH₵40.50 under Transport");
+    expect(reply?.text).not.toContain("Deborah");
   });
 });

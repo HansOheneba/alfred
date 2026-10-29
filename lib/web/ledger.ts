@@ -65,6 +65,8 @@ export type Ledger = {
   bank: LedgerBank;
   /** People who still owe the person money they lent, largest first. */
   owed: LoanBalance[];
+  /** People the person borrowed from and still owes, largest first. */
+  owe: LoanBalance[];
 };
 
 export async function loadLedger(profile: UserProfile, settings: StudioSettings): Promise<Ledger> {
@@ -116,6 +118,9 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
     }),
     bank,
     owed: loanBalances(loans).filter((item) => Number(item.owed) > 0),
+    owe: loanBalances(loans)
+      .filter((item) => Number(item.owe) > 0)
+      .sort((left, right) => Number(right.owe) - Number(left.owe)),
   };
 }
 

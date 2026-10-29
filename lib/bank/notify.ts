@@ -3,7 +3,7 @@ import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { MessageLog } from "@/lib/accounts/messages";
 import { DASHBOARD_URL, type SupabaseSettings, type UserProfile } from "@/lib/config";
-import { findPerson, owedBy, type LoanStore } from "@/lib/finance/loans";
+import { findPerson, owedBy, oweTo, type LoanStore } from "@/lib/finance/loans";
 import type { PeopleStore } from "@/lib/people/store";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
@@ -60,21 +60,23 @@ async function send(delivery: Delivery, chatId: number, text: string, buttons?: 
 }
 
 /** Category buttons under a question. Callback data is `b:<message id>:<code>`. */
-export function labelButtons(message: BankMessage, ownerName = "", options: { owed?: boolean; lending?: boolean } = {}): InlineButton[][] {
+export function labelButtons(message: BankMessage, ownerName = "", options: { settling?: boolean; lending?: boolean } = {}): InlineButton[][] {
   const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
   const buttons = choices.map((category, index) => ({ text: category, callbackData: `b:${message.id}:c${index}` }));
   const rows: InlineButton[][] = [];
   const own: InlineButton = { text: message.direction === "in" ? "My own money" : "My own account", callbackData: `b:${message.id}:t` };
   const ownerLike = looksLikeOwner(message.counterparty, ownerName);
-  // When the sender looks like the person, or owes them money, the likeliest answer goes first.
-  if (options.owed && message.direction === "in") rows.push([{ text: "Yes, paying me back", callbackData: `b:${message.id}:r` }]);
+  // When the sender looks like the person, or a debt is open with them, the likeliest answer goes first.
+  if (options.settling) {
+    rows.push([message.direction === "in" ? { text: "Yes, paying me back", callbackData: `b:${message.id}:r` } : { text: "Yes, paying them back", callbackData: `b:${message.id}:p` }]);
+  }
   if (ownerLike) rows.push([own]);
   for (let index = 0; index < buttons.length; index += 4) rows.push(buttons.slice(index, index + 4));
   const extra: InlineButton[] = [];
   if (message.direction === "in" && !ownerLike) extra.push(own);
-  // Lending needs a name, so it's offered only when the message names a person.
-  if (options.lending && message.direction === "out" && !ownerLike && learnable(message.counterparty) && classifyPayee(message.counterparty).kind === "person") {
-    extra.push({ text: "I lent it", callbackData: `b:${message.id}:l` });
+  // Lending and borrowing need a name, so they're offered only when the message names a person.
+  if (options.lending && !ownerLike && learnable(message.counterparty) && classifyPayee(message.counterparty).kind === "person") {
+    extra.push(message.direction === "out" ? { text: "I lent it", callbackData: `b:${message.id}:l` } : { text: "Lent to me", callbackData: `b:${message.id}:b` });
   }
   extra.push({ text: "Skip", callbackData: `b:${message.id}:s` });
   rows.push(extra);
@@ -87,7 +89,7 @@ export function reviewRow(waiting: number): InlineButton[][] {
 }
 
 export function parseLabelCallback(data: string): { messageId: string; code: string } | null {
-  const match = /^b:([0-9a-f-]{36}):(c\d|t|s|r|l)$/i.exec(data);
+  const match = /^b:([0-9a-f-]{36}):(c\d|t|s|r|l|b|p)$/i.exec(data);
   return match ? { messageId: match[1].toLowerCase(), code: match[2] } : null;
 }
 
@@ -96,6 +98,8 @@ export function labelFromCode(message: BankMessage, code: string): Label | null 
   if (code === "t") return { kind: "transfer" };
   if (code === "r") return { kind: "repaid" };
   if (code === "l") return { kind: "lent" };
+  if (code === "b") return { kind: "borrowed" };
+  if (code === "p") return { kind: "paid_back" };
   const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
   const category = choices[Number(code.slice(1))];
   return category ? { kind: "category", category } : null;
@@ -107,6 +111,8 @@ export function labelChoiceText(label: Label): string {
   if (label.kind === "transfer") return "My own money";
   if (label.kind === "repaid") return "Paying me back";
   if (label.kind === "lent") return "I lent it";
+  if (label.kind === "borrowed") return "Lent to me";
+  if (label.kind === "paid_back") return "Paying them back";
   return "Skip";
 }
 
@@ -114,14 +120,15 @@ export type Question = { text: string; buttons: InlineButton[][] };
 
 /**
  * The question and buttons for one waiting payment. Money from someone who
- * owes the person is asked about as a possible repayment.
+ * owes the person, or to someone the person owes, is asked about as a
+ * possible repayment.
  */
 export async function questionFor(loans: LoanStore | undefined, profile: UserProfile, message: BankMessage, people?: PeopleStore | null): Promise<Question> {
-  const owed =
-    loans && message.direction === "in" && learnable(message.counterparty) ? await owedBy(loans, profile.profileId, message.counterparty) : null;
+  const debt =
+    loans && learnable(message.counterparty) ? await (message.direction === "in" ? owedBy : oweTo)(loans, profile.profileId, message.counterparty) : null;
   return {
-    text: `${labelQuestion(message, profile.timezone, profile.preferredName, owed)}${owed ? "" : await whoTheyAre(people, profile, message)}`,
-    buttons: labelButtons(message, profile.preferredName, { owed: Boolean(owed), lending: Boolean(loans) }),
+    text: `${labelQuestion(message, profile.timezone, profile.preferredName, debt)}${debt ? "" : await whoTheyAre(people, profile, message)}`,
+    buttons: labelButtons(message, profile.preferredName, { settling: Boolean(debt), lending: Boolean(loans) }),
   };
 }
 

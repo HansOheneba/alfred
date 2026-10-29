@@ -12,7 +12,7 @@ const UNDO_WINDOW_MS = 30 * 60_000;
 
 const reviewBody = z.discriminatedUnion("action", [
   z.object({
-    action: z.enum(["category", "chip_in", "transfer", "skip", "lent", "repaid"]),
+    action: z.enum(["category", "chip_in", "transfer", "skip", "lent", "repaid", "borrowed", "paid_back"]),
     messageIds: z.array(z.string().uuid()).min(1).max(50),
     category: z.string().trim().min(1).max(40).optional(),
     description: z.string().trim().max(200).optional(),
@@ -56,9 +56,11 @@ export async function POST(request: Request): Promise<Response> {
           ? { kind: "chip_in", category: body.category ?? "", description: body.description || null, person: body.person || null }
           : body.action === "lent"
             ? { kind: "lent", person: body.person || null, note: body.description || null }
-            : body.action === "repaid"
-              ? { kind: "repaid", person: body.person || null }
-              : { kind: body.action };
+            : body.action === "borrowed"
+              ? { kind: "borrowed", person: body.person || null, note: body.description || null }
+              : body.action === "repaid" || body.action === "paid_back"
+                ? { kind: body.action, person: body.person || null }
+                : { kind: body.action };
 
     const changes: LabelChange[] = [];
     const problems: string[] = [];

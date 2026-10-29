@@ -4,7 +4,7 @@ import type { SupabaseSettings } from "@/lib/config";
 import { query } from "@/lib/supabase/connection";
 import type { BankSource } from "@/lib/bank/parse";
 
-export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid";
+export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid" | "borrowed" | "paid_back";
 export type BankKind = "payment" | "transfer_own" | "loan_in" | "unknown" | "loan_out" | "loan_repay";
 
 export type BankMessage = {
@@ -39,6 +39,8 @@ export type LabelChange = {
   previous: { status: BankStatus; kind: BankKind };
   transactionIds: string[];
   loanId?: string;
+  /** What the payment was filed as, like "Transport" or "paying you back", so a correction can refer to it. */
+  filedAs?: string;
   rule?: { payeeKey: string; previous: PayeeRule | null };
 };
 
@@ -62,6 +64,8 @@ export interface BankStore {
   saveUndo(ownerId: string, changes: LabelChange[]): Promise<void>;
   /** Hands back the latest batch, if it's recent, and forgets it. */
   takeUndo(ownerId: string, since: Date): Promise<LabelChange[] | null>;
+  /** The last batch of labels, if applied since `since`, without clearing it. */
+  peekUndo(ownerId: string, since: Date): Promise<LabelChange[] | null>;
   /**
    * Marks forwarded messages as announced and returns them, but only once
    * none has arrived for `quietMs`, so a burst of texts gets one summary.
@@ -219,6 +223,13 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       const row = rows[0] as { changes: LabelChange[]; fresh?: boolean } | undefined;
       return row?.fresh ? row.changes : null;
     },
+    async peekUndo(ownerId, since) {
+      const rows = await query<{ changes: LabelChange[] }>(settings, "select changes from public.label_undo where owner_id = $1::uuid and created_at >= $2", [
+        ownerId,
+        since.toISOString(),
+      ]);
+      return rows[0]?.changes ?? null;
+    },
     async claimUnannounced(ownerId, quietMs) {
       const rows = await query<MessageRow>(
         settings,
@@ -320,6 +331,9 @@ export class MemoryBankStore implements BankStore {
     const undo = this.undo;
     this.undo = null;
     return undo && undo.at >= since ? undo.changes : null;
+  }
+  async peekUndo(_ownerId: string, since: Date) {
+    return this.undo && this.undo.at >= since ? this.undo.changes : null;
   }
   async claimUnannounced(ownerId: string) {
     const fresh = this.messages.filter((item) => item.ownerId === ownerId && !this.announced.has(item.id) && (item.channel === "shortcut" || item.channel === "mac"));
