@@ -28,7 +28,8 @@ def output(action_uuid: str, name: str) -> dict:
     return {"OutputName": name, "OutputUUID": action_uuid, "Type": "ActionOutput"}
 
 
-key_id, input_id, if_group = uid(), uid(), uid()
+key_id, input_id, match_id, if_group, money_group = uid(), uid(), uid(), uid(), uid()
+MONEY_PATTERN = r"\b(GHS|GH₵|CEDIS)\b"
 
 
 def post(body: dict | None) -> dict:
@@ -84,7 +85,34 @@ actions = [
             "WFInput": {"Type": "Variable", "Variable": {"Value": output(input_id, "Text"), "WFSerializationType": "WFTextTokenAttachment"}},
         },
     },
+    # …and mentions money, send it. Other texts never leave the phone, so one automation can watch every message.
+    {
+        "WFWorkflowActionIdentifier": "is.workflow.actions.text.match",
+        "WFWorkflowActionParameters": {
+            "UUID": match_id,
+            "WFMatchTextPattern": MONEY_PATTERN,
+            "WFMatchTextCaseSensitive": False,
+            "text": {
+                "Value": {"string": OBJ, "attachmentsByRange": {"{0, 1}": output(input_id, "Text")}},
+                "WFSerializationType": "WFTextTokenString",
+            },
+        },
+    },
+    {
+        "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+        "WFWorkflowActionParameters": {
+            "UUID": uid(),
+            "GroupingIdentifier": money_group,
+            "WFControlFlowMode": 0,
+            "WFCondition": 100,
+            "WFInput": {"Type": "Variable", "Variable": {"Value": output(match_id, "Matches"), "WFSerializationType": "WFTextTokenAttachment"}},
+        },
+    },
     post(output(input_id, "Text")),
+    {
+        "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
+        "WFWorkflowActionParameters": {"UUID": uid(), "GroupingIdentifier": money_group, "WFControlFlowMode": 2},
+    },
     {
         "WFWorkflowActionIdentifier": "is.workflow.actions.conditional",
         "WFWorkflowActionParameters": {"UUID": uid(), "GroupingIdentifier": if_group, "WFControlFlowMode": 1},
