@@ -2,7 +2,7 @@ import { IN_CHOICES, OUT_CHOICES, labelQuestion, learnable, looksLikeOwner, titl
 import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { MessageLog } from "@/lib/accounts/messages";
-import type { SupabaseSettings, UserProfile } from "@/lib/config";
+import { DASHBOARD_URL, type SupabaseSettings, type UserProfile } from "@/lib/config";
 import { owedBy, type LoanStore } from "@/lib/finance/loans";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
@@ -33,6 +33,7 @@ function summaryLine(outcome: IngestOutcome): string | null {
   if (outcome.outcome === "matched") return `${money}${who ? ` to ${who}` : ""} matches something you already logged, so I've linked it.`;
   if (outcome.outcome === "transfer") return `${money} moved between your own accounts. Not counted as income or spending.`;
   if (outcome.outcome === "loan") return `${money} came in from your loan account. That's borrowed money, so I haven't counted it as income.`;
+  if (outcome.outcome === "skipped") return `Left out ${money}${who ? ` ${message.direction === "out" ? "to" : "from"} ${who}` : ""}: it looks like a card check or test send.`;
   return null;
 }
 
@@ -75,6 +76,11 @@ export function labelButtons(message: BankMessage, ownerName = "", options: { ow
   extra.push({ text: "Skip", callbackData: `b:${message.id}:s` });
   rows.push(extra);
   return rows;
+}
+
+/** A row with a link to the review page, for when several payments are waiting. */
+export function reviewRow(waiting: number): InlineButton[][] {
+  return waiting > 1 ? [[{ text: `Review all ${waiting} on the web`, url: `${DASHBOARD_URL}/review` }]] : [];
 }
 
 export function parseLabelCallback(data: string): { messageId: string; code: string } | null {
@@ -141,6 +147,7 @@ function summarize(outcomes: IngestOutcome[], currency: string): string[] {
     count("matched") ? `${count("matched")} matched something you'd logged` : "",
     count("transfer") ? `${plural(count("transfer"), "was", "were")} your own money moving` : "",
     count("loan") ? `${plural(count("loan"), "loan deposit")}` : "",
+    count("skipped") ? `${plural(count("skipped"), "tiny test charge")} left out` : "",
     count("needs_label") ? `${count("needs_label")} need${count("needs_label") === 1 ? "s" : ""} a label` : "",
   ].filter(Boolean);
   const lines = [`I read ${plural(outcomes.length, "new payment")}: ${parts.join(", ")}.`];
@@ -172,7 +179,7 @@ export async function announceOutcomes(delivery: Delivery, outcomes: IngestOutco
   const question = await questionFor(delivery.loans, delivery.profile, next);
   const total = (await delivery.bank.listMessages(delivery.profile.profileId, "needs_label")).length;
   const intro = total > 1 ? [`${NATURAL_HINT}`, "", `First of ${total}:`] : [];
-  await send(delivery, chatId, [...lines, ...(lines.length ? [""] : []), ...intro, question.text].join("\n"), question.buttons);
+  await send(delivery, chatId, [...lines, ...(lines.length ? [""] : []), ...intro, question.text].join("\n"), [...question.buttons, ...reviewRow(total)]);
   return { asked: 1 };
 }
 
@@ -197,7 +204,7 @@ export async function askHeldQuestions(delivery: Omit<Delivery, "profile">, prof
     if (!next) continue;
     const question = await questionFor(delivery.loans, profile, next);
     const intro = waiting.length > 1 ? [`${plural(waiting.length, "payment")} still need a label. ${NATURAL_HINT}`, "", "First:"] : [];
-    await send({ ...delivery, profile }, chatId, [...intro, question.text].join("\n"), question.buttons);
+    await send({ ...delivery, profile }, chatId, [...intro, question.text].join("\n"), [...question.buttons, ...reviewRow(waiting.length)]);
     asked += 1;
   }
   return asked;

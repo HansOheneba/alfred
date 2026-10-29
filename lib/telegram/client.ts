@@ -1,9 +1,7 @@
 import { LIMITS } from "@/lib/config";
 
-export type InlineButton = {
-  text: string;
-  callbackData: string;
-};
+/** A button that sends a callback to Alfred, or one that opens a link. */
+export type InlineButton = { text: string; callbackData: string; url?: undefined } | { text: string; url: string; callbackData?: undefined };
 
 export type TelegramSender = {
   /** Buttons in one row, or several rows when given as nested arrays. */
@@ -61,10 +59,7 @@ export function createTelegramClient(
       const replyMarkup = rows.length
         ? {
             inline_keyboard: rows.map((row) =>
-              row.map((button) => ({
-                text: button.text,
-                callback_data: button.callbackData,
-              })),
+              row.map((button) => (button.url ? { text: button.text, url: button.url } : { text: button.text, callback_data: button.callbackData })),
             ),
           }
         : undefined;

@@ -17,7 +17,7 @@ const LOAN = "Payment received for GHS 515.00 from Loan  Account  Current Balanc
 
 /** A resolver that answers whichever payment was just asked about. */
 function answersCurrent(label: Parameters<typeof applyLabel>[3]): LabelResolver {
-  return async ({ current }) => (current ? [{ messageIds: [current.id], label }] : []);
+  return async ({ waiting }) => (waiting.current ? [{ messageIds: [waiting.current.id], label }] : []);
 }
 const answersNothing: LabelResolver = async () => [];
 
@@ -132,7 +132,7 @@ describe("payees Alfred already understands", () => {
 
 describe("smarter labelling", () => {
   const FROM_ME =
-    "Payment received for GHS 1.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 344.94 . Available Balance: GHS 344.94. Reference: test. Transaction ID: 92300000001. TRANSACTION FEE: 0.00";
+    "Payment received for GHS 50.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 344.94 . Available Balance: GHS 344.94. Reference: test. Transaction ID: 92300000001. TRANSACTION FEE: 0.00";
   const FROM_ME_AGAIN =
     "Payment received for GHS 2.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 346.94 . Available Balance: GHS 346.94. Reference: test. Transaction ID: 92300000002. TRANSACTION FEE: 0.00";
 
@@ -148,6 +148,13 @@ describe("smarter labelling", () => {
     expect(done.text).toContain("I'll treat Hans Oheneba Aduse Opoku as you from now on.");
     const next = await ingestBankText(deps, me, FROM_ME_AGAIN, { channel: "shortcut" });
     expect(next.outcomes[0].outcome).toBe("transfer");
+  });
+
+  it("leaves out GH₵1 card checks and test sends without asking", async () => {
+    const { deps, owner } = setup();
+    const result = await ingestBankText(deps, owner, FROM_ME_AGAIN.replace("GHS 2.00", "GHS 1.00").replace("HANS OHENEBA ADUSE OPOKU", "KOFI MENSAH"), { channel: "shortcut" });
+    expect(result.outcomes[0].outcome).toBe("skipped");
+    expect(result.outcomes[0].message.status).toBe("skipped");
   });
 
   it("never learns a payee from a vague label or from your own name", async () => {

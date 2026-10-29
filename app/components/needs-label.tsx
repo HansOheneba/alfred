@@ -119,8 +119,8 @@ export function NeedsLabel({ items, compact = false, limit }: { items: LedgerBan
         ))}
       </ul>
       {hidden > 0 ? (
-        <Link href="/settings#bank" className="mt-2 inline-block text-xs text-gold underline-offset-4 hover:underline">
-          {hidden} more in Settings →
+        <Link href="/review" className="mt-2 inline-block text-xs text-gold underline-offset-4 hover:underline">
+          Review all {items.length} →
         </Link>
       ) : null}
     </div>

@@ -19,7 +19,7 @@ export type IngestDeps = {
 
 export type IngestOutcome = {
   message: BankMessage;
-  outcome: "matched" | "recorded" | "needs_label" | "transfer" | "loan";
+  outcome: "matched" | "recorded" | "needs_label" | "transfer" | "loan" | "skipped";
   category?: string;
   feeRecorded: boolean;
 };
@@ -27,6 +27,9 @@ export type IngestOutcome = {
 /** Choices offered when Alfred asks what a payment was, in button order. */
 export const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"] as const;
 export const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"] as const;
+
+/** Card checks and test sends: this much or less is left out without asking. */
+export const TINY_AMOUNT = 1;
 
 /** Card messages name no payee, so there's nothing to learn from them. */
 export function learnable(counterparty: string): boolean {
@@ -172,6 +175,12 @@ export async function ingestBankText(
 
     if (status !== "needs_label") {
       outcomes.push({ message: stored, outcome: status, feeRecorded });
+      continue;
+    }
+
+    if (Number(stored.amount) <= TINY_AMOUNT) {
+      await deps.bank.updateMessage(profile.profileId, stored.id, { status: "skipped" });
+      outcomes.push({ message: { ...stored, status: "skipped" }, outcome: "skipped", feeRecorded });
       continue;
     }
 

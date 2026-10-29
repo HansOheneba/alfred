@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useSyncExternalStore, type ReactNode } from "react";
 
@@ -260,7 +261,16 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
         </Card>
       ) : null}
 
-      <Card title={`Needs a label${bank.needsLabel.length ? ` (${bank.needsLabel.length})` : ""}`}>
+      <Card
+        title={`Needs a label${bank.needsLabel.length ? ` (${bank.needsLabel.length})` : ""}`}
+        action={
+          bank.needsLabel.length > 1 ? (
+            <Link href="/review" className="text-xs text-gold underline-offset-4 hover:underline">
+              Label several at once →
+            </Link>
+          ) : undefined
+        }
+      >
         {bank.needsLabel.length > 0 ? (
           <NeedsLabel items={bank.needsLabel} />
         ) : (

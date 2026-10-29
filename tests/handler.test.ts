@@ -1,9 +1,14 @@
 import { describe, expect, it, vi } from "vitest";
 
+import type { InterpretRequest } from "@/lib/ai/deepseek";
+import { ingestBankText } from "@/lib/bank/ingest";
+import { MemoryBankStore } from "@/lib/bank/store";
 import { LIMITS } from "@/lib/config";
+import { MemoryLoanStore } from "@/lib/finance/loans";
+import type { HandlerDeps } from "@/lib/telegram/handle-update";
 import { POST } from "@/app/api/telegram/webhook/route";
 import { UNLINKED_TEXT } from "@/lib/telegram/messages";
-import { expense, harness, runUpdate, settings, textUpdate, NOW } from "./helpers";
+import { expense, harness, profile, runUpdate, settings, textUpdate, NOW } from "./helpers";
 
 describe("telegram handler", () => {
   it("rejects an unauthorized user before interpretation", async () => {
@@ -229,5 +234,54 @@ describe("webhook route", () => {
     const budgets = await store.listBudgets("42");
     expect(budgets).toHaveLength(1);
     expect(budgets[0]).toMatchObject({ category: "Food", amount: "800.00", period: "2026-10" });
+  });
+});
+
+describe("waiting bank payments in the conversation", () => {
+  const GRACE =
+    "Payment received for GHS 125.00 from GRACE OPPONG Current Balance: GHS 485.00 . Available Balance: GHS 485.00. Reference: . Transaction ID: 92400000031. TRANSACTION FEE: 0.00";
+  const ROSE =
+    "Payment made for GHS 39.00 to ROSE ASARE Current Balance: GHS 446.00 . Available Balance: GHS 446.00. Reference: . Transaction ID: 92400000032. Fee charged: GHS0.00";
+
+  async function withWaiting(interpret: HandlerDeps["interpret"]) {
+    const bank = new MemoryBankStore();
+    const loans = new MemoryLoanStore();
+    const h = harness({ bank, loans, interpret });
+    await ingestBankText({ bank, ledger: h.store, loans, now: NOW, createId: h.deps.createId }, profile(42), `${GRACE}\n${ROSE}`, { channel: "mac" });
+    return { ...h, bank };
+  }
+
+  it("lets the main conversation label them, with the stronger model and the list in view", async () => {
+    const requests: InterpretRequest[] = [];
+    const { deps, telegram, bank } = await withWaiting(async (input) => {
+      requests.push(input);
+      return { type: "label_payments", answers: [{ items: [1], action: "category", category: "Gift", description: null }] };
+    });
+    await runUpdate(textUpdate(501, 42, "Grace was a gift"), deps);
+    expect(requests[0].model).toBe("deepseek-v4-pro");
+    expect(requests[0].waiting?.lines.join("\n")).toContain("IN GH₵125.00 from Grace Oppong");
+    expect(telegram.sent.at(-1)?.text).toContain("Filed GH₵125.00 under Gift. I'll file Grace Oppong as Gift from now on.");
+    expect(telegram.sent.at(-1)?.text).toContain("Last one: GH₵39.00 to Rose Asare");
+    expect((await bank.listMessages("42", "needs_label")).map((item) => item.counterparty)).toEqual(["ROSE ASARE"]);
+  });
+
+  it("answers questions about them as ordinary chat", async () => {
+    const { deps, telegram } = await withWaiting(async () => ({ type: "chat", message: "Grace Oppong sent you GH₵125 on Thursday. What was it for?", topic: "money" }));
+    await runUpdate(textUpdate(502, 42, "who's Grace?"), deps);
+    expect(telegram.sent.at(-1)?.text).toContain("Grace Oppong sent you GH₵125");
+  });
+
+  it("uses the usual model when nothing is waiting", async () => {
+    const requests: InterpretRequest[] = [];
+    const { deps } = harness({
+      bank: new MemoryBankStore(),
+      interpret: async (input) => {
+        requests.push(input);
+        return { type: "help" };
+      },
+    });
+    await runUpdate(textUpdate(503, 42, "hi"), deps);
+    expect(requests[0].model).toBeUndefined();
+    expect(requests[0].waiting).toBeNull();
   });
 });

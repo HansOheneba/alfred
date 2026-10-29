@@ -134,7 +134,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             </span>
           ))}
           {ledger.bank.needsLabel.length > 0 ? (
-            <Link href="/settings#bank" className="inline-flex items-center rounded-full bg-gold-soft px-3 py-1 text-xs text-gold hover:underline">
+            <Link href="/review" className="inline-flex items-center rounded-full bg-gold-soft px-3 py-1 text-xs text-gold hover:underline">
               {ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label
             </Link>
           ) : null}
