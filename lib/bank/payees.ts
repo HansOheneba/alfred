@@ -21,6 +21,7 @@ const CHANNELS: [RegExp, string][] = [
 const MERCHANTS: [RegExp, string, string][] = [
   [/\becg\b|electricity company|\bnedco\b|prepaid power/i, "Utilities", "Electricity"],
   [/ghana water|\bgwcl\b/i, "Utilities", "Water bill"],
+  [/broadband|\bfib(?:re|er)\b|\bwifi\b/i, "Utilities", "Home internet"],
   [/\bairtime\b|data bundle|\bbundle\b|internet/i, "Utilities", "Airtime and data"],
   [/\bdstv\b|\bgotv\b|multichoice|netflix|spotify|showmax|apple\.com|icloud|youtube/i, "Subscriptions", ""],
   [/\buber\b|\bbolt\b|\byango\b|\btaxify\b/i, "Transport", ""],

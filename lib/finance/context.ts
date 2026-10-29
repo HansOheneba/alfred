@@ -23,6 +23,8 @@ export async function interpretWithContext(input: {
   channel: Channel;
   /** Bank payments waiting for a label, which the user may be answering about. */
   waiting?: { lines: string[]; current: number } | null;
+  /** What the user has told Alfred about people. */
+  people?: string[];
   model?: string;
 }): Promise<{ action: FinanceAction; context: ConversationContext | null; cue: ChatCue }> {
   const ownerId = input.profile.profileId;
@@ -82,6 +84,7 @@ export async function interpretWithContext(input: {
           body: item.body.slice(0, 500),
         })),
       waiting: input.waiting,
+      people: input.people,
       model: input.model,
     });
   } catch (error) {

@@ -24,6 +24,8 @@ const ACTION_SHAPES = [
   `{"type":"get_income_summary",${RANGE}}`,
   `{"type":"get_financial_overview",${RANGE}}`,
   `{"type":"get_insights",${RANGE}}`,
+  '{"type":"remember_person","name":"Kofi","note":"Colleague. Sometimes sends money on behalf of his brother Yaw."}',
+  '{"type":"forget_person","name":"Kofi"}',
   '{"type":"get_loans","person":null}',
   '{"type":"record_loan","direction":"lent","person":"Kofi","amount":"100.00","currency":"GHS","date":null,"note":null}',
   `{"type":"get_transaction_history",${RANGE},"limit":null}`,
@@ -61,6 +63,8 @@ export function buildSystemPrompt(input: {
   history?: { role: "user" | "assistant"; body: string }[];
   /** Bank payments waiting for a label, numbered, and the one just asked about (0 for none). */
   waiting?: { lines: string[]; current: number } | null;
+  /** What the user has told Alfred about people, one "Name: note" per line. */
+  people?: string[];
 }): string {
   const yesterday = addDays(input.today, -1);
   const recent =
@@ -113,6 +117,7 @@ export function buildSystemPrompt(input: {
     'For chat, set topic to "money" when it is about money, spending worries, purchases, plans, or financial advice, and "other" for greetings, small talk, and anything unrelated.',
     "get_insights when they ask where their money goes, what they spend most on, for patterns, habits, tips to improve, or how they are doing overall.",
     "create_transaction for a new expense or income, including several items in one message.",
+    "remember_person when the user tells you who someone is or a standing fact about them, such as a housemate who pays their share of a bill, or that Telecel transfers usually go to their mum. note is the whole note in a sentence or two, merged with anything already saved about that person below. forget_person when they ask you to forget it.",
     "get_loans when they ask who owes them money, or how much someone owes them; set person when they name someone.",
     "record_loan when they say they lent someone money (direction lent) or someone paid them back (direction repaid), for loans that didn't come through their bank texts, such as cash. Lending is not an expense, and being paid back is not income.",
     "get_spending_summary for how much was spent. Use detail total for a total, by_category for a breakdown, largest for the biggest expenses, and comparison to compare with the previous period.",
@@ -142,6 +147,8 @@ export function buildSystemPrompt(input: {
     "A bare yes, no, ok, or cancel is a reply to the previous assistant message, never a new transaction. Use chat and ask them to tap Confirm or Cancel, or to say what they meant.",
     "Descriptions are short and specific, in the user's words, such as Waakye, Uber to work, or October salary. Avoid vague words like Payment or Expense.",
     `Budget periods are YYYY-MM. This month is ${input.today.slice(0, 7)}.`,
+    "What the user has told you about people. Use it to understand their payments and messages:",
+    input.people?.length ? input.people.join("\n") : "None.",
     ...waitingLines(input.waiting),
     "Field shapes for each action. Use these names exactly, and use null for anything not stated:",
     ...ACTION_SHAPES,
@@ -169,6 +176,8 @@ function waitingLines(waiting: { lines: string[]; current: number } | null | und
     "Payments read from the user's bank and mobile money texts are waiting for them to say what they were. Use label_payments when the message says what one or more of them were. Each answer has:",
     "- items: the numbers of the payments it covers, from the list below.",
     "- action category: spending or income; category from the lists above, description a short label in the user's words or null.",
+    "- action chip_in: incoming money that is someone's share of a bill the user paid, like a housemate's part of the WiFi or fibre. category is the spending category of that bill (Utilities for internet, power, water); description names the bill, like Fibre. person is whose share it is when someone else sent it for them, otherwise null. It lowers that spending instead of counting as income.",
+    "Money is sometimes sent by one person on behalf of another. Use what the user told you about people to work out whose money it really is, and say so in person; ask with chat when you can't tell.",
     "- action lent: money the user lent out, outgoing only; person is who borrowed it (the payee, or a name the user gives).",
     "- action repaid: someone paying back money they borrowed, incoming only; person is who, or null for the sender.",
     "- action own_transfer: the user's own money moving between their own accounts.",

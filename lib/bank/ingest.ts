@@ -1,9 +1,10 @@
-import { isOwnName, parseBankText, payeeKey, type ParsedBankMessage } from "@/lib/bank/parse";
+import { isOwnName, parseBankText, payeeKey, purposeOf, withoutRecipient, type ParsedBankMessage } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { normalizeCategory } from "@/lib/finance/categories";
 import { addDays, zonedYmd } from "@/lib/finance/dates";
+import type { PeopleStore } from "@/lib/people/store";
 import { findPerson, owedBy, personKey, type LoanStore } from "@/lib/finance/loans";
 import { formatAmount } from "@/lib/finance/money";
 import type { FinanceStore } from "@/lib/finance/store";
@@ -15,12 +16,16 @@ export type IngestDeps = {
   createId: () => string;
   /** Money lent out. Without it, lending labels aren't offered. */
   loans?: LoanStore;
+  /** What the person told Alfred about people, mentioned when asking about their payments. */
+  people?: PeopleStore | null;
 };
 
 export type IngestOutcome = {
   message: BankMessage;
   outcome: "matched" | "recorded" | "needs_label" | "transfer" | "loan" | "skipped";
   category?: string;
+  /** Filed as someone's share of a bill, lowering `category`'s spending. */
+  chipIn?: boolean;
   feeRecorded: boolean;
 };
 
@@ -113,7 +118,7 @@ async function findManualMatch(deps: IngestDeps, profile: UserProfile, message: 
 }
 
 function classify(parsed: ParsedBankMessage, names: string[]) {
-  if (isOwnName(`${parsed.counterparty} ${parsed.reference}`, names)) return { kind: "transfer_own", status: "transfer" } as const;
+  if (isOwnName(`${parsed.counterparty} ${withoutRecipient(parsed.reference)}`, names)) return { kind: "transfer_own", status: "transfer" } as const;
   if (parsed.direction === "in" && /\bloan\b/i.test(parsed.counterparty)) return { kind: "loan_in", status: "loan" } as const;
   return { kind: "payment", status: "needs_label" } as const;
 }
@@ -198,6 +203,18 @@ export async function ingestBankText(
     }
 
     const rule = learnable(stored.counterparty) ? await deps.bank.getRule(profile.profileId, payeeKey(stored.counterparty)) : null;
+    // Someone who chips in toward a bill: their money lowers that category's spending.
+    if (rule?.kind === "chip_in") {
+      const billCategory = stored.direction === "in" ? normalizeCategory(rule.category, "expense") : null;
+      if (billCategory) {
+        const id = await record(deps, profile, stored, { type: "expense", amount: `-${stored.amount}`, category: billCategory, description: rule.description || chipInDescription(stored) });
+        await deps.bank.updateMessage(profile.profileId, stored.id, { status: "recorded", transactionId: id });
+        outcomes.push({ message: { ...stored, status: "recorded", transactionId: id }, outcome: "recorded", category: billCategory, chipIn: true, feeRecorded });
+      } else {
+        outcomes.push({ message: stored, outcome: "needs_label", feeRecorded });
+      }
+      continue;
+    }
     const type = stored.direction === "out" ? "expense" : "income";
     const category = rule ? normalizeCategory(rule.category, type) : null;
     if (rule && category) {
@@ -230,9 +247,17 @@ export type Label =
   /** Money the person lent out; `person` names who, when the message doesn't. */
   | { kind: "lent"; person?: string | null; note?: string | null }
   /** Money coming back from someone who owed the person. */
-  | { kind: "repaid"; person?: string | null };
+  | { kind: "repaid"; person?: string | null }
+  /** Someone's share of a bill the person paid, like a housemate's part of the internet. */
+  /** `person` is whose share it is when someone else sent it for them, like a friend paying on a housemate's behalf. */
+  | { kind: "chip_in"; category: string; description?: string | null; person?: string | null };
 
 export type LabelResult = { ok: true; text: string; changes: LabelChange[] } | { ok: false; text: string };
+
+/** "Kofi Mensah's share", for a chip-in with no description of its own. */
+function chipInDescription(message: BankMessage): string {
+  return `${titleCase(message.counterparty) || "Someone"}'s share`;
+}
 
 /** Who a payment was to or from, as a name a person would say. */
 function personFor(message: BankMessage, named?: string | null): string | null {
@@ -293,6 +318,32 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
     return {
       ok: true,
       text: label.kind === "lent" ? `Noted: you lent ${person} ${money}. It isn't counted as spending. ${owes}` : `Marked ${money} from ${person} as paying you back. ${owes}`,
+      changes: [change],
+    };
+  }
+
+  if (label.kind === "chip_in") {
+    if (message.direction !== "in") return { ok: false, text: `${money} went out, so it can't be someone's share coming in.` };
+    const billCategory = normalizeCategory(label.category, "expense");
+    if (!billCategory) return { ok: false, text: "Which bill was it a share of? Pick a spending category." };
+    const sender = titleCase(message.counterparty);
+    // Money can come from someone paying on another person's behalf: the share is theirs, not the sender's.
+    const owner = label.person?.trim() && !findPerson([{ personKey: personKey(sender) }], label.person) ? titleCase(label.person.trim()).slice(0, 120) : sender;
+    const via = owner !== sender && sender ? `, sent by ${sender}` : "";
+    const description = `${owner ? `${owner}'s share` : "A share"}${label.description?.trim() ? ` of ${label.description.trim()}` : ""}${via}`.slice(0, 200);
+    const id = await record(deps, profile, message, { type: "expense", amount: `-${message.amount}`, category: billCategory, description });
+    await deps.bank.updateMessage(profile.profileId, message.id, { status: "recorded", transactionId: id });
+    change.transactionIds.push(id);
+    // Someone who pays for other people may send money for other reasons too, so only a sender paying their own share is learned.
+    const remembers = options.learn !== false && !via && learnable(message.counterparty) && !looksLikeOwner(message.counterparty, profile.preferredName);
+    if (remembers) {
+      const key = payeeKey(message.counterparty);
+      change.rule = { payeeKey: key, previous: await deps.bank.getRule(profile.profileId, key) };
+      await deps.bank.saveRule(profile.profileId, { payeeKey: key, category: billCategory, description, kind: "chip_in" });
+    }
+    return {
+      ok: true,
+      text: `Counted ${money}${via ? ` from ${sender} as ${owner}'s` : ` from ${sender || "them"} as their`} share of ${billCategory}, so it lowers what you spent there instead of counting as income.${remembers ? ` I'll treat money from ${sender} this way from now on.` : ""}`,
       changes: [change],
     };
   }
@@ -376,8 +427,14 @@ export function labelQuestion(message: BankMessage, timeZone: string, ownerName 
   }
   if (message.direction === "out") {
     const to = message.counterparty && !/^gcb/i.test(message.counterparty) ? ` to ${titleCase(message.counterparty)}` : " on your GCB card";
-    return `${money}${to} · ${when}. What was that for?`;
+    return `${money}${to} · ${when}${said(message)}. What was that for?`;
   }
   const from = message.counterparty && !/^gcb/i.test(message.counterparty) ? ` from ${titleCase(message.counterparty)}` : " onto your GCB card";
-  return `${money} came in${from} · ${when}. What was it?`;
+  return `${money} came in${from} · ${when}${said(message)}. What was it?`;
+}
+
+/** The sender's own note on a payment, quoted, when the text has one. */
+function said(message: BankMessage): string {
+  const purpose = purposeOf(message);
+  return purpose ? `, marked “${purpose}”` : "";
 }

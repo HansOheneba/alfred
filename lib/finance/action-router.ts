@@ -16,7 +16,8 @@ import {
 import { formatMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
 import { buildInsights } from "@/lib/finance/insights";
-import { findPerson, loanBalances, owedBy, type LoanStore } from "@/lib/finance/loans";
+import { findPerson, loanBalances, owedBy, personKey, type LoanStore } from "@/lib/finance/loans";
+import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
 import type { FinanceAction, PendingPayload } from "@/lib/finance/schemas";
 import { pendingPayloadSchema } from "@/lib/finance/schemas";
@@ -72,6 +73,10 @@ export type ActionContext = {
   conversation?: ConversationContext | null;
   /** Money lent out. Loan actions say they're unavailable without it. */
   loans?: LoanStore | null;
+  /** What the person told Alfred about people. */
+  people?: PeopleStore | null;
+  /** Everyone named in the person's bank texts, so "Grace" can mean Grace Oppong. */
+  payeeNames?: () => Promise<string[]>;
 };
 
 export async function handleAction(action: FinanceAction, ctx: ActionContext): Promise<Delivery> {
@@ -92,6 +97,10 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return overview(action, ctx);
     case "get_insights":
       return insights(action, ctx);
+    case "remember_person":
+      return rememberPerson(action, ctx);
+    case "forget_person":
+      return forgetPerson(action, ctx);
     case "get_loans":
       return loansOwed(action, ctx);
     case "record_loan":
@@ -606,6 +615,29 @@ async function loansOwed(action: Extract<FinanceAction, { type: "get_loans" }>, 
   if (owing.length === 0) return { kind: "text", text: "No one owes you anything right now." };
   const lines = owing.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owed, item.currency)}`);
   return { kind: "text", text: [`${owing.length === 1 ? "One person owes" : `${owing.length} people owe`} you money:`, ...lines].join("\n") };
+}
+
+/** The full name a person goes by in the person's notes or bank texts, for a name or nickname. */
+async function knownName(name: string, ctx: ActionContext): Promise<string> {
+  const notes = ctx.people ? await ctx.people.list(ctx.profile.profileId) : [];
+  const payees = ctx.payeeNames ? await ctx.payeeNames() : [];
+  const candidates = [...notes.map((item) => item.name), ...payees].map((full) => ({ name: full, personKey: personKey(full) }));
+  return findPerson(candidates, name)?.name ?? name.trim().replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
+
+async function rememberPerson(action: Extract<FinanceAction, { type: "remember_person" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.people) return { kind: "text", text: "I can't keep notes about people right now." };
+  const saved = await ctx.people.save(ctx.profile.profileId, { name: await knownName(action.name, ctx), note: action.note });
+  return { kind: "text", text: `Noted. ${saved.name}: ${saved.note.replace(/[.!\s]+$/, "")}. I'll keep that in mind when their payments come in.` };
+}
+
+async function forgetPerson(action: Extract<FinanceAction, { type: "forget_person" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.people) return { kind: "text", text: "I can't keep notes about people right now." };
+  const notes = await ctx.people.list(ctx.profile.profileId);
+  const match = findPerson(notes, action.name);
+  if (!match) return { kind: "text", text: `I don't have anything noted about ${action.name}.` };
+  await ctx.people.remove(ctx.profile.profileId, match.personKey);
+  return { kind: "text", text: `Forgotten. I no longer have a note about ${match.name}.` };
 }
 
 async function recordLoan(action: Extract<FinanceAction, { type: "record_loan" }>, ctx: ActionContext): Promise<Delivery> {

@@ -5,6 +5,7 @@ import { announceOutcomes } from "@/lib/bank/notify";
 import { createSupabaseBankStore, hashIngestToken, type BankMessage } from "@/lib/bank/store";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { newTransactionId } from "@/lib/finance/ids";
+import { createSupabasePeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore } from "@/lib/finance/loans";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { query } from "@/lib/supabase/connection";
@@ -46,12 +47,15 @@ export async function ingestBankMessages(
 /** How long a burst of forwarded texts must go quiet before Alfred sums it up. */
 export const ANNOUNCE_QUIET_MS = 6_000;
 
-function outcomeOf(message: BankMessage, categories: Map<string, string>): IngestOutcome {
-  const outcome = message.status === "needs_label" || message.status === "recorded" || message.status === "matched" || message.status === "transfer" || message.status === "loan" ? message.status : "recorded";
+function outcomeOf(message: BankMessage, filed: Map<string, { category: string; chipIn: boolean }>): IngestOutcome {
+  const settled = ["needs_label", "recorded", "matched", "transfer", "loan", "skipped"] as const;
+  const outcome = settled.find((status) => status === message.status) ?? "recorded";
+  const transaction = message.transactionId ? filed.get(message.transactionId) : undefined;
   return {
     message,
     outcome,
-    category: message.transactionId ? categories.get(message.transactionId) : undefined,
+    category: transaction?.category,
+    chipIn: transaction?.chipIn,
     feeRecorded: Boolean(message.feeTransactionId),
   };
 }
@@ -73,23 +77,24 @@ export async function announceWhenQuiet(
   if (claimed.length === 0 || !token) return;
   const ids = claimed.map((item) => item.transactionId).filter((id): id is string => Boolean(id));
   const rows = ids.length
-    ? await query<{ transaction_id: string; category: string }>(
+    ? await query<{ transaction_id: string; category: string; chip_in: boolean }>(
         settings,
-        "select transaction_id::text, category from public.transactions where owner_id = $1::uuid and transaction_id::text = any($2::text[])",
+        "select transaction_id::text, category, amount < 0 as chip_in from public.transactions where owner_id = $1::uuid and transaction_id::text = any($2::text[])",
         [profile.profileId, ids],
       )
     : [];
-  const categories = new Map(rows.map((row) => [row.transaction_id, row.category]));
+  const filed = new Map(rows.map((row) => [row.transaction_id, { category: row.category, chipIn: row.chip_in }]));
   await announceOutcomes(
     {
       settings,
       bank,
       loans: createSupabaseLoanStore(settings),
+      people: createSupabasePeopleStore(settings),
       telegram: createTelegramClient(token),
       messages: createSupabaseMessageLog(settings),
       profile,
       now: new Date(),
     },
-    claimed.map((message) => outcomeOf(message, categories)),
+    claimed.map((message) => outcomeOf(message, filed)),
   );
 }

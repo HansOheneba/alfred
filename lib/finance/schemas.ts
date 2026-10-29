@@ -67,7 +67,7 @@ const changesSchema = z
 /** What some of the payments waiting for a label were, by their number in the list Alfred was shown. */
 export const labelAnswerSchema = z.object({
   items: z.array(z.number().int().min(1).max(60)).min(1).max(60),
-  action: z.enum(["category", "own_transfer", "lent", "repaid", "skip"]),
+  action: z.enum(["category", "chip_in", "own_transfer", "lent", "repaid", "skip"]),
   category: z.string().max(40).nullable().optional(),
   description: z.string().max(200).nullable().optional(),
   person: z.string().max(120).nullable().optional(),
@@ -102,6 +102,15 @@ export const financeActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("get_insights"),
     ...rangeFields,
+  }),
+  z.object({
+    type: z.literal("remember_person"),
+    name: z.string().min(1).max(120),
+    note: z.string().min(1).max(300),
+  }),
+  z.object({
+    type: z.literal("forget_person"),
+    name: z.string().min(1).max(120),
   }),
   z.object({
     type: z.literal("get_loans"),

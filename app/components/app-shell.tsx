@@ -5,7 +5,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react
 
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 
-export type Section = "chat" | "dashboard" | "settings";
+export type Section = "chat" | "dashboard" | "people" | "settings";
 
 const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
   {
@@ -19,6 +19,17 @@ const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] 
     href: "/dashboard",
     label: "Dashboard",
     icon: <path d="M4 20V10m6 10V4m6 16v-7m4 7H3" />,
+  },
+  {
+    section: "people",
+    href: "/people",
+    label: "People",
+    icon: (
+      <>
+        <circle cx="9" cy="8" r="3.5" />
+        <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M18 14.2A6.5 6.5 0 0 1 21.5 20" />
+      </>
+    ),
   },
   {
     section: "settings",

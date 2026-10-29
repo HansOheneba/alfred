@@ -1,6 +1,6 @@
 import { applyLabel, titleCase, undoLabels, type IngestDeps, type Label } from "@/lib/bank/ingest";
 import { NATURAL_HINT, questionFor, reviewRow } from "@/lib/bank/notify";
-import { payeeKey } from "@/lib/bank/parse";
+import { payeeKey, purposeOf } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
@@ -51,7 +51,8 @@ function listLine(message: BankMessage, index: number, profile: UserProfile, owe
   const who =
     payee.kind === "channel" ? `${name} (sent to ${payee.channel}; the recipient isn't named)` : name;
   const debt = owed.get(message.id);
-  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${debt ? ` · this person owes them ${debt}` : ""}`;
+  const purpose = purposeOf(message);
+  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${purpose ? ` · marked "${purpose}"` : ""}${debt ? ` · this person owes them ${debt}` : ""}`;
 }
 
 /** What's waiting for a label, numbered for the model, or null when nothing is. */
@@ -88,6 +89,7 @@ export function resolvedFrom(answers: LabelAnswer[], listed: BankMessage[]): Res
       if (answer.action === "lent") return { messageIds, label: { kind: "lent", person: answer.person ?? null, note: answer.description ?? null } };
       if (answer.action === "repaid") return { messageIds, label: { kind: "repaid", person: answer.person ?? null } };
       if (!answer.category) return null;
+      if (answer.action === "chip_in") return { messageIds, label: { kind: "chip_in", category: answer.category, description: answer.description ?? null, person: answer.person ?? null } };
       return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null } };
     })
     .filter((item): item is ResolvedLabel => item !== null);
@@ -95,7 +97,7 @@ export function resolvedFrom(answers: LabelAnswer[], listed: BankMessage[]): Res
 
 /** When the model says a message labels payments but none it picked fit what was said. */
 export const UNMATCHED_LABEL =
-  "I couldn't tell which waiting payments you meant. Name the person or the amount, like “the 125 from Grace was a gift”, or ask “what are those?” to see them all.";
+  "I couldn't tell which waiting payments you meant. Name the person or the amount, like “the 125 from Kofi was a gift”, or ask “what are those?” to see them all.";
 
 export type LabelReply = { text: string; next: BankMessage | null; buttons?: InlineButton[][] };
 
@@ -203,7 +205,7 @@ async function withNext(deps: IngestDeps, profile: UserProfile, text: string, in
   const next = await askNext(deps, profile);
   if (!next) return { text, next: null };
   const remaining = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
-  const question = await questionFor(deps.loans, profile, next);
+  const question = await questionFor(deps.loans, profile, next, deps.people);
   return { text: `${text}\n\n${intro(remaining)}${question.text}`, next, buttons: [...question.buttons, ...reviewRow(remaining)] };
 }
 

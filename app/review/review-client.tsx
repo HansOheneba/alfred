@@ -14,7 +14,7 @@ import type { ReviewItem } from "@/lib/web/review";
 const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"];
 const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"];
 
-type Action = "category" | "transfer" | "skip" | "lent" | "repaid";
+type Action = "category" | "chip_in" | "transfer" | "skip" | "lent" | "repaid";
 type Group = { key: string; who: string; items: ReviewItem[] };
 
 const cents = (value: string) => Math.round(Number(value) * 100);
@@ -37,6 +37,8 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
   const [note, setNote] = useState("");
   const [person, setPerson] = useState("");
   const [remember, setRemember] = useState(true);
+  // Money in that's someone's share of a bill is filed against the bill's category.
+  const [share, setShare] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string; undo: boolean } | null>(null);
 
@@ -69,6 +71,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
       const response = await sendJson<{ text: string; sorted: number }>("/api/bank/review", "POST", body);
       setResult({ ok: true, text: response.text, undo: response.sorted > 0 });
       setSelected(new Set());
+      setShare(false);
       setNote("");
       setPerson("");
       router.refresh();
@@ -161,6 +164,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                       {group.items.length > 1 ? `${group.items.length} payments` : day.format(new Date(first.occurredAt))}
                       {first.payee === "channel" ? " · the text doesn't say who received it" : ""}
                       {first.owed ? ` · owes you ${formatAmount(first.owed, first.currency)}` : ""}
+                      {group.items.length === 1 && first.purpose ? ` · “${first.purpose}”` : ""}
                     </span>
                   </span>
                   <span className={`shrink-0 tabular-nums text-[15px] font-medium ${first.direction === "in" ? "text-success" : "text-ink"}`}>
@@ -179,7 +183,10 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                             checked={selected.has(item.id)}
                             onChange={(event) => toggle([item.id], event.target.checked)}
                           />
-                          <span className="flex-1 text-muted">{day.format(new Date(item.occurredAt))}</span>
+                          <span className="flex-1 text-muted">
+                            {day.format(new Date(item.occurredAt))}
+                            {item.purpose ? ` · “${item.purpose}”` : ""}
+                          </span>
                           <span className="tabular-nums text-ink">{formatAmount(item.amount, item.currency)}</span>
                         </label>
                       </li>
@@ -206,39 +213,65 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
             </div>
             {direction ? (
               <>
-                <div className="flex flex-wrap gap-1.5" role="group" aria-label="What were they?">
-                  {(direction === "out" ? OUT_CHOICES : IN_CHOICES).map((category) => (
-                    <button key={category} type="button" className={chip} disabled={busy !== null} onClick={() => label(category, "category", category)}>
-                      {busy === category ? <Spinner className="size-3" /> : null}
-                      {category}
+                {share ? (
+                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Which bill was it a share of?">
+                    <span className="mr-1 text-xs text-muted">Their share of which bill?</span>
+                    {OUT_CHOICES.map((category) => (
+                      <button key={category} type="button" className={chip} disabled={busy !== null} onClick={() => label(`share:${category}`, "chip_in", category)}>
+                        {busy === `share:${category}` ? <Spinner className="size-3" /> : null}
+                        {category}
+                      </button>
+                    ))}
+                    <button type="button" className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onClick={() => setShare(false)}>
+                      Back
                     </button>
-                  ))}
-                  {lendable ? (
-                    <button type="button" className={chip} disabled={busy !== null || (needsPerson && !person.trim())} onClick={() => label("lent", "lent")}>
-                      {busy === "lent" ? <Spinner className="size-3" /> : null}I lent it
+                  </div>
+                ) : (
+                  <div className="flex flex-wrap gap-1.5" role="group" aria-label="What were they?">
+                    {(direction === "out" ? OUT_CHOICES : IN_CHOICES).map((category) => (
+                      <button key={category} type="button" className={chip} disabled={busy !== null} onClick={() => label(category, "category", category)}>
+                        {busy === category ? <Spinner className="size-3" /> : null}
+                        {category}
+                      </button>
+                    ))}
+                    {direction === "in" ? (
+                      <button type="button" className={chip} disabled={busy !== null} onClick={() => setShare(true)}>
+                        Their share of a bill
+                      </button>
+                    ) : null}
+                    {lendable ? (
+                      <button type="button" className={chip} disabled={busy !== null || (needsPerson && !person.trim())} onClick={() => label("lent", "lent")}>
+                        {busy === "lent" ? <Spinner className="size-3" /> : null}I lent it
+                      </button>
+                    ) : null}
+                    {repayable ? (
+                      <button type="button" className={chip} disabled={busy !== null} onClick={() => label("repaid", "repaid")}>
+                        {busy === "repaid" ? <Spinner className="size-3" /> : null}Paying me back
+                      </button>
+                    ) : null}
+                    <button type="button" className={chip} disabled={busy !== null} onClick={() => label("transfer", "transfer")}>
+                      {busy === "transfer" ? <Spinner className="size-3" /> : null}My own money
                     </button>
-                  ) : null}
-                  {repayable ? (
-                    <button type="button" className={chip} disabled={busy !== null} onClick={() => label("repaid", "repaid")}>
-                      {busy === "repaid" ? <Spinner className="size-3" /> : null}Paying me back
+                    <button type="button" className={chip} disabled={busy !== null} onClick={() => label("skip", "skip")}>
+                      {busy === "skip" ? <Spinner className="size-3" /> : null}Skip
                     </button>
-                  ) : null}
-                  <button type="button" className={chip} disabled={busy !== null} onClick={() => label("transfer", "transfer")}>
-                    {busy === "transfer" ? <Spinner className="size-3" /> : null}My own money
-                  </button>
-                  <button type="button" className={chip} disabled={busy !== null} onClick={() => label("skip", "skip")}>
-                    {busy === "skip" ? <Spinner className="size-3" /> : null}Skip
-                  </button>
-                </div>
+                  </div>
+                )}
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <label className="flex-1">
                     <span className="sr-only">Note</span>
-                    <input className={`${inputClass} h-9`} value={note} maxLength={200} placeholder="Note, e.g. Office snacks (optional)" onChange={(event) => setNote(event.target.value)} />
+                    <input className={`${inputClass} h-9`} value={note} maxLength={200} placeholder={share ? "Which bill, e.g. Fibre (optional)" : "Note, e.g. Office snacks (optional)"} onChange={(event) => setNote(event.target.value)} />
                   </label>
-                  {needsPerson ? (
+                  {needsPerson || share ? (
                     <label className="sm:w-48">
-                      <span className="sr-only">Who received it</span>
-                      <input className={`${inputClass} h-9`} value={person} maxLength={120} placeholder="Who, if you lent it" onChange={(event) => setPerson(event.target.value)} />
+                      <span className="sr-only">{share ? "Whose share it is" : "Who received it"}</span>
+                      <input
+                        className={`${inputClass} h-9`}
+                        value={person}
+                        maxLength={120}
+                        placeholder={share ? "Whose share, if sent for someone" : "Who, if you lent it"}
+                        onChange={(event) => setPerson(event.target.value)}
+                      />
                     </label>
                   ) : null}
                   <label className="flex items-center gap-2 text-xs text-muted">

@@ -136,6 +136,14 @@ function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage
   }
 
   // Merchant and cross-network payments: "Your payment of GHS 30.50 to TELECEL PUSH has been completed at …".
+  // Bundles and bills: "Payment for GHS444.00 to Broadband Bundle OVA.Current Balance: …".
+  const paidFor = text.match(new RegExp(`Payment for GHS\\s*${MONEY}\\s+to\\s+(.+?)\\s*\\.?\\s*Current Balance`, "i"));
+  if (paidFor) {
+    const amount = amountOf(paidFor[1]);
+    if (!amount) return null;
+    return { source: "momo", externalId, direction: "out", amount, fee: feeOf(text), counterparty: clean(paidFor[2]).replace(/\.$/, "").slice(0, 120), reference, balance: momoBalance, raw: text };
+  }
+
   const completed = text.match(new RegExp(`Your payment of GHS\\s*${MONEY}\\s+to\\s+(.+?)\\s+has been completed`, "i"));
   if (completed) {
     const amount = amountOf(completed[1]);
@@ -245,6 +253,30 @@ export function isOwnName(text: string, accountNames: string[]): boolean {
     const hits = parts.filter((part) => words.has(part)).length;
     return hits === parts.length || hits >= 3;
   });
+}
+
+/** "Transfer to HANS OHENEBA …" in a reference names the person receiving, not who sent it. */
+export function withoutRecipient(reference: string): string {
+  return reference.replace(/\b[Tt]ransfer [Tt]o(?:\s+[A-Z]{2,})+/g, " ");
+}
+
+/**
+ * What the sender wrote about a payment, from the text's reference, without
+ * the names, masked account numbers and bank boilerplate around it: "WiFi"
+ * from "WENDY … ,03xxxxxx61,Transfer to HANS … WiFi (GIP) from ACCESS Bank
+ * Limited". Empty when nothing is left.
+ */
+export function purposeOf(message: { raw: string; counterparty: string }): string {
+  const reference = clean(message.raw.match(/Reference:\s*([^]*?)(?:\.\s+Transaction ID|Transaction ID|$)/i)?.[1] ?? "");
+  const name = message.counterparty.trim();
+  const purpose = withoutRecipient(name ? reference.split(name).join(" ") : reference)
+    .replace(/\b\d{2}x+\d{2}\b/gi, " ")
+    .replace(/\(?\bGIPS?\b\)?/gi, " ")
+    .replace(/\b(?:transfer\s+)?from\s+[A-Za-z .&]*?\bbank(?:\s+(?:limited|ltd|plc))?\b/gi, " ")
+    .replace(/\btransfer\b/gi, " ")
+    .replace(/[\s,.;:-]+/g, " ")
+    .trim();
+  return /[a-z]{2,}/i.test(purpose) ? purpose.slice(0, 80) : "";
 }
 
 /** A stable key for remembering a payee: case, spacing and punctuation don't matter. */
