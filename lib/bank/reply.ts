@@ -121,6 +121,18 @@ export function createLabelResolver(settings: DeepSeekSettings, fetchImpl: typeo
 
 export type LabelReply = { text: string; next: BankMessage | null; buttons?: InlineButton[][] };
 
+/** How many waiting payments "what are those?" lists before saying how many more. */
+const MAX_SHOWN = 15;
+
+/** One waiting payment as a short line: "GH₵61.50 to Godwin Abaya · Mon 26 Oct". */
+function waitingLine(message: BankMessage, profile: UserProfile): string {
+  const money = formatAmount(message.amount, message.currency);
+  const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: profile.timezone }).format(new Date(message.occurredAt));
+  const named = message.counterparty && !/^gcb/i.test(message.counterparty) ? titleCase(message.counterparty) : null;
+  const who = message.direction === "out" ? (named ? `to ${named}` : "on your GCB card") : named ? `from ${named}` : "onto your GCB card";
+  return `${money} ${who} · ${day}`;
+}
+
 /** "What are those?", "which ones?", "show me" while payments are waiting. */
 const LIST_QUERY = /^(?:what|which)\b.*\b(?:those|they|them|ones|payments?)\b|^(?:show|list)\b.*\b(?:them|those|payments?)\b|^(?:what's|whats) (?:left|pending|waiting)/i;
 const UNDO = /^\s*(?:undo|undo (?:that|it|those|this)|revert (?:that|it))\s*[.!]?\s*$/i;
@@ -142,11 +154,15 @@ function words(text: string): string[] {
   return text.toLowerCase().match(/[a-z]+/g) ?? [];
 }
 
-/** Whether a word in the message refers to this name: the same word, or a nickname sharing its first three letters (Debby, Deborah). */
+/**
+ * Whether a word in the message refers to this name: the same word, or a
+ * nickname sharing its first three letters (Debby, Deborah). Short names
+ * only match exactly, so "Samuel" doesn't point at Amos Sekyi Sam.
+ */
 function namesIt(said: string[], name: string): boolean {
   const tokens = words(name);
   return said.some((word) =>
-    tokens.some((token) => token === word || (word.length >= 4 && !NOT_NAMES.has(word) && token.length >= 3 && token.slice(0, 3) === word.slice(0, 3))),
+    tokens.some((token) => token === word || (word.length >= 4 && !NOT_NAMES.has(word) && token.length >= 4 && token.slice(0, 3) === word.slice(0, 3))),
   );
 }
 
@@ -234,8 +250,10 @@ export async function answerLabelReply(deps: IngestDeps, profile: UserProfile, t
   if (waiting.length === 0) return null;
 
   if (LIST_QUERY.test(text.trim())) {
-    const count = waiting.length === 1 ? "One payment is waiting for a label." : `${waiting.length} payments are waiting for a label. ${NATURAL_HINT}`;
-    return withNext(deps, profile, count, () => (waiting.length > 1 ? "First: " : ""));
+    if (waiting.length === 1) return withNext(deps, profile, "One payment is waiting for a label.", () => "");
+    const shown = waiting.slice(0, MAX_SHOWN).map((message, index) => `${index + 1}. ${waitingLine(message, profile)}`);
+    const more = waiting.length > MAX_SHOWN ? `\n…and ${waiting.length - MAX_SHOWN} more.` : "";
+    return withNext(deps, profile, `${waiting.length} payments are waiting for a label:\n${shown.join("\n")}${more}\n\n${NATURAL_HINT}`, () => "First: ");
   }
 
   // The most recently asked question is the one a bare reply most likely answers.

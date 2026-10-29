@@ -58,6 +58,22 @@ describe("loan balances", () => {
   });
 });
 
+describe("names in a reply", () => {
+  it("doesn't take Samuel to mean Amos Sekyi Sam", async () => {
+    const { deps, bank, owner } = setup();
+    const amos = await held(deps, owner, "Payment made for GHS 31.50 to AMOS SEKYI SAM Current Balance: GHS 374.82 . Available Balance: GHS 374.82. Reference: . Transaction ID: 92400000020. Fee charged: GHS0.00");
+    await applyLabel(deps, owner, amos.id, { kind: "category", category: "Transport" });
+    const samuel = await held(deps, owner, "Payment made for GHS 8.00 to SAMUEL MPENIASAH Current Balance: GHS 366.82 . Available Balance: GHS 366.82. Reference: . Transaction ID: 92400000021. Fee charged: GHS0.00");
+    await held(deps, owner, GODWIN);
+    const reply = await answerLabelReply(deps, owner, "Samuel was office snacks", async () => [
+      { messageIds: [samuel.id], label: { kind: "category", category: "Food", description: "Office snacks" } },
+    ]);
+    expect(reply?.text).toContain("I'll file Samuel Mpeniasah as Food");
+    expect(reply?.text).not.toContain("Amos");
+    expect(bank.rules.get("amos sekyi sam")?.category).toBe("Transport");
+  });
+});
+
 describe("lending through bank labels", () => {
   it("records money lent without counting it as spending, then asks if money back is a repayment", async () => {
     const { deps, ledger, owner } = setup();
