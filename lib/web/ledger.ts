@@ -4,6 +4,7 @@ import { budgetMath } from "@/lib/finance/budgets";
 import { zonedYmd } from "@/lib/finance/dates";
 import { buildInsights } from "@/lib/finance/insights";
 import { labelQuestion } from "@/lib/bank/ingest";
+import { createSupabaseLoanStore, loanBalances, type LoanBalance } from "@/lib/finance/loans";
 import { createSupabaseBankStore } from "@/lib/bank/store";
 import { query } from "@/lib/supabase/connection";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
@@ -62,16 +63,19 @@ export type Ledger = {
   /** Server-computed findings for this month, the same ones Alfred narrates in chat. */
   insights: string[];
   bank: LedgerBank;
+  /** People who still owe the person money they lent, largest first. */
+  owed: LoanBalance[];
 };
 
 export async function loadLedger(profile: UserProfile, settings: StudioSettings): Promise<Ledger> {
   const store = createSupabaseFinanceStore(settings.supabase);
   const userId = profile.profileId;
-  const [transactions, budgets, goals, bank] = await Promise.all([
+  const [transactions, budgets, goals, bank, loans] = await Promise.all([
     store.listTransactions(userId),
     store.listBudgets(userId),
     store.listSavingsGoals(userId),
     loadBank(settings, profile),
+    createSupabaseLoanStore(settings.supabase).list(userId),
   ]);
   const today = zonedYmd(new Date(), profile.timezone);
   const monthStart = `${today.slice(0, 7)}-01`;
@@ -111,6 +115,7 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
       budgets,
     }),
     bank,
+    owed: loanBalances(loans).filter((item) => Number(item.owed) > 0),
   };
 }
 

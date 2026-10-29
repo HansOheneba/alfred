@@ -93,6 +93,19 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     ...rangeFields,
   }),
   z.object({
+    type: z.literal("get_loans"),
+    person: z.string().min(1).max(120).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("record_loan"),
+    direction: z.enum(["lent", "repaid"]),
+    person: z.string().min(1).max(120),
+    amount: amountSchema,
+    currency: currencySchema,
+    date: isoDateSchema.nullable().optional(),
+    note: z.string().max(200).nullable().optional(),
+  }),
+  z.object({
     type: z.literal("set_budget"),
     category: z.string().min(1).max(40),
     amount: amountSchema,
@@ -176,6 +189,16 @@ export const pendingPayloadSchema = z.discriminatedUnion("type", [
     type: z.literal("delete_transaction"),
     originUpdateId: z.string().regex(/^\d+$/),
     transactionId: z.string().uuid(),
+  }),
+  z.object({
+    type: z.literal("record_loan"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    direction: z.enum(["lent", "repaid"]),
+    person: z.string().min(1).max(120),
+    amount: amountSchema,
+    currency: currencySchema,
+    date: isoDateSchema,
+    note: z.string().max(200),
   }),
   z.object({
     type: z.literal("set_budget"),

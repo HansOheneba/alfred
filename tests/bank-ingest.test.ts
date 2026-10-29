@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { applyLabel, ingestBankText, labelQuestion, type IngestDeps } from "@/lib/bank/ingest";
 import { labelButtons } from "@/lib/bank/notify";
-import { answerLabelReply } from "@/lib/bank/reply";
+import { answerLabelReply, type LabelResolver } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { expense, harness, profile, runUpdate } from "./helpers";
@@ -14,6 +14,12 @@ const RUKAYA_AGAIN =
 const OWN =
   "Payment received for GHS 500.00 from HANS OHENEBA ADUSE OPOKU Current Balance: GHS 618.03 . Available Balance: GHS 618.03. Reference: HANS OHENEBA ADUSE OPOKU ,GIPS Transfer from GCB Bank. Transaction ID: 90803989481. TRANSACTION FEE: 0.00";
 const LOAN = "Payment received for GHS 515.00 from Loan  Account  Current Balance: GHS 629.28 . Available Balance: GHS 629.28. Reference: . Transaction ID: 90804260790.";
+
+/** A resolver that answers whichever payment was just asked about. */
+function answersCurrent(label: Parameters<typeof applyLabel>[3]): LabelResolver {
+  return async ({ current }) => (current ? [{ messageIds: [current.id], label }] : []);
+}
+const answersNothing: LabelResolver = async () => [];
 
 function setup() {
   const bank = new MemoryBankStore();
@@ -92,10 +98,10 @@ describe("bank ingest", () => {
     const { deps, bank, ledger, owner } = setup();
     const held = (await ingestBankText(deps, owner, RUKAYA, { channel: "shortcut" })).outcomes[0].message;
     await bank.updateMessage("42", held.id, { askedAt: deps.now.toISOString() });
-    const reply = await answerLabelReply(deps, owner, "that was transport home", async () => ({ kind: "category", category: "Transport", description: "Ride home" }));
+    const reply = await answerLabelReply(deps, owner, "that was transport home", answersCurrent({ kind: "category", category: "Transport", description: "Ride home" }));
     expect(reply?.text).toContain("under Transport");
     expect((await ledger.listTransactions("42")).some((item) => item.category === "Transport" && item.description === "Ride home")).toBe(true);
-    expect(await answerLabelReply(deps, owner, "how much did I spend", async () => null)).toBeNull();
+    expect(await answerLabelReply(deps, owner, "how much did I spend", answersNothing)).toBeNull();
   });
 });
 
@@ -157,12 +163,12 @@ describe("smarter labelling", () => {
   it("answers 'what are those' with the next waiting payment, and moves on after each answer", async () => {
     const { deps, owner } = setup();
     await ingestBankText(deps, owner, `Sun, 4 Oct at 8:15 AM\n${RUKAYA}\nMon, 5 Oct at 9:00 AM\n${AMOS}`, { channel: "screenshot" });
-    const listed = await answerLabelReply(deps, owner, "What are those", async () => null);
+    const listed = await answerLabelReply(deps, owner, "What are those", answersNothing);
     expect(listed?.text).toContain("2 payments are waiting for a label.");
     expect(listed?.next?.counterparty).toBe("RUKAYA ISSIFU");
 
-    const answered = await answerLabelReply(deps, owner, "food", async () => ({ kind: "category", category: "Food" }));
-    expect(answered?.text).toContain("Next: GH₵31.50 to Amos Sekyi Sam");
+    const answered = await answerLabelReply(deps, owner, "food", answersCurrent({ kind: "category", category: "Food" }));
+    expect(answered?.text).toContain("Last one: GH₵31.50 to Amos Sekyi Sam");
     expect(answered?.text).not.toContain("above");
   });
 

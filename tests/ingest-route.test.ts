@@ -2,11 +2,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const mocks = vi.hoisted(() => ({
   ownerForToken: vi.fn(),
-  ingestAndAnnounce: vi.fn(),
+  ingestBankMessages: vi.fn(),
   query: vi.fn(),
 }));
 
-vi.mock("@/lib/bank/service", () => ({ ownerForToken: mocks.ownerForToken, ingestAndAnnounce: mocks.ingestAndAnnounce }));
+vi.mock("@/lib/bank/service", () => ({ ownerForToken: mocks.ownerForToken, ingestBankMessages: mocks.ingestBankMessages, announceWhenQuiet: vi.fn() }));
+vi.mock("next/server", () => ({ after: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/env", () => ({ getDatabaseSettings: () => ({ projectRef: "test" }) }));
 vi.mock("@/lib/security/db-rate-limit", () => ({
@@ -32,7 +33,7 @@ function send(body: string, headers: Record<string, string> = {}): Promise<Respo
 describe("SMS ingest", () => {
   beforeEach(() => {
     mocks.ownerForToken.mockResolvedValue({ profileId: "owner-1" });
-    mocks.ingestAndAnnounce.mockResolvedValue({ outcomes: [], duplicates: 0, found: 1 });
+    mocks.ingestBankMessages.mockResolvedValue({ outcomes: [], duplicates: 0, found: 1 });
     mocks.query.mockResolvedValue([]);
   });
 
@@ -84,13 +85,13 @@ describe("SMS ingest", () => {
   ])("reads the message from %s", async (_label, body, headers) => {
     const response = await send(body, headers);
     expect(response.status).toBe(200);
-    expect(mocks.ingestAndAnnounce).toHaveBeenCalledWith(expect.anything(), expect.anything(), "Payment made for GHS 5.00", expect.objectContaining({ channel: "shortcut" }));
+    expect(mocks.ingestBankMessages).toHaveBeenCalledWith(expect.anything(), expect.anything(), "Payment made for GHS 5.00", expect.objectContaining({ channel: "shortcut" }));
   });
 
   it("files Mac relay texts under their own channel with the time they arrived", async () => {
     const at = new Date(Date.now() - 3_600_000).toISOString();
     await send(JSON.stringify({ text: "Payment made for GHS 5.00", sender: "MobileMoney", source: "mac", receivedAt: at }));
-    expect(mocks.ingestAndAnnounce).toHaveBeenCalledWith(expect.anything(), expect.anything(), "Payment made for GHS 5.00", {
+    expect(mocks.ingestBankMessages).toHaveBeenCalledWith(expect.anything(), expect.anything(), "Payment made for GHS 5.00", {
       channel: "mac",
       sender: "MobileMoney",
       receivedAt: new Date(at),
@@ -99,6 +100,6 @@ describe("SMS ingest", () => {
 
   it("ignores a received time in the future", async () => {
     await send(JSON.stringify({ text: "GHS 5.00", source: "mac", receivedAt: new Date(Date.now() + 86_400_000).toISOString() }));
-    expect(mocks.ingestAndAnnounce.mock.calls[0][3].receivedAt).toBeUndefined();
+    expect(mocks.ingestBankMessages.mock.calls[0][3].receivedAt).toBeUndefined();
   });
 });
