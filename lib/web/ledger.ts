@@ -45,6 +45,8 @@ export type LedgerBank = {
   /** Whether a forwarding key exists, and when it was last used. */
   connected: boolean;
   lastUsedAt: string | null;
+  /** When the iPhone last forwarded a message with no text in it. */
+  lastEmptyAt: string | null;
   accountNames: string[];
   needsLabel: LedgerBankItem[];
   balances: LedgerBalance[];
@@ -118,7 +120,7 @@ async function loadBank(settings: StudioSettings, profile: UserProfile): Promise
   const bank = createSupabaseBankStore(settings.supabase);
   const [held, token, names, balances] = await Promise.all([
     bank.listMessages(profile.profileId, "needs_label"),
-    query<{ last_used_at: Date | null }>(settings.supabase, "select last_used_at from public.ingest_tokens where owner_id = $1::uuid", [profile.profileId]),
+    query<{ last_used_at: Date | null; last_empty_at: Date | null }>(settings.supabase, "select last_used_at, last_empty_at from public.ingest_tokens where owner_id = $1::uuid", [profile.profileId]),
     bank.accountNames(profile.profileId),
     query<{ source: LedgerBalance["source"]; balance: string; occurred_at: Date }>(
       settings.supabase,
@@ -132,6 +134,7 @@ async function loadBank(settings: StudioSettings, profile: UserProfile): Promise
   return {
     connected: token.length > 0,
     lastUsedAt: token[0]?.last_used_at ? token[0].last_used_at.toISOString() : null,
+    lastEmptyAt: token[0]?.last_empty_at ? token[0].last_empty_at.toISOString() : null,
     accountNames: names,
     needsLabel: held.slice(0, 20).map((message) => ({
       id: message.id,
