@@ -22,6 +22,8 @@ export function ReplyChart({ chart }: { chart: ChatChart }) {
             <Tooltip
               cursor={{ fill: "var(--gold-soft)" }}
               contentStyle={{ background: "var(--surface)", border: "1px solid var(--line-strong)", borderRadius: 12, color: "var(--ink)", fontSize: 12 }}
+              itemStyle={{ color: "var(--ink)" }}
+              labelStyle={{ color: "var(--muted)" }}
               formatter={(_value, _name, entry) => {
                 const minor = (entry.payload as { minor: number }).minor;
                 const share = total > 0 ? Math.round((minor / total) * 100) : 0;

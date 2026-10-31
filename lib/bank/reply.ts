@@ -128,7 +128,7 @@ export function resolvedFrom(answers: LabelAnswer[], listed: BankMessage[]): Res
       if (answer.action === "paid_back") return { messageIds, label: { kind: "paid_back", person: answer.person ?? null } };
       if (!answer.category) return null;
       if (answer.action === "chip_in") return { messageIds, label: { kind: "chip_in", category: answer.category, description: answer.description ?? null, person: answer.person ?? null } };
-      return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null } };
+      return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null, forMonth: answer.for_month ?? null } };
     })
     .filter((item): item is ResolvedLabel => item !== null);
 }

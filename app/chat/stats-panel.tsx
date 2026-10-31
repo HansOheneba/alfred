@@ -79,6 +79,7 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
               <XAxis dataKey="label" hide />
               <Tooltip
                 contentStyle={{ background: "var(--surface)", border: "1px solid var(--line-strong)", borderRadius: 12, color: "var(--ink)", fontSize: 12 }}
+              itemStyle={{ color: "var(--ink)" }}
                 formatter={(_value, _name, entry) => [money((entry.payload as { cumulative: number }).cumulative), "By then"]}
                 labelStyle={{ color: "var(--muted)" }}
               />

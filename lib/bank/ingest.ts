@@ -4,7 +4,7 @@ import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import type { BankAccess } from "@/lib/finance/action-router";
 import { normalizeCategory } from "@/lib/finance/categories";
-import { addDays, zonedYmd } from "@/lib/finance/dates";
+import { addDays, formatDisplayDate, zonedYmd } from "@/lib/finance/dates";
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { findPerson, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
@@ -77,14 +77,14 @@ async function record(
   deps: IngestDeps,
   profile: UserProfile,
   message: BankMessage,
-  input: { type: "income" | "expense"; amount: string; category: string; description: string; suffix?: string },
+  input: { type: "income" | "expense"; amount: string; category: string; description: string; suffix?: string; date?: string },
 ): Promise<string> {
   const id = deps.createId();
   const timestamp = deps.now.toISOString();
   await deps.ledger.appendTransaction({
     transactionId: id,
     createdAt: timestamp,
-    transactionDate: zonedYmd(new Date(message.occurredAt), profile.timezone),
+    transactionDate: input.date ?? zonedYmd(new Date(message.occurredAt), profile.timezone),
     userId: profile.profileId,
     type: input.type,
     amount: input.amount,
@@ -248,7 +248,8 @@ export async function ingestBankText(
 }
 
 export type Label =
-  | { kind: "category"; category: string; description?: string | null }
+  /** `forMonth` (YYYY-MM) counts it in the month it's for, like November's rent paid in October. */
+  | { kind: "category"; category: string; description?: string | null; forMonth?: string | null }
   | { kind: "transfer" }
   | { kind: "skip" }
   /** Money the person lent out; `person` names who, when the message doesn't. */
@@ -392,8 +393,10 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   const type = message.direction === "out" ? "expense" : "income";
   const category = normalizeCategory(label.category, type);
   if (!category) return { ok: false, text: "That category doesn't fit. Pick one from the list." };
-  const description = label.description?.trim() || describe(message);
-  const id = await record(deps, profile, message, { type, amount: message.amount, category, description });
+  const paidOn = zonedYmd(new Date(message.occurredAt), profile.timezone);
+  const countsIn = monthItsFor(paidOn, label.forMonth, label.description);
+  const description = `${label.description?.trim() || describe(message)}${countsIn ? ` (paid ${formatDisplayDate(paidOn).replace(/ \d{4}$/, "")})` : ""}`;
+  const id = await record(deps, profile, message, { type, amount: message.amount, category, description, date: countsIn ? `${countsIn}-01` : undefined });
   await deps.bank.updateMessage(profile.profileId, message.id, { status: "recorded", transactionId: id });
   change.transactionIds.push(id);
   const changes = [change];
@@ -419,9 +422,7 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   const extra = alsoFiled > 0 ? ` I've also filed ${alsoFiled} other payment${alsoFiled === 1 ? "" : "s"} to ${who} the same way.` : "";
   return {
     ok: true,
-    text: remembers
-      ? `Filed ${money} under ${category}. I'll file ${who} as ${category} from now on.${extra}`
-      : `Filed ${money} under ${category}.`,
+    text: `Filed ${money} under ${category}${countsIn ? `, counted in ${monthName(countsIn)} since that's the month it's for` : ""}.${remembers ? ` I'll file ${who} as ${category} from now on.${extra}` : ""}`,
     changes,
   };
 }
@@ -450,6 +451,40 @@ export function bankAccess(bank: BankStore, notebook: NotebookStore | null | und
     ignoreAccount: notebook ? (account, note) => ignoreAccount(bank, notebook, ownerId, account, note) : null,
     balances: () => bank.latestBalances(ownerId),
   };
+}
+
+const MONTH_NAMES = ["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"];
+
+function monthName(month: string): string {
+  const name = MONTH_NAMES[Number(month.slice(5, 7)) - 1];
+  return name.charAt(0).toUpperCase() + name.slice(1);
+}
+
+/**
+ * The month (YYYY-MM) a payment should count in when it's for a different
+ * month from the one it was paid in: given outright, or read from a
+ * description like "House contribution for November". Only a month or two
+ * either side counts, so "for May" in October isn't taken literally.
+ */
+export function monthItsFor(paidOn: string, forMonth?: string | null, description?: string | null): string | null {
+  const paid = paidOn.slice(0, 7);
+  let month = forMonth && /^\d{4}-\d{2}$/.test(forMonth) ? forMonth : null;
+  if (!month && description) {
+    const named = description.toLowerCase().match(new RegExp(`\\bfor (${MONTH_NAMES.join("|")})\\b`))?.[1];
+    if (named) {
+      const year = Number(paid.slice(0, 4));
+      const index = MONTH_NAMES.indexOf(named) + 1;
+      const candidates = [year - 1, year, year + 1].map((item) => `${item}-${String(index).padStart(2, "0")}`);
+      month = candidates.reduce((best, item) => (Math.abs(monthsBetween(paid, item)) < Math.abs(monthsBetween(paid, best)) ? item : best));
+    }
+  }
+  if (!month || month === paid) return null;
+  const gap = monthsBetween(paid, month);
+  return gap >= -1 && gap <= 2 ? month : null;
+}
+
+function monthsBetween(from: string, to: string): number {
+  return (Number(to.slice(0, 4)) - Number(from.slice(0, 4))) * 12 + Number(to.slice(5, 7)) - Number(from.slice(5, 7));
 }
 
 /** Puts back everything a batch of labels changed, newest first. Returns how many payments were reopened. */

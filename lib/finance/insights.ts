@@ -47,8 +47,11 @@ export function buildInsights(input: InsightInput): string[] {
   const top = categories.slice(0, 3).map((item) => `${item.category} ${money(item.minor)} (${percent(item.minor, spent)})`);
   if (top.length > 0) lines.push(`Where the money went: ${top.join(", ")}.`);
 
-  const repeats = repeatedSpends(expenses).slice(0, 2);
+  // Fees are counted once as a total; listing each kind of fee as a "repeat" is noise.
+  const repeats = repeatedSpends(expenses.filter((item) => item.category !== "Fees")).slice(0, 2);
   repeats.forEach((item) => lines.push(`Repeated spend: ${item.description} ${item.count} times, ${money(item.minor)} in total.`));
+  const fees = expenses.filter((item) => item.category === "Fees");
+  if (fees.length > 1) lines.push(`Transfer fees: ${money(sum(fees))} across ${fees.length} charges.`);
 
   const biggest = largestExpenses(expenses, 1)[0];
   if (biggest) lines.push(`Biggest single expense: ${biggest.description}, ${money(toMinor(biggest.amount))} (${biggest.category}).`);
@@ -88,6 +91,8 @@ export function buildInsights(input: InsightInput): string[] {
     }
   }
 
+  lines.push(...ideas({ expenses, categories, repeats, spent, money }));
+
   const saved = sum(expenses.filter((item) => item.category === "Savings"));
   if (saved > 0) lines.push(`Put into savings: ${money(saved)}.`);
 
@@ -103,6 +108,39 @@ export function buildInsights(input: InsightInput): string[] {
     }
   }
   return lines;
+}
+
+/**
+ * One or two practical ideas from the period's own figures, worked out here so
+ * a reply always has advice in it, even when it isn't reworded.
+ */
+function ideas(input: {
+  expenses: TransactionRecord[];
+  categories: { category: string; minor: number }[];
+  repeats: { description: string; count: number; minor: number }[];
+  spent: number;
+  money: (minor: number) => string;
+}): string[] {
+  const { expenses, categories, repeats, spent, money } = input;
+  const found: string[] = [];
+  const top = categories[0];
+  if (top && top.minor * 10 >= spent * 3) {
+    const inTop = expenses.filter((item) => item.category === top.category);
+    const biggest = largestExpenses(inTop, 1)[0];
+    const big = biggest ? toMinor(biggest.amount) : 0;
+    found.push(
+      biggest && big * 2 >= top.minor && inTop.length > 1
+        ? `Idea: most of ${top.category} is one payment (${biggest.description}, ${money(big)}). If that's a fixed bill, set it aside at the start of the month; the rest of ${top.category} came to ${money(top.minor - big)}.`
+        : `Idea: ${top.category} is the biggest area at ${percent(top.minor, spent)} of spending, so it's the first place to look for savings.`,
+    );
+  }
+  const second = categories[1];
+  if (second && second.category === "Transport" && second.minor * 5 >= spent) {
+    found.push(`Idea: Transport came to ${money(second.minor)}. Planning or sharing a few trips a week is usually the easiest cut there.`);
+  } else if (repeats[0] && repeats[0].count >= 3) {
+    found.push(`Idea: ${repeats[0].description} came up ${repeats[0].count} times. Halving that would save about ${money(Math.round(repeats[0].minor / 2))}.`);
+  }
+  return found.slice(0, 2);
 }
 
 function sum(rows: TransactionRecord[]): number {

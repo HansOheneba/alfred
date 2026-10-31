@@ -83,3 +83,57 @@ describe("voice", () => {
     expect(voice).not.toHaveBeenCalled();
   });
 });
+
+describe("insights with ideas", () => {
+  const lines = buildInsights({
+    userId: "42",
+    currency: "GHS",
+    range: { start: "2026-10-01", end: "2026-10-31" },
+    today: "2026-10-31",
+    transactions: [
+      spend("2026-10-30", "500.00", "Utilities", "House contribution for November"),
+      spend("2026-10-26", "444.00", "Utilities", "Home internet"),
+      spend("2026-10-27", "-125.00", "Utilities", "Cyril's share of fibre"),
+      spend("2026-10-28", "300.00", "Transport", "Fuel"),
+      spend("2026-10-29", "200.00", "Transport", "Okada"),
+      spend("2026-10-20", "9.00", "Food", "Office snacks"),
+      spend("2026-10-21", "9.00", "Food", "Office snacks"),
+      spend("2026-10-22", "9.00", "Food", "Office snacks"),
+      spend("2026-10-22", "0.43", "Fees", "MoMo fee · Telecel Push"),
+      spend("2026-10-23", "0.75", "Fees", "MoMo fee · Telecel Push"),
+      spend("2026-10-24", "0.38", "Fees", "MoMo fee · Telecel Push"),
+    ],
+    budgets: [],
+  });
+
+  it("gives ideas worked out from the figures, so advice survives without rewording", () => {
+    expect(lines).toContain(
+      "Idea: most of Utilities is one payment (House contribution for November, GH₵500.00). If that's a fixed bill, set it aside at the start of the month; the rest of Utilities came to GH₵319.00.",
+    );
+    expect(lines).toContain("Idea: Transport came to GH₵500.00. Planning or sharing a few trips a week is usually the easiest cut there.");
+  });
+
+  it("counts fees once instead of as a repeat", () => {
+    expect(lines.some((line) => line.startsWith("Repeated spend: MoMo fee"))).toBe(false);
+    expect(lines).toContain("Transfer fees: GH₵1.56 across 3 charges.");
+    expect(lines).toContain("Repeated spend: Office snacks 3 times, GH₵27.00 in total.");
+  });
+});
+
+describe("rewording facts", () => {
+  it("tries once more before falling back to the plain facts", async () => {
+    const voice = vi
+      .fn()
+      .mockResolvedValueOnce("You spent GH₵999.00, and 4 payments are waiting.")
+      .mockResolvedValueOnce("You spent GH₵300.00, mostly on transport.");
+    const delivery = await voiceDelivery(
+      voice,
+      { type: "get_insights", period: "this_month", month: null, year: null, start_date: null, end_date: null },
+      { kind: "text", text: "Total spent: GH₵300.00." },
+      { userText: "tips?", profile: profile(42), channel: "web", state: ["4 payments are waiting."] },
+    );
+    expect(delivery.text).toBe("You spent GH₵300.00, mostly on transport.");
+    expect(voice).toHaveBeenCalledTimes(2);
+    expect(voice.mock.calls[0][0].state).toBeUndefined();
+  });
+});
