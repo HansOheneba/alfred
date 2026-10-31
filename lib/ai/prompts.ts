@@ -26,6 +26,9 @@ const ACTION_SHAPES = [
   `{"type":"get_insights",${RANGE}}`,
   '{"type":"remember_person","name":"Kofi","note":"Colleague. Sometimes sends money on behalf of his brother Yaw."}',
   '{"type":"forget_person","name":"Kofi"}',
+  '{"type":"ask_next"}',
+  '{"type":"answer_confirmation","decision":"confirm"}',
+  '{"type":"several","actions":[{"type":"remember_about_me","note":"I\'m paid on the 25th."},{"type":"get_loans","person":null}]}',
   '{"type":"ignore_account","account":"0543","note":"My mum\'s account. I manage it for her."}',
   '{"type":"remember_about_me","note":"I\'m paid on the 25th of each month."}',
   '{"type":"get_loans","person":null}',
@@ -68,6 +71,8 @@ export function buildSystemPrompt(input: {
   /** What the user has told Alfred about people, one "Name: note" per line. */
   people?: string[];
   about?: string[];
+  /** What's open in the conversation: what Alfred just asked, offered, or promised. */
+  open?: string[];
 }): string {
   const yesterday = addDays(input.today, -1);
   const recent =
@@ -98,10 +103,6 @@ export function buildSystemPrompt(input: {
       ? input.goals
           .map((item) => `${item.name} ${item.currentAmount}/${item.targetAmount} ${item.currency}`)
           .join("\n")
-      : "None.";
-  const history =
-    input.history && input.history.length > 0
-      ? input.history.map((item) => `${item.role}: ${item.body}`).join("\n")
       : "None.";
 
   return [
@@ -150,7 +151,10 @@ export function buildSystemPrompt(input: {
     "If the user asks how much they saved, use get_spending_summary with category Savings.",
     "Questions like can I afford something use get_financial_overview for this_month unless they name a saved budget.",
     "Questions about what money they have left or their balance use get_financial_overview for this_month: it includes the balances from their latest bank texts.",
-    "A bare yes, no, ok, or cancel is a reply to the previous assistant message, never a new transaction, and never a reason to delete or correct anything. Use chat and ask them to say what they meant.",
+    "A bare yes, no, ok, or cancel is a reply to your previous message, never a new transaction, and never a reason to delete or correct anything. If a confirmation is open, use answer_confirmation; otherwise use chat and ask what they meant.",
+    "answer_confirmation when a confirmation is open and the user agrees (decision confirm) or refuses (decision cancel) in any words, like \"yes go ahead\" or \"no leave it\".",
+    "ask_next when payments are waiting for a label and the user wants you to go through them, like \"ask\", \"ask me\", \"go on\", \"what's next\", or \"fire away\".",
+    "When one message asks for two or three separate things, answer {\"type\":\"several\",\"actions\":[...]} with each action in order, like ignoring an account and labelling a payment. Use it only for genuinely separate requests.",
     "In chat, never offer to make a change or ask the user to confirm or cancel: chat can't change anything. When they want something changed, use the action that does it now (it asks for confirmation itself when needed).",
     "Descriptions are short and specific, in the user's words, such as Waakye, Uber to work, or October salary. Avoid vague words like Payment or Expense.",
     `Budget periods are YYYY-MM. This month is ${input.today.slice(0, 7)}.`,
@@ -168,10 +172,12 @@ export function buildSystemPrompt(input: {
     budgets,
     "Saved goals:",
     goals,
-    "Recent messages for this user only, from the website and Telegram. They are one conversation:",
-    history,
     "Recent transactions:",
     recent,
+    "The conversation so far, from the website and Telegram, comes as messages after these instructions. Your earlier replies there are plain words, but you always answer with one JSON object.",
+    "Read the user's latest message as the next line of that conversation: short replies like \"ask\", \"yes\", \"go on\", \"the second one\", or \"why?\" answer whatever you said last.",
+    "What's open in the conversation right now:",
+    ...(input.open?.length ? input.open : ["Nothing in particular."]),
   ].join("\n");
 }
 

@@ -59,7 +59,7 @@ describe("accounts that aren't the person's", () => {
 
     const action = parseModelOutput('{"type":"ignore_account","account":"0543","note":"My mum\'s account. I manage it for her."}');
     expect(action.success).toBe(true);
-    const reply = await handleAction(action.success ? action.data : { type: "help" }, ctx);
+    const reply = await handleAction(action.success && action.data.type !== "several" ? action.data : { type: "help" }, ctx);
     expect(reply.text).toContain("Noted in your notebook: “My mum's account. I manage it for her”.");
     expect(reply.text).toContain("ignore texts from the account ending 0543");
     expect(reply.text).toContain("left out the payment from it that was waiting");

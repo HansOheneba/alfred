@@ -2,23 +2,22 @@ import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
-import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
-import { aboutForPrompt, createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
-import { createSupabasePeopleStore, notesForPrompt, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
+import { createVoice, type Voice } from "@/lib/ai/voice";
+import { createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
+import { createSupabasePeopleStore, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
 import { bankAccess } from "@/lib/bank/ingest";
-import { applyResolved, LABEL_MODEL, labelShortcut, resolvedFrom, UNMATCHED_LABEL, waitingPayments } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
-import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
-import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
+import { type ActionContext, type Delivery } from "@/lib/finance/action-router";
+import { decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
-import type { FinanceAction } from "@/lib/finance/schemas";
+import type { InterpretedAction } from "@/lib/finance/schemas";
+import { converse } from "@/lib/conversation/turn";
 import type { FinanceStore } from "@/lib/finance/store";
 import { userFacingError } from "@/lib/telegram/messages";
-import { interpretWithContext } from "@/lib/finance/context";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { clientTurnUpdateId, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
-import { logError, logInfo } from "@/lib/log";
+import { logError } from "@/lib/log";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 
@@ -39,7 +38,7 @@ export type StudioResult = {
 export type StudioDeps = {
   settings: StudioSettings;
   store: FinanceStore;
-  interpret: (request: InterpretRequest) => Promise<FinanceAction>;
+  interpret: (request: InterpretRequest) => Promise<InterpretedAction>;
   now: () => Date;
   createId: () => string;
   createActionId: () => string;
@@ -159,35 +158,7 @@ async function respond(
   deps: StudioDeps,
   clientId?: string,
 ): Promise<Delivery & { intent?: string }> {
-  const settled = await answerTypedDecision(text, ctx);
-  if (settled) return { kind: "text", text: settled.text, context: settled.context };
-  const ingest = deps.bank ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people } : null;
-  const shortcut = ingest ? await labelShortcut(ingest, ctx.profile, text) : null;
-  if (shortcut) return { kind: "text", text: shortcut.text, intent: "bank:label" };
-  // Waiting payments are part of the conversation, so "Mitch was business" or "who's Mitch?" both work.
-  const waiting = ingest ? await waitingPayments(ingest, ctx.profile) : null;
-  const { action, context, cue } = await interpretWithContext({
-    text,
-    profile: ctx.profile,
-    store: deps.store,
-    now: ctx.now,
-    interpret: deps.interpret,
-    messages: deps.messages,
-    excludeClientId: clientId,
-    channel: "web",
-    waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
-    people: await notesForPrompt(deps.people, ctx.profile.profileId),
-    about: await aboutForPrompt(deps.notebook, ctx.profile.profileId),
-    model: waiting ? LABEL_MODEL : undefined,
-  });
-  if (action.type === "label_payments") {
-    const labelled = ingest && waiting ? await applyResolved(ingest, ctx.profile, text, resolvedFrom(action.answers, waiting.listed), waiting) : null;
-    return { kind: "text", text: labelled?.text ?? UNMATCHED_LABEL, intent: "bank:label" };
-  }
-  logInfo("studio_interpreted", { userId: ctx.profile.profileId, action: action.type });
-  const delivery = await handleAction(action, { ...ctx, conversation: context });
-  const voiced = await voiceDelivery(deps.voice, action, delivery, { userText: text, profile: ctx.profile, channel: "web", cue });
-  return { ...voiced, intent: intentOf(action) };
+  return converse(text, ctx, deps, { channel: "web", excludeClientId: clientId });
 }
 
 function ordered(rows: ChatMessageRecord[]): ChatMessageRecord[] {

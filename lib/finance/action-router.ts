@@ -664,7 +664,7 @@ async function loansOwed(action: Extract<FinanceAction, { type: "get_loans" }>, 
   const parts: string[] = [];
   if (owing.length > 0) {
     parts.push([`${owing.length === 1 ? "One person owes" : `${owing.length} people owe`} you money:`, ...owing.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owed, item.currency)}`)].join("\n"));
-  } else parts.push("No one owes you anything right now.");
+  }
   if (owe.length > 0) parts.push(["You owe:", ...owe.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owe, item.currency)}`)].join("\n"));
   return { kind: "text", text: parts.join("\n\n") };
 }

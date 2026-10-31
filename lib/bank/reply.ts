@@ -259,6 +259,13 @@ async function withNext(deps: IngestDeps, profile: UserProfile, text: string, in
 
 const nextIntro = (remaining: number) => (remaining > 1 ? `Next (${remaining - 1} more after this): ` : "Last one: ");
 
+/** The next waiting payment's question with its buttons, or null when nothing is waiting. */
+export async function askNextReply(deps: IngestDeps, profile: UserProfile): Promise<LabelReply | null> {
+  const count = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
+  if (count === 0) return null;
+  return withNext(deps, profile, count === 1 ? "One payment is waiting for a label." : `${count} payments are waiting for a label.`, () => "First: ");
+}
+
 /** "undo" and "what are those?" while payments are waiting: answered without the model. */
 export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text: string): Promise<LabelReply | null> {
   if (UNDO.test(text)) {
@@ -269,8 +276,8 @@ export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text
     }
   }
   if (ASK.test(text.trim())) {
-    const count = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
-    if (count > 0) return withNext(deps, profile, count === 1 ? "One payment is waiting for a label." : `${count} payments are waiting for a label.`, () => "First: ");
+    const asked = await askNextReply(deps, profile);
+    if (asked) return asked;
   }
   if (!LIST_QUERY.test(text.trim())) return null;
   const waiting = oldestFirst(await deps.bank.listMessages(profile.profileId, "needs_label"));

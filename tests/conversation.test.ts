@@ -22,7 +22,11 @@ describe("Alfred conversation", () => {
     const { deps, store, telegram, interpret } = harness();
     await runUpdate(textUpdate(1, 42, "/start"), deps);
     await runUpdate(textUpdate(2, 42, "/help"), deps);
-    expect(telegram.sent.map((message) => message.text)).toEqual([WELCOME_TEXT, WELCOME_TEXT]);
+    for (const sent of telegram.sent) {
+      expect(sent.text).toContain("Alfred. I keep track of your money from your MoMo and bank texts");
+      expect(sent.text).toContain("connect your texts in Settings → Bank messages");
+    }
+    expect(telegram.sent).toHaveLength(2);
     expect(interpret.calls).toBe(0);
     expect(await store.listTransactions("42")).toHaveLength(0);
     expect(await store.listProcessedUpdates()).toHaveLength(0);
@@ -30,8 +34,17 @@ describe("Alfred conversation", () => {
     expect(await store.listPendingActions("42")).toHaveLength(0);
   });
 
+  it("welcomes someone saying hello for the first time", async () => {
+    const { deps, telegram, interpret } = harness({ messages: new MemoryMessageLog() });
+    await runUpdate(textUpdate(49, 42, "Hi"), deps);
+    expect(telegram.sent[0].text).toContain("I keep track of your money");
+    expect(interpret.calls).toBe(0);
+  });
+
   it("lets Alfred answer a greeting and counts off-topic turns", async () => {
     const messages = new MemoryMessageLog();
+    // Not their first message, so a greeting gets an ordinary reply rather than the welcome.
+    await messages.append({ ownerId: "42", role: "assistant", body: "Filed GH₵20.00 under Food.", channel: "telegram", intent: "create_transaction" });
     const turns: number[] = [];
     const { deps, store, telegram } = harness({
       messages,

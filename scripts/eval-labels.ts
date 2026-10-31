@@ -2,7 +2,7 @@ import { loadEnvFile } from "node:process";
 
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { LABEL_MODEL } from "@/lib/bank/reply";
-import type { FinanceAction } from "@/lib/finance/schemas";
+import { actionsOf, type FinanceAction } from "@/lib/finance/schemas";
 
 /**
  * Replays conversations Alfred once got wrong against the real model, so a
@@ -18,7 +18,7 @@ try {
 type Case = {
   name: string;
   request: Omit<InterpretRequest, "timezone" | "currency" | "now" | "recent">;
-  /** Null when the action is right, otherwise what was wrong. */
+  /** Null when the action is right, otherwise what was wrong. Several actions are checked as their first relevant one. */
   check: (action: FinanceAction) => string | null;
 };
 
@@ -142,7 +142,9 @@ async function main(): Promise<void> {
         { apiKey, model },
         { timezone: "Africa/Accra", currency: "GHS", now: new Date("2026-10-29T17:50:00.000Z"), recent: [], preferredName: "Hans", ...item.request },
       );
-      const problem = item.check(action);
+      // With several actions, the case passes if any one of them is right.
+      const problems = actionsOf(action).map((one) => item.check(one));
+      const problem = problems.includes(null) ? null : problems.join(" | ");
       if (problem) failures += 1;
       console.log(`${problem ? "FAIL" : "ok  "} ${item.name} (run ${run})${problem ? `: ${problem}` : ""}`);
     }
