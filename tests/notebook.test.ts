@@ -129,3 +129,31 @@ describe("talking about waiting payments", () => {
     expect(reply?.text).toBe("Left GH₵12.00 out of your books.");
   });
 });
+
+describe("payments for another month", () => {
+  it("counts next month's house contribution in that month", async () => {
+    const { deps, owner, ledger } = setup();
+    const out = (
+      await ingestBankText(
+        deps,
+        owner,
+        "Payment made for GHS 500.00 to ANNETTE AKUSHIKA KWASHIE Current Balance: GHS 976.98 . Available Balance: GHS 976.98. Reference: . Transaction ID: 92710596066. Fee charged: GHS3.75",
+        { channel: "mac", receivedAt: new Date("2026-10-30T17:58:05.000Z") },
+      )
+    ).outcomes[0].message;
+    const result = await applyLabel(deps, owner, out.id, { kind: "category", category: "rent", description: "House contribution for November" });
+    expect(result.text).toBe("Filed GH₵500.00 under Rent & home, counted in November since that's the month it's for. I'll file Annette Akushika Kwashie as Rent & home from now on.");
+    const saved = (await ledger.listTransactions("42")).find((item) => item.category === "Rent & home");
+    expect(saved?.transactionDate).toBe("2026-11-01");
+    expect(saved?.description).toBe("House contribution for November (paid 30 Oct)");
+  });
+
+  it("only moves a payment a month or two", async () => {
+    const { monthItsFor } = await import("@/lib/bank/ingest");
+    expect(monthItsFor("2026-10-30", null, "House contribution for November")).toBe("2026-11");
+    expect(monthItsFor("2026-12-28", null, "Rent for January")).toBe("2027-01");
+    expect(monthItsFor("2026-10-30", null, "Saving for May")).toBeNull();
+    expect(monthItsFor("2026-10-30", null, "Lunch for October")).toBeNull();
+    expect(monthItsFor("2026-10-30", "2026-11", null)).toBe("2026-11");
+  });
+});

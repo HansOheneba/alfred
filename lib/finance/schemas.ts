@@ -71,6 +71,8 @@ export const labelAnswerSchema = z.object({
   category: z.string().max(40).nullable().optional(),
   description: z.string().max(200).nullable().optional(),
   person: z.string().max(120).nullable().optional(),
+  /** The month (YYYY-MM) a payment counts in when it's for another month, like next month's rent. */
+  for_month: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
 });
 
 export type LabelAnswer = z.infer<typeof labelAnswerSchema>;

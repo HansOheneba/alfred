@@ -127,6 +127,20 @@ const CASES: Case[] = [
     request: { text: "Remember that I get paid on the 25th every month" },
     check: (action) => (action.type === "remember_about_me" ? null : `got ${action.type}`),
   },
+  {
+    name: "a payment for next month counts in that month",
+    request: {
+      text: "the 500 to Annette was my house contribution for November",
+      waiting: { lines: ["1. OUT GH₵500.00 to Annette Akushika Kwashie · Fri 30 Oct, 17:58"], current: 1 },
+      model: LABEL_MODEL,
+    },
+    check: (action) => {
+      if (action.type !== "label_payments") return `got ${action.type}`;
+      const answer = action.answers[0];
+      if (answer.category !== "Rent & home") return `filed under ${answer.category}`;
+      return answer.for_month === "2026-11" || /november/i.test(answer.description ?? "") ? null : "not counted in November";
+    },
+  },
 ];
 
 const RUNS = Number(process.env.EVAL_RUNS ?? 2);

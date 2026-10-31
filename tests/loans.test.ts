@@ -167,7 +167,7 @@ describe("answering in your own words", () => {
     const godwin = await held(deps, owner, GODWIN);
     await held(deps, owner, ADISAH);
     const reply = await answerLabelReply(deps, owner, "the 61.50 was fuel", async () => [
-      { messageIds: [godwin.id], label: { kind: "category", category: "Transport", description: "Fuel" } },
+      { messageIds: [godwin.id], label: { kind: "category", category: "Transport", description: "Fuel", forMonth: null } },
     ]);
     expect(reply?.text).toContain("Filed GH₵61.50 under Transport.");
     expect(bank.rules.size).toBe(0);
@@ -212,7 +212,7 @@ describe("waiting payments in the main conversation", () => {
 
     const action = parseModelOutput('{"type":"label_payments","answers":[{"items":[2,9],"action":"category","category":"Transport","description":"Fuel"}]}');
     expect(action.success && action.data.type === "label_payments" ? resolvedFrom(action.data.answers, waiting!.listed) : null).toEqual([
-      { messageIds: [godwin.id], label: { kind: "category", category: "Transport", description: "Fuel" } },
+      { messageIds: [godwin.id], label: { kind: "category", category: "Transport", description: "Fuel", forMonth: null } },
     ]);
   });
 });

@@ -144,6 +144,7 @@ export function buildSystemPrompt(input: {
     "A message can list many purchases across several days. Put every one of them in transactions, each with its own date, amount, category, and description. Do not stop after the first item.",
     "When every amount is stated, set explicit to true.",
     "Gifts and support sent to a person are expenses in People. Money lent or borrowed is a loan, not an expense or income.",
+    "Rent, house contributions, and things for the home are Rent & home. A payment for another month, like November's rent paid on 30 October, uses the 1st of that month as its date and says when it was paid in the description.",
     "Membership fees are Subscriptions. Clothes, cosmetics, and car washes are Personal. Rides, fuel, and transport home are Transport. Meals and snacks are Food.",
     `The last seven days: ${recentDayGuide(input.today)}. A named weekday means the matching date in that list.`,
     "Use period values today, yesterday, this_week, last_week, this_month, last_month, or this_year when the user speaks relatively.",
@@ -190,7 +191,7 @@ function waitingLines(waiting: { lines: string[]; current: number } | null | und
   return [
     "Payments read from the user's bank and mobile money texts are waiting for them to say what they were. Use label_payments when the message says what one or more of them were. Each answer has:",
     "- items: the numbers of the payments it covers, from the list below.",
-    "- action category: spending or income; category from the lists above, description a short label in the user's words or null.",
+    "- action category: spending or income; category from the lists above, description a short label in the user's words or null. for_month (YYYY-MM) when the user says it's for a different month, like November's rent paid in October, so it counts in that month; otherwise null.",
     "- action chip_in: incoming money that is someone's share of a bill the user paid, like a housemate's part of the WiFi or fibre. category is the spending category of that bill (Utilities for internet, power, water); description names the bill, like Fibre. person is whose share it is when someone else sent it for them, otherwise null. It lowers that spending instead of counting as income.",
     "Money is sometimes sent by one person on behalf of another. Use what the user told you about people to work out whose money it really is, and say so in person; ask with chat when you can't tell.",
     "- action lent: money the user lent out, outgoing only; person is who borrowed it (the payee, or a name the user gives).",
