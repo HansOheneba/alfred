@@ -25,6 +25,8 @@ export async function interpretWithContext(input: {
   waiting?: { lines: string[]; current: number } | null;
   /** What the user has told Alfred about people. */
   people?: string[];
+  /** What Alfred has learnt about the user themself. */
+  about?: string[];
   model?: string;
 }): Promise<{ action: FinanceAction; context: ConversationContext | null; cue: ChatCue }> {
   const ownerId = input.profile.profileId;
@@ -85,6 +87,7 @@ export async function interpretWithContext(input: {
         })),
       waiting: input.waiting,
       people: input.people,
+      about: input.about,
       model: input.model,
     });
   } catch (error) {

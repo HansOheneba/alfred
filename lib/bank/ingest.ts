@@ -1,9 +1,11 @@
-import { isOwnName, parseBankText, payeeKey, purposeOf, withoutRecipient, type ParsedBankMessage } from "@/lib/bank/parse";
+import { accountOf, isOwnName, parseBankText, payeeKey, purposeOf, withoutRecipient, type ParsedBankMessage } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
+import type { BankAccess } from "@/lib/finance/action-router";
 import { normalizeCategory } from "@/lib/finance/categories";
 import { addDays, zonedYmd } from "@/lib/finance/dates";
+import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { findPerson, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
 import { formatAmount } from "@/lib/finance/money";
@@ -136,10 +138,14 @@ export async function ingestBankText(
 ): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number }> {
   const parsed = parseBankText(text, { now: options.receivedAt ?? deps.now, timeZone: profile.timezone, sender: options.sender });
   const names = await deps.bank.accountNames(profile.profileId);
+  const ignored = await deps.bank.ignoredAccounts(profile.profileId);
   const outcomes: IngestOutcome[] = [];
   let duplicates = 0;
 
   for (const item of parsed) {
+    // Texts from an account that isn't the person's money, like a parent's they manage, are left out entirely.
+    const account = accountOf(item.raw);
+    if (account && ignored.includes(account)) continue;
     const { kind, status } = classify(item, names);
     const stored = await deps.bank.insertMessage({
       ownerId: profile.profileId,
@@ -417,6 +423,32 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
       ? `Filed ${money} under ${category}. I'll file ${who} as ${category} from now on.${extra}`
       : `Filed ${money} under ${category}.`,
     changes,
+  };
+}
+
+/**
+ * Stops counting texts from an account that isn't the person's money, like a
+ * parent's account they manage: notes it in their notebook so future texts are
+ * left out, skips payments from it still waiting for a label, and forgets its
+ * balances. Returns how many waiting payments it skipped.
+ */
+export async function ignoreAccount(bank: BankStore, notebook: NotebookStore, ownerId: string, account: string, note: string): Promise<number> {
+  await notebook.add(ownerId, { note, account });
+  let skipped = 0;
+  for (const message of await bank.listMessages(ownerId)) {
+    if (accountOf(message.raw) !== account) continue;
+    const waiting = message.status === "needs_label";
+    if (waiting) skipped += 1;
+    await bank.updateMessage(ownerId, message.id, { ...(waiting ? { status: "skipped" as const } : {}), balance: null });
+  }
+  return skipped;
+}
+
+/** What the main conversation may do with the person's bank texts. */
+export function bankAccess(bank: BankStore, notebook: NotebookStore | null | undefined, ownerId: string): BankAccess {
+  return {
+    ignoreAccount: notebook ? (account, note) => ignoreAccount(bank, notebook, ownerId, account, note) : null,
+    balances: () => bank.latestBalances(ownerId),
   };
 }
 

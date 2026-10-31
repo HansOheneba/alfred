@@ -102,6 +102,31 @@ const CASES: Case[] = [
     },
     check: (action) => labelled(action, "category", [1]),
   },
+  {
+    name: "not looking at Mum's account ignores it for good",
+    request: {
+      text: "That's a fee but ignore the bank that has these details\n\nHi Hans Oheneba Aduse\nYour A/C No:XXXX0543\nhas been debited GHS12.00\nDesc: ESERVICE BUNDLE CHARGE\nDate: 2026-10-30 22:55\nBal: GHS 50,085.00\n\nThis money is more than I have it's just an account I'm managing for her it's my mums",
+      waiting: {
+        lines: [
+          "1. OUT GH₵31.00 to Abubakar Sadik Ibrahim · Fri 30 Oct, 17:44",
+          "2. OUT GH₵12.00 to GCB card · Fri 30 Oct, 22:55 · account ending 0543",
+        ],
+        current: 2,
+      },
+      model: LABEL_MODEL,
+    },
+    check: (action) => (action.type === "ignore_account" && action.account.endsWith("0543") ? null : `got ${action.type}${action.type === "ignore_account" ? ` ${action.account}` : ""}`),
+  },
+  {
+    name: "what's left asks for the overview with balances",
+    request: { text: "Okay what's left in my finances" },
+    check: (action) => (action.type === "get_financial_overview" ? null : `got ${action.type}`),
+  },
+  {
+    name: "a standing fact about the user goes in the notebook",
+    request: { text: "Remember that I get paid on the 25th every month" },
+    check: (action) => (action.type === "remember_about_me" ? null : `got ${action.type}`),
+  },
 ];
 
 const RUNS = Number(process.env.EVAL_RUNS ?? 2);

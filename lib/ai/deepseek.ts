@@ -39,6 +39,8 @@ export type InterpretRequest = {
   waiting?: { lines: string[]; current: number } | null;
   /** What the user has told Alfred about people, one "Name: note" per line. */
   people?: string[];
+  /** What Alfred has learnt about the user, one note per line. */
+  about?: string[];
   /** A model to use instead of the configured one, for turns that need more care. */
   model?: string;
 };
@@ -64,6 +66,7 @@ export async function interpretMessage(
     history: request.history,
     waiting: request.waiting,
     people: request.people,
+    about: request.about,
   });
   const turnSettings = request.model ? { ...settings, model: request.model } : settings;
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);

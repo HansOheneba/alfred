@@ -113,6 +113,15 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     name: z.string().min(1).max(120),
   }),
   z.object({
+    type: z.literal("ignore_account"),
+    account: z.string().regex(/^\d{3,12}$/),
+    note: z.string().max(300).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("remember_about_me"),
+    note: z.string().min(1).max(300),
+  }),
+  z.object({
     type: z.literal("get_loans"),
     person: z.string().min(1).max(120).nullable().optional(),
   }),

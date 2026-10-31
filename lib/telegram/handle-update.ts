@@ -3,8 +3,9 @@ import { ConfigError } from "@/lib/errors";
 import { logError, logInfo } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
-import { applyLabel } from "@/lib/bank/ingest";
+import { applyLabel, bankAccess } from "@/lib/bank/ingest";
 import { labelChoiceText, reviewRow, labelFromCode, parseLabelCallback, questionFor } from "@/lib/bank/notify";
+import { aboutForPrompt, createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
 import { createSupabasePeopleStore, notesForPrompt, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
 import { applyResolved, askNext, LABEL_MODEL, labelShortcut, resolvedFrom, UNMATCHED_LABEL, waitingPayments } from "@/lib/bank/reply";
@@ -46,6 +47,8 @@ export type HandlerDeps = {
   bank?: BankStore | null;
   loans?: LoanStore | null;
   people?: PeopleStore | null;
+  /** What Alfred has learnt about the person. */
+  notebook?: NotebookStore | null;
   /** Downloads and reads a photo the person sent. */
   readPhoto?: ((fileId: string) => Promise<ImageText>) | null;
   /** Files a screenshot of bank texts; null when it isn't one. */
@@ -145,6 +148,7 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
       channel: "telegram",
       waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
       people: await notesForPrompt(deps.people, profile.profileId),
+      about: await aboutForPrompt(deps.notebook, profile.profileId),
       model: waiting ? LABEL_MODEL : undefined,
     });
     if (action.type === "label_payments") {
@@ -363,6 +367,8 @@ function actionContext(
     loans: deps.loans ?? null,
     people: deps.people ?? null,
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
+    bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
+    notebook: deps.notebook ?? null,
   };
 }
 
@@ -423,6 +429,7 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     bank: settings.supabase ? createSupabaseBankStore(settings.supabase) : null,
     loans: settings.supabase ? createSupabaseLoanStore(settings.supabase) : null,
     people: settings.supabase ? createSupabasePeopleStore(settings.supabase) : null,
+    notebook: settings.supabase ? createSupabaseNotebookStore(settings.supabase) : null,
     readPhoto: settings.deepseek
       ? async (fileId) => {
           const bytes = await downloadTelegramFile(settings.telegramBotToken, fileId, fetchImpl);

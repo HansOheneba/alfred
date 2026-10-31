@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Spinner } from "@/app/components/status";
 import { Button, EmptyState, inputClass, sendJson } from "@/app/components/ui";
+import type { AboutNote } from "@/lib/notebook/store";
 import type { KnownPerson } from "@/lib/web/people";
 
 function Person({ person }: { person: KnownPerson }) {
@@ -150,25 +151,127 @@ function AddPerson() {
   );
 }
 
-export function PeopleClient({ people }: { people: KnownPerson[] }) {
+/** One thing Alfred has learnt about the person, with a way to forget it. */
+function AboutItem({ item }: { item: AboutNote }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6 pb-16 sm:px-6">
+    <li className="rounded-2xl border border-line bg-surface p-4">
+      <p className="text-[15px] leading-6 text-ink">{item.note}</p>
+      <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-2 text-xs text-muted">
+        {item.account ? <span className="rounded-full bg-surface-2 px-2.5 py-1 text-ink">Ignoring texts from account ending {item.account}</span> : null}
+        <button
+          type="button"
+          className="inline-flex items-center gap-1.5 underline-offset-4 hover:text-ink hover:underline"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError("");
+            try {
+              await sendJson("/api/notebook", "DELETE", { id: item.id });
+              router.refresh();
+            } catch (failure) {
+              setError(failure instanceof Error ? failure.message : "That didn't work. Try again.");
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? <Spinner className="size-3" /> : null}
+          {item.account ? "Stop ignoring it" : "Forget this"}
+        </button>
+      </div>
+      {error ? (
+        <p className="mt-2 text-xs text-danger" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </li>
+  );
+}
+
+function AddAbout() {
+  const router = useRouter();
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState("");
+
+  return (
+    <form
+      className="flex flex-col gap-2 rounded-2xl border border-dashed border-line p-4 sm:flex-row sm:items-center"
+      onSubmit={async (event) => {
+        event.preventDefault();
+        setBusy(true);
+        setError("");
+        try {
+          await sendJson("/api/notebook", "POST", { note: note.trim() });
+          setNote("");
+          router.refresh();
+        } catch (failure) {
+          setError(failure instanceof Error ? failure.message : "That didn't work. Try again.");
+        } finally {
+          setBusy(false);
+        }
+      }}
+    >
+      <label className="min-w-0 flex-1">
+        <span className="sr-only">Something Alfred should know about you</span>
+        <input className={`${inputClass} h-9`} value={note} maxLength={300} placeholder="e.g. I'm paid on the 25th" onChange={(event) => setNote(event.target.value)} />
+      </label>
+      <Button type="submit" size="sm" variant="primary" disabled={busy || !note.trim()}>
+        {busy ? <Spinner className="size-3" /> : null}
+        Add
+      </Button>
+      {error ? (
+        <p className="text-xs text-danger" role="alert">
+          {error}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+export function NotebookClient({ people, about }: { people: KnownPerson[]; about: AboutNote[] }) {
+  return (
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-6 pb-16 sm:px-6">
       <div>
-        <h1 className="font-display text-2xl font-medium leading-tight tracking-tight text-ink">People</h1>
+        <h1 className="font-display text-2xl font-medium leading-tight tracking-tight text-ink">Notebook</h1>
         <p className="mt-1 text-sm text-muted">
-          Who Alfred knows from your bank texts, what you&rsquo;ve told him about them, and how he files their payments. You can also just tell him in chat, like &ldquo;Cyril is my housemate, he pays half the fibre&rdquo; or &ldquo;money from Grace is usually Cyril&rsquo;s&rdquo;.
+          What Alfred has learnt about you and the people in your money. He adds to it when you tell him things in chat, like &ldquo;don&rsquo;t look at that account, it&rsquo;s my mum&rsquo;s&rdquo; or &ldquo;Cyril is my housemate&rdquo;, and keeps it in mind every time you talk.
         </p>
       </div>
-      <AddPerson />
-      {people.length === 0 ? (
-        <EmptyState>Nobody yet. Once you label a few payments or tell Alfred about someone, they&rsquo;ll show up here.</EmptyState>
-      ) : (
-        <ul className="flex flex-col gap-3">
-          {people.map((person) => (
-            <Person key={person.personKey} person={person} />
-          ))}
-        </ul>
-      )}
+
+      <section className="flex flex-col gap-3" aria-labelledby="about-heading">
+        <h2 id="about-heading" className="text-sm font-medium text-ink">
+          About you
+        </h2>
+        {about.length === 0 ? <EmptyState>Nothing yet. Tell Alfred something about how you handle money, or add it here.</EmptyState> : null}
+        {about.length > 0 ? (
+          <ul className="flex flex-col gap-3">
+            {about.map((item) => (
+              <AboutItem key={item.id} item={item} />
+            ))}
+          </ul>
+        ) : null}
+        <AddAbout />
+      </section>
+
+      <section className="flex flex-col gap-3" aria-labelledby="people-heading">
+        <h2 id="people-heading" className="text-sm font-medium text-ink">
+          People
+        </h2>
+        <AddPerson />
+        {people.length === 0 ? (
+          <EmptyState>Nobody yet. Once you label a few payments or tell Alfred about someone, they&rsquo;ll show up here.</EmptyState>
+        ) : (
+          <ul className="flex flex-col gap-3">
+            {people.map((person) => (
+              <Person key={person.personKey} person={person} />
+            ))}
+          </ul>
+        )}
+      </section>
     </div>
   );
 }

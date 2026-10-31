@@ -3,8 +3,10 @@ import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
 import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { aboutForPrompt, createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
 import { createSupabasePeopleStore, notesForPrompt, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
+import { bankAccess } from "@/lib/bank/ingest";
 import { applyResolved, LABEL_MODEL, labelShortcut, resolvedFrom, UNMATCHED_LABEL, waitingPayments } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
@@ -47,6 +49,8 @@ export type StudioDeps = {
   bank?: BankStore | null;
   loans?: LoanStore | null;
   people?: PeopleStore | null;
+  /** What Alfred has learnt about the person. */
+  notebook?: NotebookStore | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -118,6 +122,8 @@ export async function handleProfileTurn(
     loans: deps.loans ?? null,
     people: deps.people ?? null,
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
+    bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
+    notebook: deps.notebook ?? null,
   };
 
   let result: StudioResult;
@@ -171,6 +177,7 @@ async function respond(
     channel: "web",
     waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
     people: await notesForPrompt(deps.people, ctx.profile.profileId),
+    about: await aboutForPrompt(deps.notebook, ctx.profile.profileId),
     model: waiting ? LABEL_MODEL : undefined,
   });
   if (action.type === "label_payments") {
@@ -275,5 +282,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     bank: createSupabaseBankStore(settings.supabase),
     loans: createSupabaseLoanStore(settings.supabase),
     people: createSupabasePeopleStore(settings.supabase),
+    notebook: createSupabaseNotebookStore(settings.supabase),
   };
 }

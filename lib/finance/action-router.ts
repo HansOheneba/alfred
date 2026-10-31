@@ -16,7 +16,9 @@ import {
 import { formatMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
 import { buildInsights } from "@/lib/finance/insights";
+import type { BankBalance } from "@/lib/bank/store";
 import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
+import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
 import type { FinanceAction, PendingPayload } from "@/lib/finance/schemas";
@@ -77,6 +79,16 @@ export type ActionContext = {
   people?: PeopleStore | null;
   /** Everyone named in the person's bank texts, so "Grace" can mean Grace Oppong. */
   payeeNames?: () => Promise<string[]>;
+  /** The person's bank texts: ignoring an account, and the balances they report. */
+  bank?: BankAccess | null;
+  /** What Alfred has learnt about the person. */
+  notebook?: NotebookStore | null;
+};
+
+export type BankAccess = {
+  /** Leaves an account's texts out from now on, noting why; returns how many waiting payments from it were skipped. */
+  ignoreAccount: ((account: string, note: string) => Promise<number>) | null;
+  balances(): Promise<BankBalance[]>;
 };
 
 export async function handleAction(action: FinanceAction, ctx: ActionContext): Promise<Delivery> {
@@ -99,6 +111,10 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return insights(action, ctx);
     case "remember_person":
       return rememberPerson(action, ctx);
+    case "ignore_account":
+      return ignoreAccountAction(action, ctx);
+    case "remember_about_me":
+      return rememberAboutMe(action, ctx);
     case "forget_person":
       return forgetPerson(action, ctx);
     case "get_loans":
@@ -542,9 +558,22 @@ async function overview(
     lines.push("", "Savings goals:");
     goals.forEach((goal) => lines.push(formatGoal(goal)));
   }
-  lines.push("", BALANCE_DISCLAIMER);
+  const balances = await bankBalanceLines(ctx);
+  if (balances.length > 0) {
+    lines.push("", "Balances from your latest bank texts (what's actually in your accounts):", ...balances);
+    lines.push("", "The totals come from recorded transactions; the balances come from your bank texts.");
+  } else lines.push("", BALANCE_DISCLAIMER);
   const chart = categoryChart(expenses, ctx.profile.currency);
   return chart ? { kind: "text", text: lines.join("\n"), chart } : { kind: "text", text: lines.join("\n") };
+}
+
+const BALANCE_LABELS: Record<BankBalance["source"], string> = { momo: "MoMo", gcb: "GCB card", other: "Bank" };
+
+/** "• MoMo: GH₵976.98 (Fri 30 Oct, 17:58)" for each account a bank text reported a balance for. */
+async function bankBalanceLines(ctx: ActionContext): Promise<string[]> {
+  const balances = ctx.bank ? await ctx.bank.balances().catch(() => []) : [];
+  const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: ctx.profile.timezone });
+  return balances.map((item) => `• ${BALANCE_LABELS[item.source]}: ${formatMoneyAmount(item.balance, ctx.profile.currency)} (${when.format(new Date(item.at))})`);
 }
 
 async function insights(
@@ -652,6 +681,24 @@ async function rememberPerson(action: Extract<FinanceAction, { type: "remember_p
   if (!ctx.people) return { kind: "text", text: "I can't keep notes about people right now." };
   const saved = await ctx.people.save(ctx.profile.profileId, { name: await knownName(action.name, ctx), note: action.note });
   return { kind: "text", text: `Noted. ${saved.name}: ${saved.note.replace(/[.!\s]+$/, "")}. I'll keep that in mind when their payments come in.` };
+}
+
+async function ignoreAccountAction(action: Extract<FinanceAction, { type: "ignore_account" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.bank?.ignoreAccount) return { kind: "text", text: "I can't change which bank texts I read right now." };
+  const account = action.account.slice(-4);
+  const note = action.note?.trim() || "Not my money";
+  const skipped = await ctx.bank.ignoreAccount(account, note);
+  const waiting = skipped > 0 ? ` I've also left out the ${skipped === 1 ? "payment" : `${skipped} payments`} from it that ${skipped === 1 ? "was" : "were"} waiting.` : "";
+  return {
+    kind: "text",
+    text: `Noted in your notebook: “${note.replace(/[.\s]+$/, "")}”. I'll ignore texts from the account ending ${account}, so its money and balance stay out of your books.${waiting} You can change this on the Notebook page.`,
+  };
+}
+
+async function rememberAboutMe(action: Extract<FinanceAction, { type: "remember_about_me" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.notebook) return { kind: "text", text: "I can't keep notes right now." };
+  const saved = await ctx.notebook.add(ctx.profile.profileId, { note: action.note });
+  return { kind: "text", text: `Noted in your notebook: “${saved.note.replace(/[.!\s]+$/, "")}”. You can see and edit it on the Notebook page.` };
 }
 
 async function forgetPerson(action: Extract<FinanceAction, { type: "forget_person" }>, ctx: ActionContext): Promise<Delivery> {
