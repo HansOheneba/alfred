@@ -6,7 +6,7 @@ import { DASHBOARD_URL, type DeepSeekSettings, type UserProfile } from "@/lib/co
 import type { Delivery } from "@/lib/finance/action-router";
 import type { ChatCue } from "@/lib/finance/context";
 import type { FinanceAction } from "@/lib/finance/schemas";
-import { logError } from "@/lib/log";
+import { logError, logInfo } from "@/lib/log";
 
 export type VoiceRequest = {
   draft: string;
@@ -111,7 +111,7 @@ export function createVoice(settings: DeepSeekSettings, fetchImpl: typeof fetch 
       "The server has already worked out the facts below from the user's stored records. Rewrite them as your reply to the user's message.",
       "Every number, amount, percentage, and date you mention must appear exactly as written in the facts. Do not calculate, round, estimate, or add any new figure.",
       "You may leave out minor facts, but never change their meaning, and never claim something was saved, changed, or deleted unless the facts say so.",
-      ...(request.state?.length ? ["Also true right now, so never contradict it:", ...request.state] : []),
+      "If they asked for tips or how to spend less, lead with the ideas in the facts, then the figures that back them up.",
       request.intent === "get_insights" || request.intent === "get_financial_overview"
         ? "This is an insight request. Say plainly what takes most of their money, point out any pattern in the facts, and offer one or two practical, kind suggestions for improvement drawn from those facts."
         : "Keep it brief. Confirm the key fact first.",
@@ -144,20 +144,21 @@ export async function voiceDelivery(
 ): Promise<Delivery> {
   const chat = action.type === "chat";
   if (!voice || delivery.kind !== "text" || (!chat && !VOICED.has(action.type))) return delivery;
-  try {
-    const reply = await voice({
-      ...request,
-      draft: delivery.text,
-      intent: action.type,
-      topic: chat ? (action.topic ?? "other") : undefined,
-    });
-    const source = `${delivery.text}\n${request.userText}\n${chat ? `${request.cue?.snapshot ?? ""}\n${nowLine(request.profile.timezone)}` : ""}`;
-    if (!keepsFacts(reply, source)) return delivery;
-    return { ...delivery, text: reply };
-  } catch (error) {
-    logError("voice", error);
-    return delivery;
+  // Only chat needs what's open in the conversation; facts are reworded on their own, so nothing else creeps in.
+  const state = chat ? request.state : undefined;
+  const source = `${delivery.text}\n${request.userText}\n${chat ? `${request.cue?.snapshot ?? ""}\n${nowLine(request.profile.timezone)}\n${(state ?? []).join("\n")}` : ""}`;
+  // A rewording that slips in a figure the server didn't give gets one more try before the plain text is used.
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const reply = await voice({ ...request, state, draft: delivery.text, intent: action.type, topic: chat ? (action.topic ?? "other") : undefined });
+      if (keepsFacts(reply, source)) return { ...delivery, text: reply };
+      logInfo("voice_rejected", { intent: action.type, attempt });
+    } catch (error) {
+      logError("voice", error);
+      return delivery;
+    }
   }
+  return delivery;
 }
 
 const NUMBER = /\d[\d,]*(?:\.\d+)?/g;

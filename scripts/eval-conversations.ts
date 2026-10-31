@@ -95,6 +95,18 @@ const SCRIPTS: Script[] = [
     ],
   },
   {
+    name: "asking for tips gets advice, not a list",
+    setup: async (world) => {
+      await held(world, ELLEN);
+    },
+    steps: [
+      { say: "I paid 500 for the house contribution today, put it under utilities", expect: /500/ },
+      { say: "spent 300 on fuel today", expect: /300/ },
+      { say: "and 200 on okada", expect: /200/ },
+      { say: "Any tips to spend less?", expect: /\b(?:set (?:it )?aside|plan|shar|cut|trim|cap|limit|try|could|idea)/i, not: /^Insights,|waiting/ },
+    ],
+  },
+  {
     name: "small talk while payments wait",
     setup: async (world) => {
       await held(world, ELLEN);
