@@ -1,22 +1,23 @@
 import { LIMITS, type AppSettings } from "@/lib/config";
 import { ConfigError } from "@/lib/errors";
-import { logError, logInfo } from "@/lib/log";
+import { logError } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
-import { createVoice, intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
-import { applyLabel } from "@/lib/bank/ingest";
+import { createVoice, intentOf, type Voice } from "@/lib/ai/voice";
+import { applyLabel, bankAccess } from "@/lib/bank/ingest";
 import { labelChoiceText, reviewRow, labelFromCode, parseLabelCallback, questionFor } from "@/lib/bank/notify";
-import { createSupabasePeopleStore, notesForPrompt, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
+import { createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
+import { createSupabasePeopleStore, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
-import { applyResolved, askNext, LABEL_MODEL, labelShortcut, resolvedFrom, UNMATCHED_LABEL, waitingPayments } from "@/lib/bank/reply";
+import { askNext } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { readImageText, type ImageText } from "@/lib/ocr/read-image";
 import { bankScreenshotReply } from "@/lib/ocr/screenshot-turn";
 import { downloadTelegramFile, pickPhoto } from "@/lib/telegram/files";
-import type { FinanceAction } from "@/lib/finance/schemas";
+import { actionsOf, type InterpretedAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
-import { answerTypedDecision, decidePending } from "@/lib/finance/pending";
+import { decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
 import { MemoryAccountDirectory } from "@/lib/accounts/directory";
 import type { MessageLog } from "@/lib/accounts/messages";
@@ -31,13 +32,15 @@ import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { createTelegramClient, type InlineButton, type TelegramSender } from "@/lib/telegram/client";
 import { commandName, parseCallbackData, type TelegramUpdate } from "@/lib/telegram/schemas";
 import { interpretWithContext } from "@/lib/finance/context";
-import { welcomeText, userFacingError, UNLINKED_TEXT } from "@/lib/telegram/messages";
+import { converse } from "@/lib/conversation/turn";
+import { welcomeFor } from "@/lib/conversation/welcome";
+import { userFacingError, UNLINKED_TEXT } from "@/lib/telegram/messages";
 
 export type HandlerDeps = {
   settings: AppSettings;
   store: FinanceStore | null;
   telegram: TelegramSender;
-  interpret: (request: InterpretRequest) => Promise<FinanceAction>;
+  interpret: (request: InterpretRequest) => Promise<InterpretedAction>;
   now: () => Date;
   rateLimiter: { allow(key: string, now: number): boolean | Promise<boolean> };
   accounts: AccountDirectory;
@@ -46,6 +49,8 @@ export type HandlerDeps = {
   bank?: BankStore | null;
   loans?: LoanStore | null;
   people?: PeopleStore | null;
+  /** What Alfred has learnt about the person. */
+  notebook?: NotebookStore | null;
   /** Downloads and reads a photo the person sent. */
   readPhoto?: ((fileId: string) => Promise<ImageText>) | null;
   /** Files a screenshot of bank texts; null when it isn't one. */
@@ -107,7 +112,7 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
 
   const text = message.text.trim();
   if (command === "start" || command === "help") {
-    await deps.telegram.sendMessage(actor.chatId, welcomeText());
+    await deps.telegram.sendMessage(actor.chatId, await welcomeFor(profile, deps.bank));
     return { httpStatus: 200 };
   }
   if (command) {
@@ -128,33 +133,7 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   }
 
   return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async (ctx) => {
-    const settled = await answerTypedDecision(text, ctx);
-    if (settled) return { kind: "text", text: settled.text, context: settled.context };
-    const ingest = deps.bank ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people } : null;
-    const shortcut = ingest ? await labelShortcut(ingest, profile, text) : null;
-    if (shortcut) return { kind: "text", text: shortcut.text, intent: "bank:label", buttons: shortcut.buttons };
-    // Waiting payments are part of the conversation, so "Mitch was business" or "who's Mitch?" both work.
-    const waiting = ingest ? await waitingPayments(ingest, profile) : null;
-    const { action, context, cue } = await interpretWithContext({
-      text,
-      profile,
-      store: deps.store!,
-      now: deps.now(),
-      interpret: deps.interpret,
-      messages: deps.messages,
-      channel: "telegram",
-      waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
-      people: await notesForPrompt(deps.people, profile.profileId),
-      model: waiting ? LABEL_MODEL : undefined,
-    });
-    if (action.type === "label_payments") {
-      const labelled = ingest && waiting ? await applyResolved(ingest, profile, text, resolvedFrom(action.answers, waiting.listed), waiting) : null;
-      return { kind: "text", text: labelled?.text ?? UNMATCHED_LABEL, intent: "bank:label", buttons: labelled?.buttons };
-    }
-    logInfo("interpreted", { updateId: update.update_id, userId: profile.profileId, action: action.type });
-    const delivery = await handleAction(action, { ...ctx, conversation: context });
-    const voiced = await voiceDelivery(deps.voice, action, delivery, { userText: text, profile, channel: "telegram", cue });
-    return { ...voiced, intent: intentOf(action) };
+    return converse(text, ctx, { ...deps, store: ctx.store }, { channel: "telegram" });
   });
 }
 
@@ -182,8 +161,10 @@ async function handlePhoto(
       messages: deps.messages,
       channel: "telegram",
     });
-    const delivery = await handleAction(action, { ...ctx, confirmTransactions: "always", conversation: context });
-    return { ...delivery, intent: intentOf(action) };
+    // A screenshot is read as one request; anything it suggests is confirmed first.
+    const first = actionsOf(action)[0];
+    const delivery = await handleAction(first, { ...ctx, confirmTransactions: "always", conversation: context });
+    return { ...delivery, intent: intentOf(first) };
   });
 }
 
@@ -363,6 +344,8 @@ function actionContext(
     loans: deps.loans ?? null,
     people: deps.people ?? null,
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
+    bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
+    notebook: deps.notebook ?? null,
   };
 }
 
@@ -423,6 +406,7 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     bank: settings.supabase ? createSupabaseBankStore(settings.supabase) : null,
     loans: settings.supabase ? createSupabaseLoanStore(settings.supabase) : null,
     people: settings.supabase ? createSupabasePeopleStore(settings.supabase) : null,
+    notebook: settings.supabase ? createSupabaseNotebookStore(settings.supabase) : null,
     readPhoto: settings.deepseek
       ? async (fileId) => {
           const bytes = await downloadTelegramFile(settings.telegramBotToken, fileId, fetchImpl);

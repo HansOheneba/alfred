@@ -26,6 +26,11 @@ const ACTION_SHAPES = [
   `{"type":"get_insights",${RANGE}}`,
   '{"type":"remember_person","name":"Kofi","note":"Colleague. Sometimes sends money on behalf of his brother Yaw."}',
   '{"type":"forget_person","name":"Kofi"}',
+  '{"type":"ask_next"}',
+  '{"type":"answer_confirmation","decision":"confirm"}',
+  '{"type":"several","actions":[{"type":"remember_about_me","note":"I\'m paid on the 25th."},{"type":"get_loans","person":null}]}',
+  '{"type":"ignore_account","account":"0543","note":"My mum\'s account. I manage it for her."}',
+  '{"type":"remember_about_me","note":"I\'m paid on the 25th of each month."}',
   '{"type":"get_loans","person":null}',
   '{"type":"record_loan","direction":"lent","person":"Kofi","amount":"100.00","currency":"GHS","date":null,"note":null}',
   `{"type":"get_transaction_history",${RANGE},"limit":null}`,
@@ -65,6 +70,9 @@ export function buildSystemPrompt(input: {
   waiting?: { lines: string[]; current: number } | null;
   /** What the user has told Alfred about people, one "Name: note" per line. */
   people?: string[];
+  about?: string[];
+  /** What's open in the conversation: what Alfred just asked, offered, or promised. */
+  open?: string[];
 }): string {
   const yesterday = addDays(input.today, -1);
   const recent =
@@ -96,10 +104,6 @@ export function buildSystemPrompt(input: {
           .map((item) => `${item.name} ${item.currentAmount}/${item.targetAmount} ${item.currency}`)
           .join("\n")
       : "None.";
-  const history =
-    input.history && input.history.length > 0
-      ? input.history.map((item) => `${item.role}: ${item.body}`).join("\n")
-      : "None.";
 
   return [
     "You convert one personal finance message into one JSON object.",
@@ -118,6 +122,8 @@ export function buildSystemPrompt(input: {
     "get_insights when they ask where their money goes, what they spend most on, for patterns, habits, tips to improve, or how they are doing overall.",
     "create_transaction for a new expense or income, including several items in one message.",
     "remember_person when the user tells you who someone is or a standing fact about them, such as a housemate who pays their share of a bill, or that Telecel transfers usually go to their mum. note is the whole note in a sentence or two, merged with anything already saved about that person below. forget_person when they ask you to forget it.",
+    "ignore_account when the user says an account's texts aren't their money or not to look at an account, like a parent's account they manage. account is its last digits as shown in the text (A/C No:XXXX0543 gives 0543); note says whose it is and why, in a sentence in the user's own words, like \"My mum's account. I manage it for her.\" It also leaves out any waiting payments from that account, so use it instead of skip.",
+    "remember_about_me when the user tells you a standing fact about themself or how they want their money handled, like when they're paid or a rule for a kind of payment. note is the fact in a sentence in the user's own words, like \"I'm paid on the 25th.\" Facts about other people use remember_person.",
     "get_loans when they ask who owes them money, who they owe, or how much is owed either way with someone; set person when they name someone.",
     "record_loan for loans that didn't come through their bank texts, such as cash: direction lent when they lent someone money, repaid when that person paid them back, borrowed when someone lent the user money (so the user owes them), paid_back when the user paid back money they borrowed. Lending and borrowing are not spending or income.",
     "get_spending_summary for how much was spent. Use detail total for a total, by_category for a breakdown, largest for the biggest expenses, and comparison to compare with the previous period.",
@@ -144,10 +150,16 @@ export function buildSystemPrompt(input: {
     "For a named month such as September, set month to 1-12 and omit year unless the user states it.",
     "If the user asks how much they saved, use get_spending_summary with category Savings.",
     "Questions like can I afford something use get_financial_overview for this_month unless they name a saved budget.",
-    "A bare yes, no, ok, or cancel is a reply to the previous assistant message, never a new transaction, and never a reason to delete or correct anything. Use chat and ask them to say what they meant.",
+    "Questions about what money they have left or their balance use get_financial_overview for this_month: it includes the balances from their latest bank texts.",
+    "A bare yes, no, ok, or cancel is a reply to your previous message, never a new transaction, and never a reason to delete or correct anything. If a confirmation is open, use answer_confirmation; otherwise use chat and ask what they meant.",
+    "answer_confirmation when a confirmation is open and the user agrees (decision confirm) or refuses (decision cancel) in any words, like \"yes go ahead\" or \"no leave it\".",
+    "ask_next when payments are waiting for a label and the user wants you to go through them, like \"ask\", \"ask me\", \"go on\", \"what's next\", or \"fire away\".",
+    "When one message asks for two or three separate things, answer {\"type\":\"several\",\"actions\":[...]} with each action in order, like ignoring an account and labelling a payment. Use it only for genuinely separate requests.",
     "In chat, never offer to make a change or ask the user to confirm or cancel: chat can't change anything. When they want something changed, use the action that does it now (it asks for confirmation itself when needed).",
     "Descriptions are short and specific, in the user's words, such as Waakye, Uber to work, or October salary. Avoid vague words like Payment or Expense.",
     `Budget periods are YYYY-MM. This month is ${input.today.slice(0, 7)}.`,
+    "Your notebook on the user: what you've learnt about them. Use it to understand their money and messages:",
+    input.about?.length ? input.about.join("\n") : "Nothing yet.",
     "What the user has told you about people. Use it to understand their payments and messages:",
     input.people?.length ? input.people.join("\n") : "None.",
     ...waitingLines(input.waiting),
@@ -160,10 +172,12 @@ export function buildSystemPrompt(input: {
     budgets,
     "Saved goals:",
     goals,
-    "Recent messages for this user only, from the website and Telegram. They are one conversation:",
-    history,
     "Recent transactions:",
     recent,
+    "The conversation so far, from the website and Telegram, comes as messages after these instructions. Your earlier replies there are plain words, but you always answer with one JSON object.",
+    "Read the user's latest message as the next line of that conversation: short replies like \"ask\", \"yes\", \"go on\", \"the second one\", or \"why?\" answer whatever you said last.",
+    "What's open in the conversation right now:",
+    ...(input.open?.length ? input.open : ["Nothing in particular."]),
   ].join("\n");
 }
 
@@ -185,6 +199,7 @@ function waitingLines(waiting: { lines: string[]; current: number } | null | und
     "- action paid_back: the user paying back money they borrowed, outgoing only; person is who they paid, or null for the payee. Only for someone the list says the user owes.",
     "- action own_transfer: the user's own money moving between their own accounts.",
     "- action skip: a test, a mistake, a reversal, or something not to count.",
+    "If the user says a payment's account isn't theirs or not to look at that account, use ignore_account instead of label_payments; it skips that account's payments for good.",
     "Include a payment only when the message clearly points at it: by name (nicknames and first names count, like Debby for Deborah), amount, date, network, or words like all, both, the rest. \"Everything to X\" covers every listed payment to X and no one else's.",
     "If the user names someone who isn't in the list, they're already sorted: leave that instruction out. Never move it onto other payments.",
     waiting.current > 0

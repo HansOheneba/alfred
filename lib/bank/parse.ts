@@ -283,3 +283,12 @@ export function purposeOf(message: { raw: string; counterparty: string }): strin
 export function payeeKey(counterparty: string): string {
   return counterparty.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().slice(0, 120);
 }
+
+/**
+ * The last four digits of the account a text is about, like "0543" from
+ * "Your A/C No:XXXX0543", or null when the text doesn't name one.
+ */
+export function accountOf(text: string): string | null {
+  const match = text.match(/\b(?:A\/C|Acct|Account)(?:\s*(?:No\.?|Number))?\s*[:.#]?\s*[X*x•.\s-]*(\d{3,})\b/i);
+  return match ? match[1].slice(-4) : null;
+}

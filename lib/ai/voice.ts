@@ -17,6 +17,8 @@ export type VoiceRequest = {
   /** Set for chat replies: the conversation so far and how long it has drifted. */
   cue?: ChatCue;
   topic?: "money" | "other";
+  /** What's true right now: waiting payments and what's open in the conversation. The reply must never contradict it. */
+  state?: string[];
 };
 
 export type Voice = (request: VoiceRequest) => Promise<string>;
@@ -78,6 +80,9 @@ function chatSystem(request: VoiceRequest): string {
     "You are replying in an ongoing chat. Recent conversation, oldest first:",
     history,
     `Facts you may use if they help, word for word: ${cue?.snapshot ?? "none"}`,
+    "What's true right now. Never contradict it, and never say nothing is waiting when something is:",
+    ...(request.state?.length ? request.state : ["Nothing in particular."]),
+    "Keep what the draft does: if it answers, asks, or offers something, your reply does the same. Never promise to do something the draft doesn't.",
     "If they ask a general question, such as a fact or a recommendation, answer it in one short line first.",
     ladder(cue?.offTopicTurn ?? 1, request.topic ?? "other", BUILDER_NAME),
     "Keep it to one or two sentences unless the line above allows more. Never state any figure that is not in the facts above.",
@@ -106,6 +111,7 @@ export function createVoice(settings: DeepSeekSettings, fetchImpl: typeof fetch 
       "The server has already worked out the facts below from the user's stored records. Rewrite them as your reply to the user's message.",
       "Every number, amount, percentage, and date you mention must appear exactly as written in the facts. Do not calculate, round, estimate, or add any new figure.",
       "You may leave out minor facts, but never change their meaning, and never claim something was saved, changed, or deleted unless the facts say so.",
+      ...(request.state?.length ? ["Also true right now, so never contradict it:", ...request.state] : []),
       request.intent === "get_insights" || request.intent === "get_financial_overview"
         ? "This is an insight request. Say plainly what takes most of their money, point out any pattern in the facts, and offer one or two practical, kind suggestions for improvement drawn from those facts."
         : "Keep it brief. Confirm the key fact first.",

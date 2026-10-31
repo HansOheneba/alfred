@@ -6,7 +6,7 @@ import { LIMITS, type DeepSeekSettings } from "@/lib/config";
 import { AiError } from "@/lib/errors";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { zonedYmd } from "@/lib/finance/dates";
-import { parseModelOutput, type FinanceAction } from "@/lib/finance/schemas";
+import { parseModelOutput, type InterpretedAction } from "@/lib/finance/schemas";
 
 const completionSchema = z.object({
   choices: z
@@ -39,6 +39,10 @@ export type InterpretRequest = {
   waiting?: { lines: string[]; current: number } | null;
   /** What the user has told Alfred about people, one "Name: note" per line. */
   people?: string[];
+  /** What Alfred has learnt about the user, one note per line. */
+  about?: string[];
+  /** What's open in the conversation: what Alfred just asked, offered, or promised. */
+  open?: string[];
   /** A model to use instead of the configured one, for turns that need more care. */
   model?: string;
 };
@@ -47,7 +51,7 @@ export async function interpretMessage(
   settings: DeepSeekSettings,
   request: InterpretRequest,
   fetchImpl: typeof fetch = fetch,
-): Promise<FinanceAction> {
+): Promise<InterpretedAction> {
   const today = zonedYmd(request.now, request.timezone);
   const system = buildSystemPrompt({
     today,
@@ -61,16 +65,14 @@ export async function interpretMessage(
     channel: request.channel,
     budgets: request.budgets,
     goals: request.goals,
-    history: request.history,
     waiting: request.waiting,
     people: request.people,
+    about: request.about,
+    open: request.open,
   });
   const turnSettings = request.model ? { ...settings, model: request.model } : settings;
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);
-  const messages: ChatMessage[] = [
-    { role: "system", content: system },
-    { role: "user", content: userText },
-  ];
+  const messages: ChatMessage[] = [{ role: "system", content: system }, ...conversationTurns(request.history ?? []), { role: "user", content: userText }];
   let first = "";
   try {
     first = await chatCompletion(turnSettings, messages, {}, fetchImpl);
@@ -97,6 +99,28 @@ export async function interpretMessage(
 
 export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };
 export type ChatMessage = { role: "system" | "user" | "assistant"; content: string | ContentPart[] };
+
+/** How much of an earlier message the model sees. */
+const TURN_CHARS = 600;
+
+/**
+ * Earlier messages as real chat turns, oldest first, so the model reads the
+ * latest message as a reply to what was just said. Messages in a row from the
+ * same side are joined, since the API expects turns to alternate.
+ */
+export function conversationTurns(history: { role: "user" | "assistant"; body: string }[]): ChatMessage[] {
+  const turns: ChatMessage[] = [];
+  for (const item of history) {
+    const body = item.body.trim().slice(0, TURN_CHARS);
+    if (!body) continue;
+    const last = turns.at(-1);
+    if (last && last.role === item.role) last.content = `${last.content}\n\n${body}`;
+    else turns.push({ role: item.role, content: body });
+  }
+  // The latest message is the user's, so the turns before it end with Alfred.
+  while (turns.at(-1)?.role === "user") turns.pop();
+  return turns;
+}
 
 export async function chatCompletion(
   settings: DeepSeekSettings,

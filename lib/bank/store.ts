@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import type { SupabaseSettings } from "@/lib/config";
 import { query } from "@/lib/supabase/connection";
 import type { BankSource } from "@/lib/bank/parse";
+import type { MemoryNotebookStore } from "@/lib/notebook/store";
 
 export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid" | "borrowed" | "paid_back";
 export type BankKind = "payment" | "transfer_own" | "loan_in" | "unknown" | "loan_out" | "loan_repay";
@@ -30,6 +31,8 @@ export type BankMessage = {
 
 export type NewBankMessage = Omit<BankMessage, "id" | "transactionId" | "feeTransactionId" | "askedAt"> & { textHash: string };
 
+export type BankBalance = { source: BankSource; balance: string; at: string };
+
 /** What a payee means: a category, or someone chipping in toward bills in that category. */
 export type PayeeRule = { payeeKey: string; category: string; description: string; kind?: "category" | "chip_in" };
 
@@ -47,7 +50,7 @@ export type LabelChange = {
 export interface BankStore {
   /** Inserts a message, or returns null when the same message was already stored. */
   insertMessage(row: NewBankMessage): Promise<BankMessage | null>;
-  updateMessage(ownerId: string, id: string, patch: Partial<Pick<BankMessage, "status" | "transactionId" | "feeTransactionId" | "askedAt" | "kind">>): Promise<void>;
+  updateMessage(ownerId: string, id: string, patch: Partial<Pick<BankMessage, "status" | "transactionId" | "feeTransactionId" | "askedAt" | "kind" | "balance">>): Promise<void>;
   getMessage(ownerId: string, id: string): Promise<BankMessage | null>;
   /** Corrects the date of a stored message that still needs a label, when a later copy shows when it really happened. */
   correctDate(ownerId: string, textHash: string, occurredAt: string): Promise<void>;
@@ -59,6 +62,10 @@ export interface BankStore {
   accountNames(ownerId: string): Promise<string[]>;
   /** Remembers another name on the person's own accounts. */
   addAccountName(ownerId: string, name: string): Promise<void>;
+  /** Last digits of accounts whose texts aren't the person's money, from their notebook. */
+  ignoredAccounts(ownerId: string): Promise<string[]>;
+  /** The newest balance each source reported, leaving out ignored accounts. */
+  latestBalances(ownerId: string): Promise<BankBalance[]>;
   deleteRule(ownerId: string, payeeKey: string): Promise<void>;
   /** Keeps the latest batch of label changes, replacing the one before. */
   saveUndo(ownerId: string, changes: LabelChange[]): Promise<void>;
@@ -149,6 +156,7 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       if (patch.transactionId !== undefined) add("transaction_id", patch.transactionId);
       if (patch.feeTransactionId !== undefined) add("fee_transaction_id", patch.feeTransactionId);
       if (patch.askedAt !== undefined) add("asked_at", patch.askedAt);
+      if (patch.balance !== undefined) add("balance", patch.balance);
       if (sets.length === 0) return;
       await query(settings, `update public.bank_messages set ${sets.join(", ")} where owner_id = $1::uuid and id = $2::uuid`, values);
     },
@@ -245,6 +253,21 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       );
       return rows.map(fromRow).sort((left, right) => left.occurredAt.localeCompare(right.occurredAt));
     },
+    async ignoredAccounts(ownerId) {
+      const rows = await query<{ account: string }>(settings, "select account from public.about_me where owner_id = $1::uuid and account is not null", [ownerId]);
+      return rows.map((row) => row.account);
+    },
+    async latestBalances(ownerId) {
+      const rows = await query<{ source: BankSource; balance: string; occurred_at: Date }>(
+        settings,
+        `select distinct on (source) source, balance::text, occurred_at
+         from public.bank_messages
+         where owner_id = $1::uuid and balance is not null
+         order by source, occurred_at desc`,
+        [ownerId],
+      );
+      return rows.map((row) => ({ source: row.source, balance: Number(row.balance).toFixed(2), at: row.occurred_at.toISOString() }));
+    },
     async addAccountName(ownerId, name) {
       const current = await this.accountNames(ownerId);
       if (current.some((item) => item.toLowerCase() === name.trim().toLowerCase())) return;
@@ -269,6 +292,8 @@ export class MemoryBankStore implements BankStore {
   messages: (BankMessage & { textHash: string })[] = [];
   rules = new Map<string, PayeeRule>();
   names: string[] = [];
+  /** The person's notebook, whose account notes say which accounts to ignore. */
+  notebook: MemoryNotebookStore | null = null;
   undo: { changes: LabelChange[]; at: Date } | null = null;
   announced = new Set<string>();
 
@@ -323,6 +348,17 @@ export class MemoryBankStore implements BankStore {
   }
   async deleteRule(_ownerId: string, payeeKey: string) {
     this.rules.delete(payeeKey);
+  }
+  async ignoredAccounts() {
+    return (this.notebook?.notes ?? []).flatMap((item) => (item.account ? [item.account] : []));
+  }
+  async latestBalances(ownerId: string) {
+    const newest = new Map<BankSource, BankBalance>();
+    for (const item of this.messages.filter((message) => message.ownerId === ownerId && message.balance !== null)) {
+      const current = newest.get(item.source);
+      if (!current || item.occurredAt > current.at) newest.set(item.source, { source: item.source, balance: item.balance!, at: item.occurredAt });
+    }
+    return [...newest.values()];
   }
   async saveUndo(_ownerId: string, changes: LabelChange[]) {
     this.undo = { changes, at: new Date() };

@@ -1,6 +1,6 @@
 import { applyLabel, titleCase, undoLabels, type IngestDeps, type Label } from "@/lib/bank/ingest";
 import { NATURAL_HINT, questionFor, reviewRow } from "@/lib/bank/notify";
-import { payeeKey, purposeOf } from "@/lib/bank/parse";
+import { accountOf, payeeKey, purposeOf } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
@@ -59,7 +59,8 @@ function listLine(message: BankMessage, index: number, profile: UserProfile, deb
   const purpose = purposeOf(message);
   const owing = debt ? (message.direction === "in" ? ` · this person owes the user ${debt}` : ` · the user owes this person ${debt}`) : "";
   const filed = filedAs ? ` · JUST FILED as ${filedAs}` : "";
-  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${purpose ? ` · marked "${purpose}"` : ""}${owing}${filed}`;
+  const account = accountOf(message.raw);
+  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${account ? ` · account ending ${account}` : ""}${purpose ? ` · marked "${purpose}"` : ""}${owing}${filed}`;
 }
 
 /** What a label filed a payment as, in a few words, e.g. "Transport · Okada" or "paying you back". */
@@ -152,6 +153,8 @@ function waitingLine(message: BankMessage, profile: UserProfile): string {
 
 /** "What are those?", "which ones?", "show me" while payments are waiting. */
 const LIST_QUERY = /^(?:what|which)\b.*\b(?:those|they|them|ones|payments?)\b|^(?:show|list)\b.*\b(?:them|those|payments?)\b|^(?:what's|whats) (?:left|pending|waiting)/i;
+/** "Ask", "ask your questions", "no I mean ask me": the person wants the next question now. */
+const ASK = /^(?:(?:no,?\s+)?i\s+mean\s+|ok(?:ay)?,?\s+|go\s+ahead,?\s+(?:and\s+)?|yes,?\s+|please\s+)?ask(?:\s+(?:me|away|now|them))?(?:\s+(?:your|the|those|my)\s+questions?)?(?:\s+(?:now|please))?\s*[.!]*$/i;
 const UNDO = /^\s*(?:undo|undo (?:that|it|those|this)|revert (?:that|it))\s*[.!]?\s*$/i;
 
 /** "The rest were…", "all of them", "both": the person means every waiting payment. */
@@ -205,27 +208,23 @@ function pointsAt(text: string, message: BankMessage, profile: UserProfile, now:
   return null;
 }
 
-/** The words in a message that refer to a name. */
-function namingWords(said: string[], name: string): string[] {
-  return said.filter((word) => namesIt([word], name));
-}
-
 /**
  * People the message names who were already sorted, so the person knows why
- * nothing changed for them. A name that also fits someone just filed is left
- * out: "Debra" for Benjamin Debrah needs no note about Deborah.
+ * nothing changed for them. Only whole names count, not nicknames: "debited"
+ * mustn't read as Deborah, nor "Oheneba" as Ellen Ohenewa. The person's own
+ * names are never mentioned.
  */
-async function alreadySorted(deps: IngestDeps, profile: UserProfile, text: string, waiting: BankMessage[], filed: BankMessage[]): Promise<string[]> {
-  const said = words(text);
-  const skipKeys = new Set([...waiting, ...filed].map((item) => payeeKey(item.counterparty)));
-  const filedWords = new Set(filed.flatMap((item) => namingWords(said, item.counterparty)));
+async function alreadySorted(deps: IngestDeps, profile: UserProfile, text: string, waiting: BankMessage[]): Promise<string[]> {
+  const said = new Set(words(text));
+  const own = new Set([profile.preferredName, ...(await deps.bank.accountNames(profile.profileId))].flatMap(words));
+  const waitingKeys = new Set(waiting.map((item) => payeeKey(item.counterparty)));
   const seen = new Set<string>();
   const notes: string[] = [];
   for (const message of await deps.bank.listMessages(profile.profileId)) {
     const key = payeeKey(message.counterparty);
-    if (message.status === "needs_label" || !key || seen.has(key) || skipKeys.has(key)) continue;
-    const naming = namingWords(said, message.counterparty);
-    if (naming.length === 0 || naming.every((word) => filedWords.has(word))) continue;
+    if (message.status === "needs_label" || !key || seen.has(key) || waitingKeys.has(key)) continue;
+    const tokens = words(message.counterparty);
+    if (tokens.some((token) => own.has(token)) || !tokens.some((token) => token.length >= 3 && !NOT_NAMES.has(token) && said.has(token))) continue;
     seen.add(key);
     const rule = await deps.bank.getRule(profile.profileId, key);
     const filedUnder = rule ? `: I file them under ${rule.category}${rule.description ? ` · ${rule.description}` : ""}` : "";
@@ -260,6 +259,13 @@ async function withNext(deps: IngestDeps, profile: UserProfile, text: string, in
 
 const nextIntro = (remaining: number) => (remaining > 1 ? `Next (${remaining - 1} more after this): ` : "Last one: ");
 
+/** The next waiting payment's question with its buttons, or null when nothing is waiting. */
+export async function askNextReply(deps: IngestDeps, profile: UserProfile): Promise<LabelReply | null> {
+  const count = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
+  if (count === 0) return null;
+  return withNext(deps, profile, count === 1 ? "One payment is waiting for a label." : `${count} payments are waiting for a label.`, () => "First: ");
+}
+
 /** "undo" and "what are those?" while payments are waiting: answered without the model. */
 export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text: string): Promise<LabelReply | null> {
   if (UNDO.test(text)) {
@@ -268,6 +274,10 @@ export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text
       const reopened = await undoLabels(deps, profile, changes);
       return withNext(deps, profile, `Undone. ${reopened === 1 ? "That payment is" : `Those ${reopened} payments are`} waiting for a label again.`, () => "");
     }
+  }
+  if (ASK.test(text.trim())) {
+    const asked = await askNextReply(deps, profile);
+    if (asked) return asked;
   }
   if (!LIST_QUERY.test(text.trim())) return null;
   const waiting = oldestFirst(await deps.bank.listMessages(profile.profileId, "needs_label"));
@@ -320,7 +330,8 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
       }
     }
   }
-  if (lines.length > 0 || dropped > 0) lines.push(...(await alreadySorted(deps, profile, text, waiting.all, filed)));
+  // When something the person said went unfiled, a name they used may be someone already sorted.
+  if (changes.length === 0 || dropped > 0) lines.push(...(await alreadySorted(deps, profile, text, waiting.all)));
   if (lines.length === 0) return null;
   if (changes.length > 0) await deps.bank.saveUndo(profile.profileId, changes);
 

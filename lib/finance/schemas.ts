@@ -113,6 +113,15 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     name: z.string().min(1).max(120),
   }),
   z.object({
+    type: z.literal("ignore_account"),
+    account: z.string().regex(/^\d{3,12}$/),
+    note: z.string().max(300).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("remember_about_me"),
+    note: z.string().min(1).max(300),
+  }),
+  z.object({
     type: z.literal("get_loans"),
     person: z.string().min(1).max(120).nullable().optional(),
   }),
@@ -179,6 +188,15 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     answers: z.array(labelAnswerSchema).min(1).max(20),
   }),
   z.object({
+    /** Show the next payment waiting for a label, e.g. when told "ask" or "go on". */
+    type: z.literal("ask_next"),
+  }),
+  z.object({
+    /** Settle the confirmation Alfred has open, from a reply like "yes go ahead" or "no leave it". */
+    type: z.literal("answer_confirmation"),
+    decision: z.enum(["confirm", "cancel"]),
+  }),
+  z.object({
     type: z.literal("clarify"),
     question: z.string().min(1).max(500),
   }),
@@ -191,6 +209,20 @@ export const financeActionSchema = z.discriminatedUnion("type", [
 ]);
 
 export type FinanceAction = z.infer<typeof financeActionSchema>;
+
+/** Two or three separate things asked in one message, done in order. */
+export const severalActionsSchema = z.object({
+  type: z.literal("several"),
+  actions: z.array(financeActionSchema).min(2).max(3),
+});
+
+/** What the model makes of one message: one action, or a few in order. */
+export type InterpretedAction = FinanceAction | z.infer<typeof severalActionsSchema>;
+
+/** The actions in a turn, in the order to do them. */
+export function actionsOf(action: InterpretedAction): FinanceAction[] {
+  return action.type === "several" ? action.actions : [action];
+}
 
 export const strictDraftSchema = z.object({
   transactionType: z.enum(["income", "expense"]),
@@ -361,7 +393,7 @@ export function normalizeModelValue(value: unknown, today?: string): unknown {
 export function parseModelOutput(
   input: unknown,
   options: { today?: string } = {},
-): { success: true; data: FinanceAction } | { success: false; issue: string } {
+): { success: true; data: InterpretedAction } | { success: false; issue: string } {
   let value = input;
   if (typeof input === "string") {
     try {
@@ -372,6 +404,16 @@ export function parseModelOutput(
   }
   const record = asRecord(value);
   if (record && record.action && !record.type) value = record.action;
+  const several = asRecord(value);
+  if (several && Array.isArray(several.actions) && (!several.type || several.type === "several")) {
+    const items = several.actions.map((item) => parseModelOutput(item, options));
+    const failed = items.find((item) => !item.success);
+    if (failed && !failed.success) return failed;
+    const actions = items.flatMap((item) => (item.success ? actionsOf(item.data) : [])).slice(0, 3);
+    if (actions.length === 1) return { success: true, data: actions[0] };
+    const parsedSeveral = severalActionsSchema.safeParse({ type: "several", actions });
+    return parsedSeveral.success ? { success: true, data: parsedSeveral.data } : { success: false, issue: "actions: expected two or three actions" };
+  }
   const parsed = financeActionSchema.safeParse(normalizeModelValue(value, options.today));
   if (!parsed.success) {
     const issue = parsed.error.issues

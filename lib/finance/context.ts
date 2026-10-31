@@ -5,7 +5,7 @@ import type { UserProfile } from "@/lib/config";
 import { LIMITS } from "@/lib/config";
 import { AiError } from "@/lib/errors";
 import { applyFollowUp, readConversation, type ConversationContext } from "@/lib/finance/conversation";
-import type { FinanceAction } from "@/lib/finance/schemas";
+import type { InterpretedAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { zonedYmd } from "@/lib/finance/dates";
 import { formatMinor, toMinor } from "@/lib/finance/money";
@@ -17,7 +17,7 @@ export async function interpretWithContext(input: {
   profile: UserProfile;
   store: FinanceStore;
   now: Date;
-  interpret: (request: InterpretRequest) => Promise<FinanceAction>;
+  interpret: (request: InterpretRequest) => Promise<InterpretedAction>;
   messages?: MessageLog | null;
   excludeClientId?: string | null;
   channel: Channel;
@@ -25,8 +25,12 @@ export async function interpretWithContext(input: {
   waiting?: { lines: string[]; current: number } | null;
   /** What the user has told Alfred about people. */
   people?: string[];
+  /** What Alfred has learnt about the user themself. */
+  about?: string[];
   model?: string;
-}): Promise<{ action: FinanceAction; context: ConversationContext | null; cue: ChatCue }> {
+  /** Works out what's open in the conversation from its recent messages. */
+  open?: (history: ChatMessageRecord[]) => string[];
+}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue }> {
   const ownerId = input.profile.profileId;
   const transactions = await input.store.listTransactions(ownerId);
   const recent = transactions
@@ -54,7 +58,7 @@ export async function interpretWithContext(input: {
     history: ownHistory.slice(-8).map((item) => ({ role: item.role, body: item.body.slice(0, 400) })),
     snapshot: snapshotLine(transactions, input.profile, input.now),
   };
-  let interpreted: FinanceAction;
+  let interpreted: InterpretedAction;
   try {
     interpreted = await input.interpret({
       text: input.text,
@@ -85,7 +89,9 @@ export async function interpretWithContext(input: {
         })),
       waiting: input.waiting,
       people: input.people,
+      about: input.about,
       model: input.model,
+      open: input.open?.(ownHistory),
     });
   } catch (error) {
     if (error instanceof AiError && error.code === "invalid") {
@@ -93,7 +99,7 @@ export async function interpretWithContext(input: {
     }
     throw error;
   }
-  const action = applyFollowUp(input.text, interpreted, context);
+  const action = interpreted.type === "several" ? interpreted : applyFollowUp(input.text, interpreted, context);
   return { action, context, cue };
 }
 
