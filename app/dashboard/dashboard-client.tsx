@@ -4,11 +4,15 @@ import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { Card, EmptyState, Stat, categoryColor } from "@/app/components/ui";
+import { BillsCard } from "@/app/dashboard/bills-card";
 import { CategoryDonut, DailyChart, MonthlyChart, SimpleBars } from "@/app/dashboard/charts";
 import { compactMoney, delta, percent } from "@/app/dashboard/helpers";
+import { CashFlowSankey } from "@/app/dashboard/sankey-chart";
 import { TransactionsTable } from "@/app/dashboard/transactions-table";
 import {
   RANGE_LABELS,
+  accountTotals,
+  buildSankeyModel,
   categoryTotals,
   dailySeries,
   inRows,
@@ -18,6 +22,7 @@ import {
   sumMinor,
   topDescriptions,
   weekdaySeries,
+  weeklyPace,
   type RangePreset,
 } from "@/lib/finance/analytics";
 import { formatDisplayDate, inclusiveDays } from "@/lib/finance/dates";
@@ -60,6 +65,9 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
   const prevDaily = Math.round(prevSpent / inclusiveDays(previous));
 
   const categories = useMemo(() => categoryTotals(expenses), [expenses]);
+  const accounts = useMemo(() => accountTotals(expenses), [expenses]);
+  const sankey = useMemo(() => buildSankeyModel(income, expenses), [income, expenses]);
+  const pace = useMemo(() => weeklyPace(rows, today, currency), [rows, today, currency]);
   const monthly = useMemo(() => monthlySeries(rows, lastTwelveMonths(today), currency), [rows, today, currency]);
   const dailyData = useMemo(() => dailySeries(rows, { start: range.start, end: elapsedEnd >= range.start ? elapsedEnd : range.end }, currency), [rows, range, elapsedEnd, currency]);
   const weekdays = useMemo(() => weekdaySeries(expenses), [expenses]);
@@ -154,7 +162,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         </p>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-4" aria-label="Summary">
+      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5" aria-label="Summary">
         <Stat label="Spent" value={formatMinor(spent, currency)} hint={delta(spent, prevSpent, false).text} tone={delta(spent, prevSpent, false).tone} />
         <Stat label="Income" value={formatMinor(earned, currency)} hint={delta(earned, prevEarned, true).text} tone={delta(earned, prevEarned, true).tone} />
         <Stat
@@ -164,6 +172,18 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
           tone={net >= 0 ? "good" : "bad"}
         />
         <Stat label="Daily average" value={formatMinor(daily, currency)} hint={delta(daily, prevDaily, false).text} tone={delta(daily, prevDaily, false).tone} />
+        <Stat
+          label="This week so far"
+          value={formatMinor(pace.thisWeekMinor, currency)}
+          hint={
+            pace.changePercent !== null
+              ? `${pace.changePercent > 0 ? "+" : ""}${pace.changePercent}% vs same days last week (${formatMinor(pace.lastWeekSameStretchMinor, currency)})`
+              : pace.lastWeekSameStretchMinor === 0
+                ? "Same days last week: none"
+                : `Same days last week: ${formatMinor(pace.lastWeekSameStretchMinor, currency)}`
+          }
+          tone={pace.changePercent !== null ? (pace.changePercent <= 0 ? "good" : "bad") : undefined}
+        />
       </section>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -265,8 +285,12 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         )}
       </Card>
 
+      <Card title={`Where it came from, where it went · ${rangeLabel}`}>
+        <CashFlowSankey model={sankey} currency={currency} />
+      </Card>
+
       <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Alfred's insights · this month" className="lg:col-span-2">
+        <Card title="Alfred's insights · this month">
           {ledger.insights.length === 0 ? (
             <EmptyState>Insights appear once a few expenses are logged.</EmptyState>
           ) : (
@@ -278,6 +302,30 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                 </li>
               ))}
             </ul>
+          )}
+        </Card>
+        <Card title={`Spending by account · ${rangeLabel}`}>
+          {accounts.length === 0 ? (
+            <EmptyState>No spending in this range.</EmptyState>
+          ) : (
+            <div>
+              <CategoryDonut
+                data={accounts.map((item) => ({ category: item.account, minor: item.minor }))}
+                currency={currency}
+                selected={null}
+                onSelect={() => undefined}
+              />
+              <ul className="mt-3 flex flex-col gap-1.5" aria-label="Spending by account">
+                {accounts.map((item, index) => (
+                  <li key={item.account} className="flex items-center gap-2.5 text-sm">
+                    <span className="size-2.5 shrink-0 rounded-full" style={{ background: categoryColor(index) }} aria-hidden="true" />
+                    <span className="min-w-0 flex-1 truncate">{item.account}</span>
+                    <span className="text-xs text-muted">{percent(item.minor, spent)}</span>
+                    <span className="w-24 text-right tabular-nums">{formatMinor(item.minor, currency)}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
           )}
         </Card>
         <Card title={`By weekday · ${rangeLabel}`}>
@@ -292,7 +340,14 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-3">
+      <div className="grid gap-4 lg:grid-cols-2">
+        <BillsCard
+          bills={ledger.bills ?? []}
+          upcoming={ledger.upcomingBills ?? []}
+          suggestions={ledger.renewalSuggestions ?? []}
+          currency={currency}
+          today={today}
+        />
         <Card title="Budgets · this month" action={<Link href="/settings" className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">Manage</Link>}>
           {budgets.length === 0 ? (
             <EmptyState>No budgets for this month. Ask Alfred, e.g. &ldquo;Set a food budget of 800&rdquo;.</EmptyState>
@@ -328,6 +383,9 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             </ul>
           )}
         </Card>
+      </div>
+
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Savings goals" action={<Link href="/settings" className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">Manage</Link>}>
           {goals.length === 0 ? (
             <EmptyState>No savings goals yet. Ask Alfred, e.g. &ldquo;Save 3000 for a laptop by March&rdquo;.</EmptyState>

@@ -3,9 +3,9 @@ import { createHash } from "node:crypto";
 import { canonicalizeAmount } from "@/lib/finance/money";
 
 /** Where a text came from: a known provider, or a short slug for a bank read by the model ("ecobank"). */
-export type BankSource = "momo" | "gcb" | "absa" | "other" | (string & {});
+export type BankSource = "momo" | "gcb" | "absa" | "hubtel" | "other" | (string & {});
 
-const SOURCE_NAMES: Record<string, string> = { momo: "MoMo", gcb: "GCB card", absa: "Absa", other: "Bank" };
+const SOURCE_NAMES: Record<string, string> = { momo: "MoMo", gcb: "GCB card", absa: "Absa", hubtel: "Hubtel", other: "Bank" };
 
 /** How a source is named to the person: "MoMo", "Absa", "Ecobank". */
 export function sourceName(source: BankSource): string {
@@ -42,7 +42,7 @@ const MONEY = "([\\d,]+(?:\\.\\d+)?)";
 
 /** Where one message ends and the next begins when several are pasted or read from one screenshot. */
 const MESSAGE_START =
-  /(?=Payment (?:made|received) for GHS|Dear [A-Z][A-Z .'-]+\.\s*Your Prepaid Card|Dear Customer|Hello, The requested link|Cash (?:In|Out) (?:made|received)|Your payment of GHS|You have (?:received|sent|bought|paid) GHS|Transaction of (?:[A-Z]{3}|GHS)\s*[\d,.]+|GHS\s*[\d,.]+ has been (?:debited|credited))/g;
+  /(?=Payment (?:made|received) for GHS|Dear [A-Z][A-Z .'-]+\.\s*Your Prepaid Card|Dear Customer|Hello, The requested link|Cash (?:In|Out) (?:made|received)|Your payment of GHS|You have (?:received|sent|bought|paid) GHS|Transaction of (?:[A-Z]{3}|GHS)\s*[\d,.]+|GHS\s*[\d,.]+ (?:has been (?:debited|credited)|was (?:deposited into|withdrawn from) your Hubtel wallet))/g;
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -296,19 +296,37 @@ function parseOne(body: string, hint: BankSource | null, generic: boolean): Pars
   const absa = parseAbsa(text);
   if (absa !== undefined) return absa;
 
+  // Hubtel wallet deposits and withdrawals.
+  const hubtelIn = text.match(new RegExp(`GHS\\s*${MONEY}\\s+was deposited into your Hubtel wallet`, "i"));
+  if (hubtelIn) {
+    const amount = amountOf(hubtelIn[1]);
+    if (!amount) return null;
+    const balance = amountOf(text.match(new RegExp(`(?:available|current|new)?\\s*balance(?: is)?:?\\s*(?:GHS\\s*)?${MONEY}`, "i"))?.[1], true);
+    return { source: "hubtel", externalId, direction: "in", amount, fee: feeOf(text), counterparty: "Hubtel wallet", reference, balance, raw: text };
+  }
+  const hubtelOut = text.match(new RegExp(`GHS\\s*${MONEY}\\s+was withdrawn from your Hubtel wallet`, "i"));
+  if (hubtelOut) {
+    const amount = amountOf(hubtelOut[1]);
+    if (!amount) return null;
+    const balance = amountOf(text.match(new RegExp(`(?:available|current|new)?\\s*balance(?: is)?:?\\s*(?:GHS\\s*)?${MONEY}`, "i"))?.[1], true);
+    return { source: "hubtel", externalId, direction: "out", amount, fee: feeOf(text), counterparty: "Hubtel wallet", reference, balance, raw: text };
+  }
+
   // Other mobile money wordings: an amount plus a clear direction word.
+  // Look only before the balance clause so a foreign-currency card charge with "Available balance: GHS …" isn't read as a GHS payment.
   if (!generic) return null;
-  const loose = text.match(new RegExp(`GHS\\s*${MONEY}`, "i"));
+  const movement = text.split(/available balance|current balance|new balance|(?:telecel|vodafone) cash balance|purchase limit|\bbalance(?: is)?:/i)[0] ?? text;
+  const loose = movement.match(new RegExp(`GHS\\s*${MONEY}`, "i"));
   if (!loose) return null;
   const amount = amountOf(loose[1]);
   if (!amount) return null;
-  const out = /\b(sent|paid|payment made|payment of|debited|cash out|purchase|bought|withdraw|transferred)/i.test(text);
-  const inbound = /\b(received|credited|cash in|deposit)/i.test(text);
+  const out = /\b(sent|paid|payment made|payment of|debited|cash out|purchase|bought|withdraw|transferred)/i.test(movement);
+  const inbound = /\b(received|credited|cash in|deposit)/i.test(movement);
   if (out === inbound) return null;
-  const party = text.match(out ? /\bto\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/ : /\bfrom\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/);
+  const party = movement.match(out ? /\bto\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/ : /\bfrom\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/);
   const fee = feeOf(text);
   return {
-    source: hint ?? (/gcb/i.test(text) ? "gcb" : "momo"),
+    source: hint ?? (/gcb/i.test(text) ? "gcb" : /hubtel/i.test(text) ? "hubtel" : "momo"),
     externalId,
     direction: out ? "out" : "in",
     amount,
@@ -338,9 +356,11 @@ export function parseBankText(
   const hint: BankSource | null = options.sender
     ? /gcb/i.test(options.sender)
       ? "gcb"
-      : /momo|mobile ?money|mtn/i.test(options.sender)
-        ? "momo"
-        : null
+      : /hubtel/i.test(options.sender)
+        ? "hubtel"
+        : /momo|mobile ?money|mtn/i.test(options.sender)
+          ? "momo"
+          : null
     : null;
   // The loose fallback is for MoMo and GCB wordings; other senders' texts are left to the model reader.
   const generic = options.loose ?? (!options.sender?.trim() || hint !== null);

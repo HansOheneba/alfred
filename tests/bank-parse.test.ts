@@ -187,7 +187,33 @@ describe("bank message parser", () => {
     expect(cardMerchant("NETFLIX.COM_A1B2C3D4E5_LOS GATOS_US")).toBe("NETFLIX.COM");
     expect(sourceName("absa")).toBe("Absa");
     expect(sourceName("momo")).toBe("MoMo");
+    expect(sourceName("hubtel")).toBe("Hubtel");
     expect(sourceName("ecobank")).toBe("Ecobank");
     expect(sourceName("stanbic_bank")).toBe("Stanbic Bank");
+  });
+
+  it("reads Hubtel wallet deposits and withdrawals", () => {
+    const deposit = "GHS 150.00 was deposited into your Hubtel wallet. Available balance: GHS 420.50. Transaction ID: 88123456.";
+    const withdrawal = "GHS 45.00 was withdrawn from your Hubtel wallet. Available balance: GHS 375.50. Fee charged: GHS 0.50. Transaction ID: 88123457.";
+    expect(parseBankText(deposit, options)[0]).toMatchObject({
+      source: "hubtel",
+      direction: "in",
+      amount: "150.00",
+      balance: "420.50",
+      externalId: "88123456",
+    });
+    expect(parseBankText(withdrawal, options)[0]).toMatchObject({
+      source: "hubtel",
+      direction: "out",
+      amount: "45.00",
+      fee: "0.50",
+      balance: "375.50",
+      externalId: "88123457",
+    });
+  });
+
+  it("does not misread a GHS available balance on a foreign-currency card alert as the movement amount", () => {
+    const foreignCard = "Your card was debited with USD 12.00 atGITHUB.COM. Available Balance: GHS 1,840.20.";
+    expect(parseBankText(foreignCard, options)).toHaveLength(0);
   });
 });

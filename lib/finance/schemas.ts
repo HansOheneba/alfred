@@ -68,7 +68,7 @@ const changesSchema = z
 /** What some of the payments waiting for a label were, by their number in the list Alfred was shown. */
 export const labelAnswerSchema = z.object({
   items: z.array(z.number().int().min(1).max(60)).min(1).max(60),
-  action: z.enum(["category", "chip_in", "own_transfer", "lent", "repaid", "borrowed", "paid_back", "investment", "skip"]),
+  action: z.enum(["category", "chip_in", "refund", "pass_through", "own_transfer", "lent", "repaid", "borrowed", "paid_back", "investment", "skip"]),
   category: z.string().max(40).nullable().optional(),
   description: z.string().max(200).nullable().optional(),
   person: z.string().max(120).nullable().optional(),
@@ -76,6 +76,8 @@ export const labelAnswerSchema = z.object({
   investment: z.string().max(80).nullable().optional(),
   /** The month (YYYY-MM) a payment counts in when it's for another month, like next month's rent. */
   for_month: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
+  /** Fee already included inside the recorded amount, to split out into a separate Fees entry. */
+  included_fee: amountSchema.nullable().optional(),
 });
 
 export type LabelAnswer = z.infer<typeof labelAnswerSchema>;

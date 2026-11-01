@@ -1,5 +1,6 @@
 import type { UserProfile, StudioSettings } from "@/lib/config";
 import { toLedgerRows, type LedgerRow } from "@/lib/finance/analytics";
+import { createSupabaseBillStore, detectRenewalCandidates, upcomingBills, type BillRecord, type RenewalSuggestion, type UpcomingBill } from "@/lib/finance/bills";
 import { budgetMath } from "@/lib/finance/budgets";
 import { zonedYmd } from "@/lib/finance/dates";
 import { buildInsights } from "@/lib/finance/insights";
@@ -68,17 +69,24 @@ export type Ledger = {
   owed: LoanBalance[];
   /** People the person borrowed from and still owes, largest first. */
   owe: LoanBalance[];
+  /** Confirmed recurring bills and subscriptions. */
+  bills?: BillRecord[];
+  /** Bills due in the next 30 days. */
+  upcomingBills?: UpcomingBill[];
+  /** Recurring charges spotted in the ledger that aren't saved as bills yet. */
+  renewalSuggestions?: RenewalSuggestion[];
 };
 
 export async function loadLedger(profile: UserProfile, settings: StudioSettings): Promise<Ledger> {
   const store = createSupabaseFinanceStore(settings.supabase);
   const userId = profile.profileId;
-  const [transactions, budgets, goals, bank, loans] = await Promise.all([
+  const [transactions, budgets, goals, bank, loans, bills] = await Promise.all([
     store.listTransactions(userId),
     store.listBudgets(userId),
     store.listSavingsGoals(userId),
     loadBank(settings, profile),
     createSupabaseLoanStore(settings.supabase).list(userId),
+    createSupabaseBillStore(settings.supabase).list(userId),
   ]);
   const today = zonedYmd(new Date(), profile.timezone);
   const monthStart = `${today.slice(0, 7)}-01`;
@@ -122,6 +130,9 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
     owe: loanBalances(loans)
       .filter((item) => Number(item.owe) > 0)
       .sort((left, right) => Number(right.owe) - Number(left.owe)),
+    bills,
+    upcomingBills: upcomingBills(bills, today),
+    renewalSuggestions: detectRenewalCandidates(transactions, bills, today, profile.currency),
   };
 }
 

@@ -253,6 +253,7 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
   const [description, setDescription] = useState(row.description);
   const [category, setCategory] = useState(row.category);
   const [date, setDate] = useState(row.date);
+  const [includedFee, setIncludedFee] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const options: readonly string[] = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
@@ -264,6 +265,7 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
     if (category !== row.category || type !== row.type) changes.category = category;
     if (date !== row.date) changes.date = date;
     if (type !== row.type) changes.transactionType = type;
+    if (includedFee.trim()) changes.includedFee = includedFee.trim();
     if (Object.keys(changes).length === 0) {
       onClose();
       return;
@@ -323,6 +325,20 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
         <Field label="Date">
           <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
         </Field>
+        {type === "expense" && category !== "Fees" && row.minor > 0 ? (
+          <Field
+            label={`Split out included fee (${row.currency}, optional)`}
+            hint="Splits this fee out into a separate Fees entry and lowers this payment by the same amount, keeping your total spend unchanged."
+          >
+            <input
+              className={inputClass}
+              inputMode="decimal"
+              placeholder="e.g. 3.00"
+              value={includedFee}
+              onChange={(event) => setIncludedFee(event.target.value)}
+            />
+          </Field>
+        ) : null}
         {error ? (
           <p className="text-sm text-danger" role="alert">
             {error}

@@ -1,5 +1,7 @@
 import type { SupabaseSettings } from "@/lib/config";
-import { zonedYmd } from "@/lib/finance/dates";
+import { nextOccurrence, type BillCadence } from "@/lib/finance/bills";
+import { addDays, formatDisplayDate, zonedYmd } from "@/lib/finance/dates";
+import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
 import { dueReminders, reminderText, type ReminderCandidate, type ReminderKind } from "@/lib/reminders/due";
 import { query } from "@/lib/supabase/connection";
@@ -86,5 +88,76 @@ export async function deliverDueReminders(input: {
       await query(input.settings, "delete from public.reminder_deliveries where id = $1", [claimed[0].id]);
     }
   }
-  return { sent: sentCount };
+  const billReminders = await deliverBillRenewalReminders(input).catch((error) => {
+    logError("bill_reminder_send", error);
+    return 0;
+  });
+  return { sent: sentCount + billReminders };
+}
+
+type BillDueRow = {
+  id: string;
+  owner_id: string;
+  name: string;
+  next_date: string | Date;
+  amount: string | null;
+  currency: string;
+  cadence: BillCadence;
+  active: boolean;
+  reminded_for: string | Date | null;
+  preferred_name: string;
+  timezone: string;
+  chat_id: string;
+};
+
+async function deliverBillRenewalReminders(input: {
+  settings: SupabaseSettings;
+  now: Date;
+  send: (chatId: number, text: string) => Promise<void>;
+}): Promise<number> {
+  const rows = await query<BillDueRow>(
+    input.settings,
+    `select b.id::text, b.owner_id::text, b.name, b.next_date::text, b.amount::text, b.currency, b.cadence, b.active, b.reminded_for::text,
+            p.preferred_name, p.timezone, t.chat_id::text
+     from public.bills b
+     join public.profiles p on p.id = b.owner_id
+     join public.telegram_accounts t on t.owner_id = p.id
+     where b.active = true and t.locked_at is not null and t.chat_id is not null`,
+  ).catch(() => [] as BillDueRow[]);
+
+  let sent = 0;
+  for (const row of rows) {
+    const today = zonedYmd(input.now, row.timezone);
+    const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: row.timezone }).format(input.now));
+    if (hour < 9 || hour >= 20) continue;
+    const tomorrow = addDays(today, 1);
+    const nextDate = typeof row.next_date === "string" ? row.next_date.slice(0, 10) : row.next_date.toISOString().slice(0, 10);
+    const renewal = nextOccurrence({ active: row.active, nextDate, cadence: row.cadence }, today);
+    if (renewal !== tomorrow) continue;
+    const reminded = row.reminded_for
+      ? typeof row.reminded_for === "string"
+        ? row.reminded_for.slice(0, 10)
+        : row.reminded_for.toISOString().slice(0, 10)
+      : null;
+    if (reminded === renewal) continue;
+
+    const claimed = await query<{ id: string }>(
+      input.settings,
+      `update public.bills set reminded_for = $2::date, updated_at = now()
+       where id = $1::uuid and (reminded_for is distinct from $2::date)
+       returning id::text`,
+      [row.id, renewal],
+    );
+    if (!claimed[0]) continue;
+    const hello = row.preferred_name.trim() ? `${row.preferred_name.trim()}, ` : "";
+    const money = row.amount ? ` (${formatAmount(Number(row.amount).toFixed(2), row.currency)})` : "";
+    try {
+      await input.send(Number(row.chat_id), `${hello}heads up: ${row.name}${money} is due tomorrow (${formatDisplayDate(renewal)}).`);
+      sent += 1;
+    } catch (error) {
+      logError("bill_reminder_telegram", error);
+      await query(input.settings, "update public.bills set reminded_for = null where id = $1::uuid", [row.id]);
+    }
+  }
+  return sent;
 }

@@ -104,6 +104,62 @@ export function useAppearance(): [Appearance, (next: Appearance) => void] {
   return [current, set];
 }
 
+function subscribePrivacy(onChange: () => void) {
+  const observer = new MutationObserver(onChange);
+  observer.observe(document.documentElement, { attributes: true, attributeFilter: ["data-privacy"] });
+  return () => observer.disconnect();
+}
+
+/** Whether monetary amounts are masked across the UI so you can open Alfred in public. */
+export function usePrivacyMask(): [boolean, (next: boolean) => void] {
+  const masked = useSyncExternalStore(
+    subscribePrivacy,
+    () => document.documentElement.dataset.privacy === "masked",
+    () => false,
+  );
+  const set = (next: boolean) => {
+    if (next) document.documentElement.dataset.privacy = "masked";
+    else delete document.documentElement.dataset.privacy;
+    try {
+      if (next) localStorage.setItem("alfred-privacy", "masked");
+      else localStorage.removeItem("alfred-privacy");
+    } catch {
+      // Private browsing can block storage; the choice still applies for this visit.
+    }
+  };
+  return [masked, set];
+}
+
+function PrivacyToggle() {
+  const [masked, setMasked] = usePrivacyMask();
+  return (
+    <button
+      type="button"
+      onClick={() => setMasked(!masked)}
+      aria-pressed={masked}
+      aria-label={masked ? "Reveal amounts" : "Hide amounts"}
+      title={masked ? "Reveal amounts" : "Hide amounts"}
+      className="inline-flex h-8 items-center gap-1.5 rounded-full border border-line bg-surface px-2.5 text-xs text-muted transition hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
+    >
+      <Icon className="size-3.5">
+        {masked ? (
+          <>
+            <path d="M3 3l18 18" />
+            <path d="M10.6 10.6a2 2 0 0 0 2.8 2.8" />
+            <path d="M9.9 5.1A10.7 10.7 0 0 1 12 5c5 0 9.3 3.1 11 7-1 2.2-2.7 4.1-4.8 5.3M6.2 6.2C4.3 7.4 2.8 9.5 1 12c1.7 3.9 6 7 11 7 1.6 0 3.1-.3 4.5-.9" />
+          </>
+        ) : (
+          <>
+            <path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z" />
+            <circle cx="12" cy="12" r="3" />
+          </>
+        )}
+      </Icon>
+      <span className="hidden sm:inline">{masked ? "Amounts hidden" : "Hide amounts"}</span>
+    </button>
+  );
+}
+
 function Initial({ name, className = "size-8" }: { name: string; className?: string }) {
   const letter = name.trim().charAt(0).toUpperCase();
   return (
@@ -223,6 +279,7 @@ export function AppShell({
           </span>
           <h1 className="text-sm font-medium text-muted md:text-[15px] md:font-semibold md:text-ink">{title}</h1>
           <div className="ml-auto flex items-center gap-2">
+            <PrivacyToggle />
             {headerAction}
             <Link href="/settings#profile" aria-label="Your profile" className="rounded-full focus-visible:outline-2 focus-visible:outline-accent md:hidden">
               <Initial name={name} />

@@ -14,7 +14,7 @@ import type { ReviewItem } from "@/lib/web/review";
 const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"];
 const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"];
 
-type Action = "category" | "chip_in" | "transfer" | "skip" | "lent" | "repaid" | "borrowed" | "paid_back";
+type Action = "category" | "chip_in" | "refund" | "pass_through" | "transfer" | "skip" | "lent" | "repaid" | "borrowed" | "paid_back";
 type Group = { key: string; who: string; items: ReviewItem[] };
 
 const cents = (value: string) => Math.round(Number(value) * 100);
@@ -36,9 +36,11 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [note, setNote] = useState("");
   const [person, setPerson] = useState("");
+  const [includedFee, setIncludedFee] = useState("");
   const [remember, setRemember] = useState(true);
-  // Money in that's someone's share of a bill is filed against the bill's category.
+  // Money in that's someone's share of a bill or a refund is filed against the original spending category.
   const [share, setShare] = useState(false);
+  const [refunding, setRefunding] = useState(false);
   const [busy, setBusy] = useState<string | null>(null);
   const [result, setResult] = useState<{ ok: boolean; text: string; undo: boolean } | null>(null);
 
@@ -74,8 +76,10 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
       setResult({ ok: true, text: response.text, undo: response.sorted > 0 });
       setSelected(new Set());
       setShare(false);
+      setRefunding(false);
       setNote("");
       setPerson("");
+      setIncludedFee("");
       router.refresh();
     } catch (error) {
       setResult({ ok: false, text: error instanceof Error ? error.message : "That didn't work. Try again.", undo: false });
@@ -92,6 +96,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
       ...(category ? { category } : {}),
       ...(note.trim() ? { description: note.trim() } : {}),
       ...(person.trim() ? { person: person.trim() } : {}),
+      ...(includedFee.trim() ? { includedFee: includedFee.trim() } : {}),
     });
   }
 
@@ -216,23 +221,48 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
             </div>
             {direction ? (
               <>
-                {share ? (
-                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label="Which bill was it a share of?">
-                    <span className="mr-1 text-xs text-muted">Their share of which bill?</span>
+                {share || refunding ? (
+                  <div className="flex flex-wrap items-center gap-1.5" role="group" aria-label={refunding ? "Which category was the refund for?" : "Which bill was it a share of?"}>
+                    <span className="mr-1 text-xs text-muted">{refunding ? "Refund for which category?" : "Their share of which bill?"}</span>
                     {OUT_CHOICES.map((category) => (
-                      <button key={category} type="button" className={chip} disabled={busy !== null} onClick={() => label(`share:${category}`, "chip_in", category)}>
-                        {busy === `share:${category}` ? <Spinner className="size-3" /> : null}
+                      <button
+                        key={category}
+                        type="button"
+                        className={chip}
+                        disabled={busy !== null}
+                        onClick={() => label(`${refunding ? "refund" : "share"}:${category}`, refunding ? "refund" : "chip_in", category)}
+                      >
+                        {busy === `${refunding ? "refund" : "share"}:${category}` ? <Spinner className="size-3" /> : null}
                         {category}
                       </button>
                     ))}
-                    <button type="button" className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline" onClick={() => setShare(false)}>
+                    <button
+                      type="button"
+                      className="text-xs text-muted underline-offset-4 hover:text-ink hover:underline"
+                      onClick={() => {
+                        setShare(false);
+                        setRefunding(false);
+                      }}
+                    >
                       Back
                     </button>
                   </div>
                 ) : (
                   <div className="flex flex-wrap gap-1.5" role="group" aria-label="What were they?">
                     {(direction === "out" ? OUT_CHOICES : IN_CHOICES).map((category) => (
-                      <button key={category} type="button" className={chip} disabled={busy !== null} onClick={() => label(category, "category", category)}>
+                      <button
+                        key={category}
+                        type="button"
+                        className={chip}
+                        disabled={busy !== null}
+                        onClick={() => {
+                          if (direction === "in" && category === "Refund") {
+                            setRefunding(true);
+                            return;
+                          }
+                          label(category, "category", category);
+                        }}
+                      >
                         {busy === category ? <Spinner className="size-3" /> : null}
                         {category}
                       </button>
@@ -262,6 +292,9 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                         {busy === "paid_back" ? <Spinner className="size-3" /> : null}Paying them back
                       </button>
                     ) : null}
+                    <button type="button" className={chip} disabled={busy !== null} onClick={() => label("pass_through", "pass_through")}>
+                      {busy === "pass_through" ? <Spinner className="size-3" /> : null}For someone else
+                    </button>
                     <button type="button" className={chip} disabled={busy !== null} onClick={() => label("transfer", "transfer")}>
                       {busy === "transfer" ? <Spinner className="size-3" /> : null}My own money
                     </button>
@@ -273,8 +306,26 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                 <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                   <label className="flex-1">
                     <span className="sr-only">Note</span>
-                    <input className={`${inputClass} h-9`} value={note} maxLength={200} placeholder={share ? "Which bill, e.g. Fibre (optional)" : "Note, e.g. Office snacks (optional)"} onChange={(event) => setNote(event.target.value)} />
+                    <input
+                      className={`${inputClass} h-9`}
+                      value={note}
+                      maxLength={200}
+                      placeholder={share ? "Which bill, e.g. Fibre (optional)" : refunding ? "What was refunded (optional)" : "Note, e.g. Office snacks (optional)"}
+                      onChange={(event) => setNote(event.target.value)}
+                    />
                   </label>
+                  {direction === "out" && chosen.length === 1 ? (
+                    <label className="sm:w-44">
+                      <span className="sr-only">Included fee</span>
+                      <input
+                        className={`${inputClass} h-9`}
+                        inputMode="decimal"
+                        value={includedFee}
+                        placeholder="Included fee (optional)"
+                        onChange={(event) => setIncludedFee(event.target.value)}
+                      />
+                    </label>
+                  ) : null}
                   {needsPerson || share ? (
                     <label className="sm:w-48">
                       <span className="sr-only">{share ? "Whose share it is" : "Who received it"}</span>

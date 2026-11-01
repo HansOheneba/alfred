@@ -70,6 +70,8 @@ function listLine(message: BankMessage, index: number, profile: UserProfile, deb
 export function filedAs(label: Label): string {
   if (label.kind === "category") return label.description ? `${label.category} · ${label.description}` : label.category;
   if (label.kind === "chip_in") return `${label.person ? `${label.person}'s` : "their"} share of ${label.category}`;
+  if (label.kind === "refund") return `a refund under ${label.category}`;
+  if (label.kind === "pass_through") return `money handled for ${label.person ?? "someone else"}`;
   if (label.kind === "transfer") return "the user's own money";
   if (label.kind === "skip") return "left out";
   if (label.kind === "lent") return "money the user lent";
@@ -133,14 +135,25 @@ export function resolvedFrom(answers: LabelAnswer[], listed: BankMessage[]): Res
       if (messageIds.length === 0) return null;
       if (answer.action === "skip") return { messageIds, label: { kind: "skip" } };
       if (answer.action === "own_transfer") return { messageIds, label: { kind: "transfer" } };
+      if (answer.action === "pass_through") return { messageIds, label: { kind: "pass_through", person: answer.person ?? null, note: answer.description ?? null } };
       if (answer.action === "lent") return { messageIds, label: { kind: "lent", person: answer.person ?? null, note: answer.description ?? null } };
       if (answer.action === "repaid") return { messageIds, label: { kind: "repaid", person: answer.person ?? null } };
       if (answer.action === "borrowed") return { messageIds, label: { kind: "borrowed", person: answer.person ?? null, note: answer.description ?? null } };
       if (answer.action === "paid_back") return { messageIds, label: { kind: "paid_back", person: answer.person ?? null } };
       if (answer.action === "investment") return { messageIds, label: { kind: "invest", investment: answer.investment ?? answer.description ?? null } };
       if (!answer.category) return null;
+      if (answer.action === "refund") return { messageIds, label: { kind: "refund", category: answer.category, description: answer.description ?? null } };
       if (answer.action === "chip_in") return { messageIds, label: { kind: "chip_in", category: answer.category, description: answer.description ?? null, person: answer.person ?? null } };
-      return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null, forMonth: answer.for_month ?? null } };
+      return {
+        messageIds,
+        label: {
+          kind: "category",
+          category: answer.category,
+          description: answer.description ?? null,
+          forMonth: answer.for_month ?? null,
+          ...(answer.included_fee ? { includedFee: answer.included_fee } : {}),
+        },
+      };
     })
     .filter((item): item is ResolvedLabel => item !== null);
 }

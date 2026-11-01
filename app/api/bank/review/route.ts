@@ -13,11 +13,12 @@ const UNDO_WINDOW_MS = 30 * 60_000;
 
 const reviewBody = z.discriminatedUnion("action", [
   z.object({
-    action: z.enum(["category", "chip_in", "transfer", "skip", "lent", "repaid", "borrowed", "paid_back"]),
+    action: z.enum(["category", "chip_in", "refund", "pass_through", "transfer", "skip", "lent", "repaid", "borrowed", "paid_back"]),
     messageIds: z.array(z.string().uuid()).min(1).max(50),
     category: z.string().trim().min(1).max(40).optional(),
     description: z.string().trim().max(200).optional(),
     person: z.string().trim().max(120).optional(),
+    includedFee: z.string().trim().max(20).optional(),
     remember: z.boolean().default(true),
   }),
   z.object({ action: z.literal("undo") }),
@@ -50,19 +51,23 @@ export async function POST(request: Request): Promise<Response> {
       return Response.json({ ok: true, text: `Undone. ${reopened === 1 ? "That payment is" : `Those ${reopened} payments are`} waiting again.`, sorted: 0 });
     }
 
-    if ((body.action === "category" || body.action === "chip_in") && !body.category) return fail("Pick a category.", 400);
+    if ((body.action === "category" || body.action === "chip_in" || body.action === "refund") && !body.category) return fail("Pick a category.", 400);
     const label: Label =
       body.action === "category"
-        ? { kind: "category", category: body.category ?? "", description: body.description || null }
+        ? { kind: "category", category: body.category ?? "", description: body.description || null, includedFee: body.includedFee || null }
         : body.action === "chip_in"
           ? { kind: "chip_in", category: body.category ?? "", description: body.description || null, person: body.person || null }
-          : body.action === "lent"
-            ? { kind: "lent", person: body.person || null, note: body.description || null }
-            : body.action === "borrowed"
-              ? { kind: "borrowed", person: body.person || null, note: body.description || null }
-              : body.action === "repaid" || body.action === "paid_back"
-                ? { kind: body.action, person: body.person || null }
-                : { kind: body.action };
+          : body.action === "refund"
+            ? { kind: "refund", category: body.category ?? "", description: body.description || null }
+            : body.action === "pass_through"
+              ? { kind: "pass_through", person: body.person || null, note: body.description || null }
+              : body.action === "lent"
+                ? { kind: "lent", person: body.person || null, note: body.description || null }
+                : body.action === "borrowed"
+                  ? { kind: "borrowed", person: body.person || null, note: body.description || null }
+                  : body.action === "repaid" || body.action === "paid_back"
+                    ? { kind: body.action, person: body.person || null }
+                    : { kind: body.action };
 
     const changes: LabelChange[] = [];
     const problems: string[] = [];

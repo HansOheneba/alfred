@@ -12,6 +12,7 @@ export type LedgerRow = {
   currency: string;
   category: string;
   description: string;
+  paymentMethod: string;
 };
 
 export function toLedgerRows(transactions: TransactionRecord[]): LedgerRow[] {
@@ -26,6 +27,7 @@ export function toLedgerRows(transactions: TransactionRecord[]): LedgerRow[] {
       currency: item.currency,
       category: item.category,
       description: item.description,
+      paymentMethod: item.paymentMethod?.trim() || "Manual / cash",
     }))
     .sort((left, right) => right.date.localeCompare(left.date) || left.id.localeCompare(right.id));
 }
@@ -152,4 +154,99 @@ export function topDescriptions(rows: LedgerRow[], limit = 6) {
     groups.set(key, group);
   }
   return [...groups.values()].sort((left, right) => right.minor - left.minor).slice(0, limit);
+}
+
+/** Which account or payment method the period's spending came out of. */
+export function accountTotals(rows: LedgerRow[]): { account: string; minor: number; count: number }[] {
+  const totals = new Map<string, { minor: number; count: number }>();
+  for (const row of rows) {
+    if (row.type !== "expense" || row.minor <= 0) continue;
+    const key = row.paymentMethod?.trim() || "Manual / cash";
+    const entry = totals.get(key) ?? { minor: 0, count: 0 };
+    entry.minor += row.minor;
+    entry.count += 1;
+    totals.set(key, entry);
+  }
+  return [...totals.entries()]
+    .map(([account, entry]) => ({ account, ...entry }))
+    .filter((entry) => entry.minor > 0)
+    .sort((left, right) => right.minor - left.minor || left.account.localeCompare(right.account));
+}
+
+export type WeeklyPace = {
+  weekStart: string;
+  today: string;
+  thisWeekMinor: number;
+  lastWeekSameStretchMinor: number;
+  changePercent: number | null;
+};
+
+/**
+ * Compares spending this week (Monday through `today`) against the exact same
+ * elapsed weekday stretch of last week.
+ */
+export function weeklyPace(rows: LedgerRow[], today: string, currency: string): WeeklyPace {
+  const [year, month, day] = today.split("-").map(Number);
+  const weekdayIndex = (new Date(Date.UTC(year, month - 1, day)).getUTCDay() + 6) % 7;
+  const weekStart = addDays(today, -weekdayIndex);
+  const lastWeekStart = addDays(weekStart, -7);
+  const lastWeekEnd = addDays(today, -7);
+
+  const thisWeekMinor = sumMinor(inRows(rows, { start: weekStart, end: today }, currency, "expense"));
+  const lastWeekSameStretchMinor = sumMinor(inRows(rows, { start: lastWeekStart, end: lastWeekEnd }, currency, "expense"));
+  const changePercent =
+    lastWeekSameStretchMinor > 0 ? Math.round(((thisWeekMinor - lastWeekSameStretchMinor) / lastWeekSameStretchMinor) * 100) : null;
+
+  return {
+    weekStart,
+    today,
+    thisWeekMinor,
+    lastWeekSameStretchMinor,
+    changePercent,
+  };
+}
+
+export type SankeyFlowEntry = { label: string; minor: number };
+
+export type SankeyFlowModel = {
+  sources: SankeyFlowEntry[];
+  expenses: SankeyFlowEntry[];
+  incomingMinor: number;
+  outgoingMinor: number;
+  netMinor: number;
+  remainderMinor: number;
+  comparisonGapMinor: number;
+  massMinor: number;
+};
+
+/**
+ * Builds the model for the "Where it came from / Where it went" Sankey flow
+ * diagram: income sources on the left, spending categories on the right, and
+ * either net recorded inflow or outflow beyond recorded income to balance the two sides.
+ */
+export function buildSankeyModel(incomeRows: LedgerRow[], expenseRows: LedgerRow[]): SankeyFlowModel {
+  const sources = categoryTotals(incomeRows)
+    .filter((item) => item.minor > 0)
+    .map((item) => ({ label: item.category, minor: item.minor }));
+  const expenses = categoryTotals(expenseRows)
+    .filter((item) => item.minor > 0)
+    .map((item) => ({ label: item.category, minor: item.minor }));
+
+  const incomingMinor = sources.reduce((sum, item) => sum + item.minor, 0);
+  const outgoingMinor = expenses.reduce((sum, item) => sum + item.minor, 0);
+  const netMinor = incomingMinor - outgoingMinor;
+  const remainderMinor = Math.max(0, netMinor);
+  const comparisonGapMinor = Math.max(0, -netMinor);
+  const massMinor = Math.max(incomingMinor, outgoingMinor);
+
+  return {
+    sources,
+    expenses,
+    incomingMinor,
+    outgoingMinor,
+    netMinor,
+    remainderMinor,
+    comparisonGapMinor,
+    massMinor,
+  };
 }

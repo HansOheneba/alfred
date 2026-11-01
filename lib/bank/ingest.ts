@@ -11,7 +11,7 @@ import { addDays, formatDisplayDate, zonedYmd } from "@/lib/finance/dates";
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { findPerson, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
-import { formatAmount } from "@/lib/finance/money";
+import { canonicalizeAmount, formatAmount, toMinor } from "@/lib/finance/money";
 import type { FinanceStore } from "@/lib/finance/store";
 
 export type IngestDeps = {
@@ -158,8 +158,8 @@ export async function ingestBankText(
   options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
 ): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number }> {
   const now = options.receivedAt ?? deps.now;
-  // Texts from MoMo and GCB that the rules skipped are notices, not payments.
-  const knownSender = /gcb|momo|mobile ?money|\bmtn\b/i.test(options.sender ?? "");
+  // Texts from MoMo, GCB and Hubtel that the rules skipped are notices, not payments.
+  const knownSender = /gcb|hubtel|momo|mobile ?money|\bmtn\b/i.test(options.sender ?? "");
   // Forwarded texts can be from anyone, so outside MoMo and GCB the model decides what's a payment, not
   // the loose "GHS plus a money word" rule, which would take "I've sent you GHS 50" from a friend.
   const modelReads = Boolean(deps.readUnknown) && !knownSender && options.channel !== "screenshot";
@@ -368,9 +368,13 @@ async function linkRelated(deps: IngestDeps, profile: UserProfile, stored: BankM
 
 export type Label =
   /** `forMonth` (YYYY-MM) counts it in the month it's for, like November's rent paid in October. */
-  | { kind: "category"; category: string; description?: string | null; forMonth?: string | null }
+  | { kind: "category"; category: string; description?: string | null; forMonth?: string | null; includedFee?: string | null }
   | { kind: "transfer" }
   | { kind: "skip" }
+  /** Money the person handled for someone else (received and passed on, or paid on their behalf), excluded from personal income and spending while keeping any bank fee. */
+  | { kind: "pass_through"; person?: string | null; note?: string | null }
+  /** A refund that lowers the spending category of the original purchase rather than counting as income. */
+  | { kind: "refund"; category: string; description?: string | null }
   /** Money the person lent out; `person` names who, when the message doesn't. */
   | { kind: "lent"; person?: string | null; note?: string | null }
   /** Money coming back from someone who owed the person. */
@@ -446,6 +450,31 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
     }
     await deps.bank.updateMessage(profile.profileId, message.id, { status: "skipped" });
     return { ok: true, text: `Left ${money} out of your books.`, changes: [change] };
+  }
+  if (label.kind === "pass_through") {
+    await deps.bank.updateMessage(profile.profileId, message.id, { status: "skipped" });
+    const who = (label.person?.trim() && titleCase(label.person.trim())) || (message.counterparty ? titleCase(message.counterparty) : "someone else");
+    const feeNote = Number(message.fee) > 0 ? ` The ${formatAmount(message.fee, message.currency)} fee still counts under Fees.` : "";
+    return {
+      ok: true,
+      text: `Noted: ${money} was money handled for ${who}, so it isn't counted as your ${message.direction === "out" ? "spending" : "income"}.${feeNote}`,
+      changes: [change],
+    };
+  }
+  if (label.kind === "refund") {
+    if (message.direction !== "in") return { ok: false, text: `${money} went out, so it can't be a refund coming back.` };
+    const refundCategory = normalizeCategory(label.category, "expense");
+    if (!refundCategory) return { ok: false, text: "Which spending category was the refund for? Pick one from the list." };
+    const sender = titleCase(message.counterparty);
+    const description = `Refund · ${label.description?.trim() || sender || "Returned purchase"}`.slice(0, 200);
+    const id = await record(deps, profile, message, { type: "expense", amount: `-${message.amount}`, category: refundCategory, description });
+    await deps.bank.updateMessage(profile.profileId, message.id, { status: "recorded", transactionId: id });
+    change.transactionIds.push(id);
+    return {
+      ok: true,
+      text: `Counted ${money}${sender ? ` from ${sender}` : ""} as a refund under ${refundCategory}, so it lowers what you spent there instead of counting as income.`,
+      changes: [change],
+    };
   }
   if (label.kind === "transfer") {
     await deps.bank.updateMessage(profile.profileId, message.id, { status: "transfer", kind: "transfer_own" });
@@ -550,12 +579,29 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   const type = message.direction === "out" ? "expense" : "income";
   const category = normalizeCategory(label.category, type);
   if (!category) return { ok: false, text: "That category doesn't fit. Pick one from the list." };
+  const splitFee = label.includedFee ? canonicalizeAmount(label.includedFee) : null;
+  if (label.includedFee && (!splitFee || type !== "expense" || toMinor(splitFee) <= 0 || toMinor(splitFee) >= toMinor(message.amount))) {
+    return { ok: false, text: `The included fee must be less than ${money}.` };
+  }
+  const principalAmount = splitFee ? ((toMinor(message.amount) - toMinor(splitFee)) / 100).toFixed(2) : message.amount;
   const paidOn = zonedYmd(new Date(message.occurredAt), profile.timezone);
   const countsIn = monthItsFor(paidOn, label.forMonth, label.description);
   const description = `${label.description?.trim() || describe(message)}${countsIn ? ` (paid ${formatDisplayDate(paidOn).replace(/ \d{4}$/, "")})` : ""}`;
-  const id = await record(deps, profile, message, { type, amount: message.amount, category, description, date: countsIn ? `${countsIn}-01` : undefined });
+  const dateOverride = countsIn ? `${countsIn}-01` : undefined;
+  const id = await record(deps, profile, message, { type, amount: principalAmount, category, description, date: dateOverride });
   await deps.bank.updateMessage(profile.profileId, message.id, { status: "recorded", transactionId: id });
   change.transactionIds.push(id);
+  if (splitFee) {
+    const feeId = await record(deps, profile, message, {
+      type: "expense",
+      amount: splitFee,
+      category: "Fees",
+      description: `Fees · ${description}`,
+      suffix: ":included-fee",
+      date: dateOverride,
+    });
+    change.transactionIds.push(feeId);
+  }
   const changes = [change];
   const remembers = options.learn !== false && learnable(message.counterparty) && !VAGUE.has(category) && !looksLikeOwner(message.counterparty, profile.preferredName);
   let alsoFiled = 0;
@@ -577,9 +623,10 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   }
   const who = titleCase(message.counterparty);
   const extra = alsoFiled > 0 ? ` I've also filed ${alsoFiled} other payment${alsoFiled === 1 ? "" : "s"} to ${who} the same way.` : "";
+  const feeSplitNote = splitFee ? ` (${formatAmount(principalAmount, message.currency)} under ${category} + ${formatAmount(splitFee, message.currency)} under Fees)` : "";
   return {
     ok: true,
-    text: `Filed ${money} under ${category}${countsIn ? `, counted in ${monthName(countsIn)} since that's the month it's for` : ""}.${remembers ? ` I'll file ${who} as ${category} from now on.${extra}` : ""}`,
+    text: `Filed ${money} under ${category}${feeSplitNote}${countsIn ? `, counted in ${monthName(countsIn)} since that's the month it's for` : ""}.${remembers ? ` I'll file ${who} as ${category} from now on.${extra}` : ""}`,
     changes,
   };
 }

@@ -27,9 +27,8 @@ export const viewport: Viewport = {
   interactiveWidget: "resizes-content",
 };
 
-// Applies the saved appearance before first paint so dark mode doesn't flash light.
-// Light is the default; the old "alfred-theme" key is ignored so everyone starts on the new look.
-const themeScript = `try{if(localStorage.getItem("alfred-appearance")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}`;
+// Applies the saved appearance and privacy mask before first paint so dark mode and hidden amounts don't flash.
+const themeScript = `try{if(localStorage.getItem("alfred-appearance")==="dark")document.documentElement.dataset.theme="dark";if(localStorage.getItem("alfred-privacy")==="masked")document.documentElement.dataset.privacy="masked"}catch(e){}`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
