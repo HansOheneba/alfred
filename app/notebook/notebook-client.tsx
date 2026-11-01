@@ -234,7 +234,7 @@ function AddAbout() {
 
 export function NotebookClient({ people, about }: { people: KnownPerson[]; about: AboutNote[] }) {
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 py-6 pb-16 sm:px-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6">
       <div>
         <h1 className="font-display text-2xl font-medium leading-tight tracking-tight text-ink">Notebook</h1>
         <p className="mt-1 text-sm text-muted">

@@ -69,7 +69,7 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
   const maturing = portfolio.items.filter((item) => item.maturity && item.maturity.daysLeft >= -7).sort((a, b) => a.maturity!.date.localeCompare(b.maturity!.date));
 
   return (
-    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 py-6 pb-16 sm:px-8">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-5 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-8">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs font-medium tracking-[0.14em] text-muted">YOUR INVESTMENTS</p>

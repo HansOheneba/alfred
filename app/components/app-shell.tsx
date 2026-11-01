@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 
@@ -174,11 +174,15 @@ function Initial({ name, className = "size-8" }: { name: string; className?: str
   );
 }
 
-/** Desktop navigation: a fixed sidebar, as in most desktop finance apps. */
-function Sidebar({ current, name }: { current: Section; name: string }) {
+/** The sidebar's contents: shared by the desktop sidebar and the phone drawer. */
+function NavContents({ current, name, onNavigate }: { current: Section; name: string; onNavigate?: () => void }) {
   return (
-    <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface md:flex">
-      <Link href="/" className="mx-3 mt-4 mb-6 flex items-center gap-2.5 rounded-xl px-2 py-1 focus-visible:outline-2 focus-visible:outline-accent">
+    <>
+      <Link
+        href="/"
+        onClick={onNavigate}
+        className="mx-3 mt-4 mb-6 flex items-center gap-2.5 rounded-xl px-2 py-1 focus-visible:outline-2 focus-visible:outline-accent"
+      >
         <AlfredMark size="size-8" />
         <span className="text-[17px] font-semibold tracking-tight">Alfred</span>
       </Link>
@@ -189,8 +193,9 @@ function Sidebar({ current, name }: { current: Section; name: string }) {
             <Link
               key={item.section}
               href={item.href}
+              onClick={onNavigate}
               aria-current={active ? "page" : undefined}
-              className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition focus-visible:outline-2 focus-visible:outline-accent ${
+              className={`flex items-center gap-3 rounded-lg px-3 py-2.5 text-[15px] transition focus-visible:outline-2 focus-visible:outline-accent md:py-2 md:text-sm ${
                 active ? "bg-accent-soft font-medium text-accent" : "text-muted hover:bg-surface-2 hover:text-ink"
               }`}
             >
@@ -202,6 +207,7 @@ function Sidebar({ current, name }: { current: Section; name: string }) {
       </nav>
       <Link
         href="/settings#profile"
+        onClick={onNavigate}
         className="m-3 mt-auto flex items-center gap-3 rounded-xl border border-line px-3 py-2.5 transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
       >
         <Initial name={name} />
@@ -210,42 +216,59 @@ function Sidebar({ current, name }: { current: Section; name: string }) {
           <span className="block text-xs text-faint">Profile & settings</span>
         </span>
       </Link>
+    </>
+  );
+}
+
+/** Desktop navigation: a fixed sidebar, as in most desktop finance apps. */
+function Sidebar({ current, name }: { current: Section; name: string }) {
+  return (
+    <aside className="hidden w-60 shrink-0 flex-col border-r border-line bg-surface md:flex">
+      <NavContents current={current} name={name} />
     </aside>
   );
 }
 
-/** Phone navigation: a tab bar in its own row at the bottom, so it never covers the chat composer. */
-function TabBar({ current }: { current: Section }) {
+/** Phone navigation: the sidebar slides in from the left, so the bottom edge stays free for the chat composer. */
+function NavDrawer({ open, onClose, current, name }: { open: boolean; onClose: () => void; current: Section; name: string }) {
+  const panel = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!open) return;
+    const previous = document.activeElement as HTMLElement | null;
+    panel.current?.querySelector<HTMLElement>("[aria-current='page'], a")?.focus();
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onClose();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      previous?.focus();
+    };
+  }, [open, onClose]);
+
   return (
-    <nav aria-label="Main" className="shrink-0 border-t border-line bg-surface pb-[env(safe-area-inset-bottom)] md:hidden">
-      <div className="mx-auto flex max-w-lg items-stretch justify-around">
-        {NAV.map((item) => {
-          const active = item.section === current;
-          return (
-            <Link
-              key={item.section}
-              href={item.href}
-              aria-current={active ? "page" : undefined}
-              className={`flex flex-1 flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium transition focus-visible:outline-2 focus-visible:outline-accent ${
-                active ? "text-accent" : "text-muted hover:text-ink"
-              }`}
-            >
-              <span className={`grid place-items-center rounded-full px-4 py-1 ${active ? "bg-accent-soft" : ""}`}>
-                <Icon className="size-5">{item.icon}</Icon>
-              </span>
-              {item.label}
-            </Link>
-          );
-        })}
+    <div className={`fixed inset-0 z-50 md:hidden ${open ? "" : "pointer-events-none"}`} aria-hidden={!open}>
+      <div className={`absolute inset-0 bg-black/40 transition-opacity duration-200 ${open ? "opacity-100" : "opacity-0"}`} onClick={onClose} />
+      <div
+        ref={panel}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Menu"
+        inert={!open}
+        className={`absolute inset-y-0 left-0 flex w-[min(18rem,85vw)] flex-col bg-surface pt-[env(safe-area-inset-top)] pb-[env(safe-area-inset-bottom)] shadow-2xl transition-transform duration-200 ease-out motion-reduce:transition-none ${
+          open ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <NavContents current={current} name={name} onNavigate={onClose} />
       </div>
-    </nav>
+    </div>
   );
 }
 
 /**
  * The signed-in frame. Desktop: a sidebar on the left and a slim title bar.
- * Phones: a top bar and a bottom tab bar. `fill` hands the page a
- * fixed-height area (for chat) instead of a scrolling one.
+ * Phones: a top bar whose menu button opens the sidebar as a drawer. `fill`
+ * hands the page a fixed-height area (for chat) instead of a scrolling one.
  */
 export function AppShell({
   current,
@@ -262,32 +285,35 @@ export function AppShell({
   children: ReactNode;
 }) {
   const title = NAV.find((item) => item.section === current)?.label ?? "Alfred";
+  const [menuOpen, setMenuOpen] = useState(false);
+  const closeMenu = useCallback(() => setMenuOpen(false), []);
 
   return (
     // `relative` on the frame and the scroll area keeps positioned children (screen-reader labels,
     // chart tooltips) inside them; otherwise they size the page and the sidebar scrolls with it.
     <div className="relative flex h-dvh w-full overflow-hidden bg-bg">
       <Sidebar current={current} name={name} />
+      <NavDrawer open={menuOpen} onClose={closeMenu} current={current} name={name} />
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="box-content flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4 pt-[env(safe-area-inset-top)] md:bg-bg md:px-8">
-          <Link href="/" className="flex items-center gap-2.5 rounded-xl focus-visible:outline-2 focus-visible:outline-accent md:hidden">
-            <AlfredMark size="size-8" />
-            <span className="text-[17px] font-semibold tracking-tight">Alfred</span>
-          </Link>
-          <span className="text-sm text-faint md:hidden" aria-hidden="true">
-            /
-          </span>
-          <h1 className="text-sm font-medium text-muted md:text-[15px] md:font-semibold md:text-ink">{title}</h1>
-          <div className="ml-auto flex items-center gap-2">
+        <header className="box-content flex h-14 shrink-0 items-center gap-2 border-b border-line bg-surface px-2 pt-[env(safe-area-inset-top)] md:gap-3 md:bg-bg md:px-8">
+          <button
+            type="button"
+            onClick={() => setMenuOpen(true)}
+            aria-label="Open menu"
+            aria-expanded={menuOpen}
+            className="grid size-10 place-items-center rounded-full text-ink transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent md:hidden"
+          >
+            <Icon className="size-[22px]">
+              <path d="M4 7h16M4 12h16M4 17h10" />
+            </Icon>
+          </button>
+          <h1 className="text-[17px] font-semibold tracking-tight text-ink md:text-[15px]">{title}</h1>
+          <div className="ml-auto flex items-center gap-2 pr-2 md:pr-0">
             <PrivacyToggle />
             {headerAction}
-            <Link href="/settings#profile" aria-label="Your profile" className="rounded-full focus-visible:outline-2 focus-visible:outline-accent md:hidden">
-              <Initial name={name} />
-            </Link>
           </div>
         </header>
         <main className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${fill ? "" : "overflow-y-auto overscroll-contain"}`}>{children}</main>
-        <TabBar current={current} />
       </div>
     </div>
   );

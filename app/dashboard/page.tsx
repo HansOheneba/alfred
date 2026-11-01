@@ -25,7 +25,7 @@ export default function DashboardPage() {
 
 function DashboardSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 pb-16 sm:px-6" aria-busy="true">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6" aria-busy="true">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <Skeleton className="h-3 w-24" />

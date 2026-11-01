@@ -95,7 +95,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 py-6 pb-16 sm:px-6">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
           <p className="text-xs text-muted">{formatDisplayDate(today)}</p>
