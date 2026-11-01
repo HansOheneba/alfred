@@ -202,7 +202,9 @@ export function AppShell({
   const title = NAV.find((item) => item.section === current)?.label ?? "Alfred";
 
   return (
-    <div className="flex h-dvh w-full overflow-hidden bg-bg">
+    // `relative` on the frame and the scroll area keeps positioned children (screen-reader labels,
+    // chart tooltips) inside them; otherwise they size the page and the sidebar scrolls with it.
+    <div className="relative flex h-dvh w-full overflow-hidden bg-bg">
       <Sidebar current={current} name={name} />
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="box-content flex h-14 shrink-0 items-center gap-3 border-b border-line bg-surface px-4 pt-[env(safe-area-inset-top)] md:bg-bg md:px-8">
@@ -221,7 +223,7 @@ export function AppShell({
             </Link>
           </div>
         </header>
-        <main className={`flex min-h-0 min-w-0 flex-1 flex-col ${fill ? "" : "overflow-y-auto"}`}>{children}</main>
+        <main className={`relative flex min-h-0 min-w-0 flex-1 flex-col ${fill ? "" : "overflow-y-auto overscroll-contain"}`}>{children}</main>
         <TabBar current={current} />
       </div>
     </div>
