@@ -147,6 +147,56 @@ const CASES: Case[] = [
     check: (action) => labelled(action, "category", [1]),
   },
   {
+    name: "a new US investment account is added with its holdings",
+    request: { text: "I have a Risevest account with 2 shares of VOO and half a share of Microsoft" },
+    check: (action) => {
+      if (action.type !== "add_investment") return `got ${action.type}`;
+      if (action.kind !== "us_stocks") return `kind ${action.kind}`;
+      const symbols = (action.holdings ?? []).map((item) => item.symbol).sort().join(",");
+      return symbols === "MSFT,VOO" ? null : `holdings ${symbols}`;
+    },
+  },
+  {
+    name: "a T-bill is added with its rate and maturity",
+    request: { text: "I just bought a 91-day treasury bill of 5000 cedis at 24%" },
+    check: (action) => {
+      if (action.type !== "add_investment") return `got ${action.type}`;
+      if (action.kind !== "tbill") return `kind ${action.kind}`;
+      if (action.principal !== "5000.00" || action.rate !== 24) return `principal ${action.principal} rate ${action.rate}`;
+      return action.matures_on ? null : "no maturity date";
+    },
+  },
+  {
+    name: "a new value for an investment the user has is an update",
+    request: { text: "my databank fund is at 8,400 now", investments: ["Databank Epack (Mutual fund, GHS)", "Risevest (US stocks, USD)"] },
+    check: (action) => (action.type === "update_investment" && action.value === "8400.00" && /databank/i.test(action.name) ? null : `got ${action.type}`),
+  },
+  {
+    name: "money put into an investment outside the bank texts",
+    request: { text: "I put 500 into my T-bill today", investments: ["91-day T-bill (Treasury bill, GHS, matures 2027-01-02)"] },
+    check: (action) => (action.type === "invest_money" && action.direction === "in" && action.amount === "500.00" ? null : `got ${action.type}`),
+  },
+  {
+    name: "net worth asks for investments with cash",
+    request: { text: "what's my net worth?", investments: ["Risevest (US stocks, USD)"] },
+    check: (action) => (action.type === "get_investments" && action.net_worth === true ? null : `got ${action.type}`),
+  },
+  {
+    name: "how investments are doing is get_investments",
+    request: { text: "how are my investments doing?", investments: ["Risevest (US stocks, USD)"] },
+    check: (action) => (action.type === "get_investments" ? null : `got ${action.type}`),
+  },
+  {
+    name: "a waiting payment to an investment app is labelled as an investment",
+    request: {
+      text: "the 1130 to risevest was me investing",
+      waiting: { lines: ["1. OUT GH₵1,130.00 to Risevest Technologies · Sun 25 Oct, 10:12", "2. OUT GH₵40.00 to Benjamin Debrah · Sat 24 Oct, 17:30"], current: 2 },
+      investments: ["Risevest (US stocks, USD)"],
+      model: LABEL_MODEL,
+    },
+    check: (action) => labelled(action, "investment", [1]),
+  },
+  {
     name: "what's left asks for the overview with balances",
     request: { text: "Okay what's left in my finances" },
     check: (action) => (action.type === "get_financial_overview" ? null : `got ${action.type}`),

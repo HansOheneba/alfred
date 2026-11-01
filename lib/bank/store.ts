@@ -5,7 +5,7 @@ import { query } from "@/lib/supabase/connection";
 import type { BankSource } from "@/lib/bank/parse";
 import type { MemoryNotebookStore } from "@/lib/notebook/store";
 
-export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid" | "borrowed" | "paid_back";
+export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid" | "borrowed" | "paid_back" | "invested";
 /**
  * `card_hold` is a card payment the bank put on hold; it counts as spent.
  * `hold_settle` is a later debit that may be that payment going through, asked about before it counts.
@@ -40,7 +40,8 @@ export type NewBankMessage = Omit<BankMessage, "id" | "transactionId" | "feeTran
 export type BankBalance = { source: BankSource; balance: string; at: string };
 
 /** What a payee means: a category, or someone chipping in toward bills in that category. */
-export type PayeeRule = { payeeKey: string; category: string; description: string; kind?: "category" | "chip_in" };
+/** For an `investment` rule, `description` is the investment's name. */
+export type PayeeRule = { payeeKey: string; category: string; description: string; kind?: "category" | "chip_in" | "investment" };
 
 /** One thing a label changed, recorded so "undo" can put it back. */
 export type LabelChange = {
@@ -50,6 +51,8 @@ export type LabelChange = {
   loanId?: string;
   /** A card hold this payment was confirmed to be, so undo can put the hold back. */
   heldId?: string;
+  /** Money this payment put into (or took out of) an investment, so undo can take it off. */
+  contributionId?: string;
   /** What the payment was filed as, like "Transport" or "paying you back", so a correction can refer to it. */
   filedAs?: string;
   rule?: { payeeKey: string; previous: PayeeRule | null };

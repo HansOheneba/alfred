@@ -1,6 +1,10 @@
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
-import { askHeldQuestions } from "@/lib/bank/notify";
+import { askHeldQuestions, telegramChatFor } from "@/lib/bank/notify";
+import { zonedYmd } from "@/lib/finance/dates";
+import { runInvestmentsDaily } from "@/lib/investments/daily";
+import { massiveKey } from "@/lib/investments/prices";
+import { createSupabaseInvestmentStore } from "@/lib/investments/store";
 import { createSupabasePeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore } from "@/lib/finance/loans";
 import { createSupabaseBankStore } from "@/lib/bank/store";
@@ -31,7 +35,18 @@ export async function GET(request: Request): Promise<Response> {
       logError("bank_questions", error);
       return 0;
     });
-    return Response.json({ ok: true, sent: result.sent, asked });
+    const investments = await runInvestmentsDaily({
+      store: createSupabaseInvestmentStore(settings.supabase),
+      today: zonedYmd(new Date(), settings.timezone),
+      key: massiveKey(),
+      chatFor: (ownerId) => telegramChatFor(settings.supabase!, ownerId),
+      send: (chatId, text) => telegram.sendMessage(chatId, text),
+      messages: createSupabaseMessageLog(settings.supabase),
+    }).catch((error) => {
+      logError("investments_daily", error);
+      return { prices: 0, reminded: 0 };
+    });
+    return Response.json({ ok: true, sent: result.sent, asked, ...investments });
   } catch (error) {
     logError("reminders", error);
     return Response.json({ ok: false }, { status: 500 });

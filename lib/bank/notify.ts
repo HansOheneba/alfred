@@ -36,6 +36,7 @@ function summaryLine(outcome: IngestOutcome): string | null {
   // A bank's second text about a payment another text already covers: nothing new to say.
   if (outcome.outcome === "matched" && !who && !message.transactionId) return null;
   if (outcome.outcome === "matched") return `${money}${who ? ` to ${who}` : ""} matches something you already logged, so I've linked it.`;
+  if (outcome.outcome === "invested") return `Put ${money}${who ? ` to ${who}` : ""} into ${outcome.category}. Not counted as spending.`;
   if (outcome.outcome === "transfer") return `${money} moved between your own accounts. Not counted as income or spending.`;
   if (outcome.outcome === "loan") return `${money} came in from your loan account. That's borrowed money, so I haven't counted it as income.`;
   if (outcome.outcome === "skipped") return `Left out ${money}${who ? ` ${message.direction === "out" ? "to" : "from"} ${who}` : ""}: it looks like a card check or test send.`;
@@ -63,7 +64,7 @@ async function send(delivery: Delivery, chatId: number, text: string, buttons?: 
 }
 
 /** Category buttons under a question. Callback data is `b:<message id>:<code>`. */
-export function labelButtons(message: BankMessage, ownerName = "", options: { settling?: boolean; lending?: boolean } = {}): InlineButton[][] {
+export function labelButtons(message: BankMessage, ownerName = "", options: { settling?: boolean; lending?: boolean; investing?: boolean } = {}): InlineButton[][] {
   const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
   const buttons = choices.map((category, index) => ({ text: category, callbackData: `b:${message.id}:c${index}` }));
   const rows: InlineButton[][] = [];
@@ -87,6 +88,8 @@ export function labelButtons(message: BankMessage, ownerName = "", options: { se
   if (options.lending && !ownerLike && learnable(message.counterparty) && classifyPayee(message.counterparty).kind === "person") {
     extra.push(message.direction === "out" ? { text: "I lent it", callbackData: `b:${message.id}:l` } : { text: "Lent to me", callbackData: `b:${message.id}:b` });
   }
+  // Money into an investment isn't spending; money out of one isn't income.
+  if (options.investing && !ownerLike) extra.push({ text: message.direction === "out" ? "Investment" : "From investment", callbackData: `b:${message.id}:i` });
   extra.push({ text: "Skip", callbackData: `b:${message.id}:s` });
   rows.push(extra);
   return rows;
@@ -98,7 +101,7 @@ export function reviewRow(waiting: number): InlineButton[][] {
 }
 
 export function parseLabelCallback(data: string): { messageId: string; code: string } | null {
-  const match = /^b:([0-9a-f-]{36}):(c\d|t|s|r|l|b|p)$/i.exec(data);
+  const match = /^b:([0-9a-f-]{36}):(c\d|t|s|r|l|b|p|i)$/i.exec(data);
   return match ? { messageId: match[1].toLowerCase(), code: match[2] } : null;
 }
 
@@ -109,6 +112,7 @@ export function labelFromCode(message: BankMessage, code: string): Label | null 
   if (code === "l") return { kind: "lent" };
   if (code === "b") return { kind: "borrowed" };
   if (code === "p") return { kind: "paid_back" };
+  if (code === "i") return { kind: "invest" };
   const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
   const category = choices[Number(code.slice(1))];
   return category ? { kind: "category", category } : null;
@@ -122,6 +126,7 @@ export function labelChoiceText(label: Label): string {
   if (label.kind === "lent") return "I lent it";
   if (label.kind === "borrowed") return "Lent to me";
   if (label.kind === "paid_back") return "Paying them back";
+  if (label.kind === "invest") return label.investment ? `Investment: ${label.investment}` : "Investment";
   return "Skip";
 }
 
@@ -144,7 +149,7 @@ export async function questionFor(
   const hold = message.kind === "hold_settle" && bank ? await holdFor(bank, message) : null;
   return {
     text: `${labelQuestion(message, profile.timezone, profile.preferredName, debt, hold)}${debt ? "" : await whoTheyAre(people, profile, message)}`,
-    buttons: labelButtons(message, profile.preferredName, { settling: Boolean(debt), lending: Boolean(loans) }),
+    buttons: labelButtons(message, profile.preferredName, { settling: Boolean(debt), lending: Boolean(loans), investing: true }),
   };
 }
 
@@ -182,6 +187,7 @@ export function summarize(outcomes: IngestOutcome[], currency: string): string[]
   const parts = [
     filed.length ? `${filed.length} filed automatically${categories ? ` (${categories})` : ""}` : "",
     count("matched") ? `${count("matched")} matched something you'd logged` : "",
+    count("invested") ? `${count("invested")} went into investments` : "",
     count("transfer") ? `${plural(count("transfer"), "was", "were")} your own money moving` : "",
     count("loan") ? `${plural(count("loan"), "loan deposit")}` : "",
     count("skipped") ? `${plural(count("skipped"), "tiny test charge")} left out` : "",

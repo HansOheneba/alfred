@@ -6,6 +6,7 @@ import { createSupabaseLoanStore } from "@/lib/finance/loans";
 import { newTransactionId } from "@/lib/finance/ids";
 import { logError } from "@/lib/log";
 import { fail, readBody, requireOwner } from "@/lib/web/api";
+import { createSupabaseInvestmentStore } from "@/lib/investments/store";
 
 /** How long the review page's "Undo" can reverse the last batch, matching "undo" in chat. */
 const UNDO_WINDOW_MS = 30 * 60_000;
@@ -37,6 +38,7 @@ export async function POST(request: Request): Promise<Response> {
     bank: createSupabaseBankStore(owner.settings.supabase),
     ledger: owner.store,
     loans: createSupabaseLoanStore(owner.settings.supabase),
+    investments: createSupabaseInvestmentStore(owner.settings.supabase),
     now,
     createId: newTransactionId,
   };
