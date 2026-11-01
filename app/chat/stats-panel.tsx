@@ -72,8 +72,8 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
             <AreaChart data={days} margin={{ top: 4, right: 0, bottom: 0, left: 0 }}>
               <defs>
                 <linearGradient id={fillId} x1="0" y1="0" x2="0" y2="1">
-                  <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.35} />
-                  <stop offset="100%" stopColor="var(--gold)" stopOpacity={0} />
+                  <stop offset="0%" stopColor="var(--accent)" stopOpacity={0.35} />
+                  <stop offset="100%" stopColor="var(--accent)" stopOpacity={0} />
                 </linearGradient>
               </defs>
               <XAxis dataKey="label" hide />
@@ -83,7 +83,7 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
                 formatter={(_value, _name, entry) => [money((entry.payload as { cumulative: number }).cumulative), "By then"]}
                 labelStyle={{ color: "var(--muted)" }}
               />
-              <Area type="monotone" dataKey="value" stroke="var(--gold)" strokeWidth={2} fill={`url(#${fillId})`} />
+              <Area type="monotone" dataKey="value" stroke="var(--accent)" strokeWidth={2} fill={`url(#${fillId})`} />
             </AreaChart>
           </ResponsiveContainer>
         </div>
@@ -129,7 +129,7 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
                     </span>
                   </div>
                   <div className="mt-1 h-1 overflow-hidden rounded-full bg-surface-2">
-                    <div className={`h-full rounded-full ${over ? "bg-danger" : used >= 80 ? "bg-gold" : "bg-success"}`} style={{ width: `${used}%` }} />
+                    <div className={`h-full rounded-full ${over ? "bg-danger" : used >= 80 ? "bg-accent" : "bg-success"}`} style={{ width: `${used}%` }} />
                   </div>
                 </li>
               );
@@ -139,13 +139,13 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
       ) : null}
 
       {highlight ? (
-        <section className="rounded-xl border border-gold/20 bg-gold-soft p-3">
-          <h3 className="text-xs font-medium text-gold">Worth knowing</h3>
+        <section className="rounded-xl border border-accent/20 bg-accent-soft p-3">
+          <h3 className="text-xs font-medium text-accent">Worth knowing</h3>
           <p className="mt-1 text-sm leading-5 text-ink">{highlight}</p>
         </section>
       ) : null}
 
-      <Link href="/dashboard" className="text-sm text-gold underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-gold">
+      <Link href="/dashboard" className="text-sm text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-accent">
         Open the full dashboard →
       </Link>
     </div>

@@ -104,8 +104,8 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                   setSelected(null);
                 }}
                 aria-pressed={preset === item}
-                className={`rounded-full px-3 py-1.5 text-xs transition focus-visible:outline-2 focus-visible:outline-gold ${
-                  preset === item ? "bg-gold text-gold-ink" : "text-muted hover:text-ink"
+                className={`rounded-full px-3 py-1.5 text-xs transition focus-visible:outline-2 focus-visible:outline-accent ${
+                  preset === item ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"
                 }`}
               >
                 {RANGE_LABELS[item]}
@@ -113,8 +113,8 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             ))}
           </div>
           <Link
-            href="/"
-            className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm text-ink transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-gold"
+            href="/chat"
+            className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm text-ink transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
           >
             Talk to Alfred
           </Link>
@@ -134,7 +134,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             </span>
           ))}
           {ledger.bank.needsLabel.length > 0 ? (
-            <Link href="/review" className="inline-flex items-center rounded-full bg-gold-soft px-3 py-1 text-xs text-gold hover:underline">
+            <Link href="/review" className="inline-flex items-center rounded-full bg-accent-soft px-3 py-1 text-xs text-accent hover:underline">
               {ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label
             </Link>
           ) : null}
@@ -143,7 +143,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
 
       {!hasAny ? (
         <EmptyState>
-          Nothing is recorded yet. Tell Alfred what you spent or earned, here in <Link href="/" className="text-gold underline-offset-2 hover:underline">chat</Link> or
+          Nothing is recorded yet. Tell Alfred what you spent or earned, here in <Link href="/chat" className="text-accent underline-offset-2 hover:underline">chat</Link> or
           on Telegram, and your charts will fill in.
         </EmptyState>
       ) : null}
@@ -183,7 +183,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                   type="button"
                   aria-pressed={dailyMode === mode}
                   onClick={() => setDailyMode(mode)}
-                  className={`rounded-full px-2.5 py-1 focus-visible:outline-2 focus-visible:outline-gold ${dailyMode === mode ? "bg-surface-2 text-ink" : "text-muted"}`}
+                  className={`rounded-full px-2.5 py-1 focus-visible:outline-2 focus-visible:outline-accent ${dailyMode === mode ? "bg-surface-2 text-ink" : "text-muted"}`}
                 >
                   {mode === "daily" ? "Daily" : "Running total"}
                 </button>
@@ -218,7 +218,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                       type="button"
                       onClick={() => toggle(item.category)}
                       aria-pressed={selected === item.category}
-                      className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-sm transition focus-visible:outline-2 focus-visible:outline-gold ${
+                      className={`flex w-full items-center gap-3 rounded-xl px-2 py-2 text-left text-sm transition focus-visible:outline-2 focus-visible:outline-accent ${
                         selected === item.category ? "bg-surface-2" : "hover:bg-surface-2"
                       }`}
                     >
@@ -273,7 +273,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             <ul className="flex flex-col gap-2.5">
               {ledger.insights.map((line) => (
                 <li key={line} className="flex gap-3 text-sm leading-6">
-                  <span className="mt-2 size-1.5 shrink-0 rounded-full bg-gold" aria-hidden="true" />
+                  <span className="mt-2 size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
                   <span>{line}</span>
                 </li>
               ))}
@@ -317,7 +317,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                       aria-valuemax={100}
                       aria-valuenow={used}
                     >
-                      <div className={`h-full rounded-full ${over ? "bg-danger" : used >= 80 ? "bg-gold" : "bg-success"}`} style={{ width: `${over ? 100 : used}%` }} />
+                      <div className={`h-full rounded-full ${over ? "bg-danger" : used >= 80 ? "bg-accent" : "bg-success"}`} style={{ width: `${over ? 100 : used}%` }} />
                     </div>
                     <p className={`mt-1 text-xs ${over ? "text-danger" : "text-muted"}`}>
                       {over ? `${formatMinor(-budget.remainingMinor, budget.currency)} over` : `${formatMinor(budget.remainingMinor, budget.currency)} left`}
@@ -356,7 +356,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                       aria-valuemax={100}
                       aria-valuenow={progress}
                     >
-                      <div className="h-full rounded-full bg-gold" style={{ width: `${progress}%` }} />
+                      <div className="h-full rounded-full bg-accent" style={{ width: `${progress}%` }} />
                     </div>
                     <p className="mt-1 text-xs text-muted">
                       {progress}% saved{goal.targetDate ? ` · by ${formatDisplayDate(goal.targetDate)}` : ""}
@@ -404,7 +404,7 @@ function OwedCard({ owed, owe }: { owed: Ledger["owed"]; owe: Ledger["owe"] }) {
                   aria-valuemax={100}
                   aria-valuenow={progress}
                 >
-                  <div className="h-full rounded-full bg-gold" style={{ width: `${progress}%` }} />
+                  <div className="h-full rounded-full bg-accent" style={{ width: `${progress}%` }} />
                 </div>
                 <p className="mt-1 text-xs text-muted">
                   {repaid > 0 ? `${compactMoney(repaid, item.currency)} of ${compactMoney(lent, item.currency)} paid back` : `Lent ${compactMoney(lent, item.currency)}`} · since{" "}

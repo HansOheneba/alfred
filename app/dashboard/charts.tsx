@@ -48,9 +48,9 @@ export function MonthlyChart({ data, currency }: { data: { label: string; spent:
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" {...axis} />
           <YAxis {...axis} width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
-          <Tooltip cursor={{ fill: "var(--gold-soft)" }} content={(props) => <MoneyTooltip {...(props as TooltipArgs)} currency={currency} />} />
-          <Bar dataKey="income" name="Income" fill="var(--success)" radius={[4, 4, 0, 0]} maxBarSize={28} />
-          <Bar dataKey="spent" name="Spent" fill="var(--gold)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+          <Tooltip cursor={{ fill: "var(--accent-soft)" }} content={(props) => <MoneyTooltip {...(props as TooltipArgs)} currency={currency} />} />
+          <Bar dataKey="income" name="Income" fill="var(--income)" radius={[4, 4, 0, 0]} maxBarSize={28} />
+          <Bar dataKey="spent" name="Spent" fill="var(--outgoing)" radius={[4, 4, 0, 0]} maxBarSize={28} />
         </BarChart>
       </ResponsiveContainer>
     </div>
@@ -72,9 +72,9 @@ export function DailyChart({
       <ResponsiveContainer width="100%" height="100%">
         <AreaChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
           <defs>
-            <linearGradient id="alfred-gold-fill" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="var(--gold)" stopOpacity={0.35} />
-              <stop offset="100%" stopColor="var(--gold)" stopOpacity={0} />
+            <linearGradient id="alfred-accent-fill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="var(--outgoing)" stopOpacity={0.35} />
+              <stop offset="100%" stopColor="var(--outgoing)" stopOpacity={0} />
             </linearGradient>
           </defs>
           <CartesianGrid vertical={false} stroke="var(--line)" />
@@ -85,9 +85,9 @@ export function DailyChart({
             type={mode === "daily" ? "monotone" : "linear"}
             dataKey={key}
             name={mode === "daily" ? "Spent" : "Running total"}
-            stroke="var(--gold)"
+            stroke="var(--outgoing)"
             strokeWidth={2}
-            fill="url(#alfred-gold-fill)"
+            fill="url(#alfred-accent-fill)"
             activeDot={{ r: 4 }}
           />
         </AreaChart>
@@ -146,7 +146,7 @@ export function SimpleBars({
   currency,
   height = "h-48",
   name = "Spent",
-  color = "var(--gold)",
+  color = "var(--outgoing)",
 }: {
   data: { label: string; spent: number }[];
   currency: string;
@@ -161,7 +161,7 @@ export function SimpleBars({
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" {...axis} />
           <YAxis {...axis} width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
-          <Tooltip cursor={{ fill: "var(--gold-soft)" }} content={(props) => <MoneyTooltip {...(props as TooltipArgs)} currency={currency} />} />
+          <Tooltip cursor={{ fill: "var(--accent-soft)" }} content={(props) => <MoneyTooltip {...(props as TooltipArgs)} currency={currency} />} />
           <Bar dataKey="spent" name={name} fill={color} radius={[4, 4, 0, 0]} maxBarSize={36} />
         </BarChart>
       </ResponsiveContainer>

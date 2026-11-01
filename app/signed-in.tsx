@@ -15,7 +15,7 @@ export function MissingAuthConfig() {
   return (
     <main className="mx-auto flex min-h-dvh w-full max-w-xl flex-col justify-center px-6">
       <h1 className="font-display text-2xl font-medium tracking-tight">Alfred</h1>
-      <p className="mt-3 text-sm leading-6 text-neutral-600 dark:text-neutral-400">
+      <p className="mt-3 text-sm leading-6 text-muted">
         The website sign-in is not configured yet. Add the public Supabase URL and anon key on the server.
       </p>
     </main>

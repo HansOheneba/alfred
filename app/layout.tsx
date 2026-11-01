@@ -1,13 +1,12 @@
 import type { Metadata, Viewport } from "next";
 
 import { PwaRegister } from "@/app/components/pwa";
-import { instrumentSans } from "@/app/fonts";
 import "./globals.css";
 
 export const metadata: Metadata = {
   title: "Alfred",
   description: "A personal finance assistant for the website and Telegram.",
-  appleWebApp: { capable: true, title: "Alfred", statusBarStyle: "black-translucent" },
+  appleWebApp: { capable: true, title: "Alfred", statusBarStyle: "default" },
   icons: {
     icon: [
       { url: "/favicon.ico", sizes: "any" },
@@ -19,20 +18,24 @@ export const metadata: Metadata = {
 };
 
 export const viewport: Viewport = {
-  themeColor: "#0b0b0c",
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#fcfcfe" },
+    { media: "(prefers-color-scheme: dark)", color: "#18151f" },
+  ],
   // Lets iPhone content reach the safe areas and keeps the composer above the Android keyboard.
   viewportFit: "cover",
   interactiveWidget: "resizes-content",
 };
 
-// Applies the saved theme before first paint so light mode doesn't flash dark.
-const themeScript = `try{if(localStorage.getItem("alfred-theme")==="light")document.documentElement.dataset.theme="light"}catch(e){}`;
+// Applies the saved appearance before first paint so dark mode doesn't flash light.
+// Light is the default; the old "alfred-theme" key is ignored so everyone starts on the new look.
+const themeScript = `try{if(localStorage.getItem("alfred-appearance")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}`;
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
-      className={`${instrumentSans.variable} h-full antialiased`}
+      className="h-full antialiased"
       suppressHydrationWarning
     >
       <head>

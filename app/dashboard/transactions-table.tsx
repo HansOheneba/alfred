@@ -121,7 +121,7 @@ export function TransactionsTable({
 
       {category ? (
         <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-          Showing <span className="rounded-full bg-gold-soft px-2 py-0.5 text-gold">{category}</span>
+          Showing <span className="rounded-full bg-accent-soft px-2 py-0.5 text-accent">{category}</span>
           <button type="button" className="underline-offset-2 hover:text-ink hover:underline" onClick={onClearCategory}>
             Clear
           </button>
@@ -157,7 +157,7 @@ export function TransactionsTable({
                     <td className="whitespace-nowrap py-2.5 pr-3 text-muted">{formatDisplayDate(row.date)}</td>
                     <td className="py-2.5 pr-3">{row.description}</td>
                     <td className="py-2.5 pr-3 text-muted">{row.category}</td>
-                    <td className={`whitespace-nowrap py-2.5 pr-3 text-right tabular-nums ${row.type === "income" ? "text-success" : ""}`}>
+                    <td className={`whitespace-nowrap py-2.5 pr-3 text-right tabular-nums ${row.type === "income" ? "text-income" : ""}`}>
                       {row.type === "income" ? "+" : ""}
                       {formatMinor(row.minor, row.currency)}
                     </td>
@@ -184,7 +184,7 @@ export function TransactionsTable({
                         {row.category} · {formatDisplayDate(row.date)}
                       </p>
                     </div>
-                    <p className={`shrink-0 text-sm tabular-nums ${row.type === "income" ? "text-success" : ""}`}>
+                    <p className={`shrink-0 text-sm tabular-nums ${row.type === "income" ? "text-income" : ""}`}>
                       {row.type === "income" ? "+" : ""}
                       {formatMinor(row.minor, row.currency)}
                     </p>

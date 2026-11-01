@@ -36,7 +36,7 @@ export function DataSection() {
             <a
               href="/api/export"
               download
-              className="inline-flex h-10 items-center rounded-full border border-line-strong bg-surface px-4 text-sm font-medium transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+              className="inline-flex h-10 items-center rounded-full border border-line-strong bg-surface px-4 text-sm font-medium transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
             >
               Download CSV
             </a>

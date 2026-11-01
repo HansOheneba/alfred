@@ -47,7 +47,7 @@ export function StatsButton() {
       type="button"
       onClick={() => window.dispatchEvent(new Event(STATS_EVENT))}
       aria-label="This month at a glance"
-      className="grid size-9 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-gold"
+      className="grid size-9 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
     >
       <svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
         <path d="M5 20V11m7 9V5m7 15v-6" />
@@ -344,7 +344,7 @@ export function ChatPanel({
           type="button"
           onClick={() => setStatsOpen(true)}
           aria-label="This month at a glance"
-          className="absolute right-3 top-3 z-20 hidden size-9 place-items-center rounded-full border border-line bg-surface/90 text-muted shadow-sm backdrop-blur hover:text-ink focus-visible:outline-2 focus-visible:outline-gold md:grid xl:hidden"
+          className="absolute right-3 top-3 z-20 hidden size-9 place-items-center rounded-full border border-line bg-surface/90 text-muted shadow-sm backdrop-blur hover:text-ink focus-visible:outline-2 focus-visible:outline-accent md:grid xl:hidden"
         >
           <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
             <path d="M5 20V11m7 9V5m7 15v-6" />
@@ -370,7 +370,7 @@ export function ChatPanel({
                     key={suggestion.label}
                     type="button"
                     onClick={() => pickSuggestion(suggestion)}
-                    className="rounded-2xl border border-line bg-surface px-4 py-3 text-left text-sm text-ink transition hover:border-gold/40 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-gold"
+                    className="rounded-2xl border border-line bg-surface px-4 py-3 text-left text-sm text-ink transition hover:border-accent/40 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
                   >
                     {suggestion.label}
                   </button>
@@ -395,7 +395,7 @@ export function ChatPanel({
                           <button
                             type="button"
                             disabled={busy}
-                            className="h-8 rounded-full bg-gold px-4 text-xs font-medium text-gold-ink hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-40"
+                            className="h-8 rounded-full bg-accent px-4 text-xs font-medium text-accent-ink hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
                             onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}
                           >
                             Confirm
@@ -403,7 +403,7 @@ export function ChatPanel({
                           <button
                             type="button"
                             disabled={busy}
-                            className="h-8 rounded-full border border-line-strong px-4 text-xs text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-40"
+                            className="h-8 rounded-full border border-line-strong px-4 text-xs text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
                             onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}
                           >
                             Cancel
@@ -429,7 +429,7 @@ export function ChatPanel({
                     {canRetry(message, index) ? (
                       <button
                         type="button"
-                        className="mt-1.5 text-xs text-danger underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-gold"
+                        className="mt-1.5 text-xs text-danger underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-accent"
                         onClick={() => submitText(message.text, message.clientId ?? undefined)}
                       >
                         Not sent · Retry
@@ -445,9 +445,9 @@ export function ChatPanel({
                     <AlfredMark size="size-7" />
                   </span>
                   <span className="flex gap-1" aria-hidden="true">
-                    <span className="alfred-dot size-1.5 rounded-full bg-gold" />
-                    <span className="alfred-dot size-1.5 rounded-full bg-gold [animation-delay:0.15s]" />
-                    <span className="alfred-dot size-1.5 rounded-full bg-gold [animation-delay:0.3s]" />
+                    <span className="alfred-dot size-1.5 rounded-full bg-accent" />
+                    <span className="alfred-dot size-1.5 rounded-full bg-accent [animation-delay:0.15s]" />
+                    <span className="alfred-dot size-1.5 rounded-full bg-accent [animation-delay:0.3s]" />
                   </span>
                 </div>
               ) : null}
@@ -475,7 +475,7 @@ export function ChatPanel({
                     key={suggestion.label}
                     type="button"
                     onClick={() => pickSuggestion(suggestion)}
-                    className="shrink-0 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted transition hover:border-gold/40 hover:text-ink focus-visible:outline-2 focus-visible:outline-gold"
+                    className="shrink-0 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted transition hover:border-accent/40 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
                   >
                     {suggestion.label}
                   </button>
@@ -485,7 +485,7 @@ export function ChatPanel({
             <label className="sr-only" htmlFor="alfred-message">
               Message Alfred
             </label>
-            <div className="rounded-[28px] border border-line-strong bg-surface px-3 pb-2 pt-3 shadow-sm transition focus-within:border-gold/50">
+            <div className="rounded-[28px] border border-line-strong bg-surface px-3 pb-2 pt-3 shadow-sm transition focus-within:border-accent/50">
               <textarea
                 ref={inputRef}
                 id="alfred-message"
@@ -509,7 +509,7 @@ export function ChatPanel({
                   disabled={busy}
                   onClick={() => fileRef.current?.click()}
                   aria-label="Attach a screenshot"
-                  className="grid size-9 place-items-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-gold disabled:opacity-40"
+                  className="grid size-9 place-items-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
                 >
                   <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
                     <path d="M12 5v14M5 12h14" />
@@ -530,7 +530,7 @@ export function ChatPanel({
                   type="submit"
                   disabled={busy || text.trim().length === 0}
                   aria-label="Send"
-                  className="grid size-9 shrink-0 place-items-center rounded-full bg-gold text-gold-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:bg-surface-2 disabled:text-faint"
+                  className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-accent-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:bg-surface-2 disabled:text-faint"
                 >
                   <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
                     <path d="M12 19V5m-6 6 6-6 6 6" />

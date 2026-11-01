@@ -1,66 +1,11 @@
 @import "tailwindcss";
-
-/* Dark is the default; [data-theme="light"] on <html> switches palettes. */
-:root {
-  --bg: #0b0b0c;
-  --surface: #131315;
-  --surface-2: #1b1b1e;
-  --line: rgba(255, 255, 255, 0.08);
-  --line-strong: rgba(255, 255, 255, 0.16);
-  --ink: #ededed;
-  --muted: #9b9ba1;
-  --faint: #6c6c72;
-  --gold: #d9b45a;
-  --gold-dim: #c6b184;
-  --gold-ink: #1a1404;
-  --gold-soft: rgba(217, 180, 90, 0.12);
-  --danger: #f08080;
-  --success: #7fd1a0;
-  color-scheme: dark;
-}
-
-:root[data-theme="light"] {
-  --bg: #f8f7f3;
-  --surface: #ffffff;
-  --surface-2: #f1efe9;
-  --line: rgba(20, 18, 10, 0.09);
-  --line-strong: rgba(20, 18, 10, 0.18);
-  --ink: #1b1b1d;
-  --muted: #66666c;
-  --faint: #8d8d93;
-  --gold: #a07a22;
-  --gold-dim: #6f5420;
-  --gold-ink: #ffffff;
-  --gold-soft: rgba(160, 122, 34, 0.1);
-  --danger: #c43d3d;
-  --success: #2f8f5b;
-  color-scheme: light;
-}
-
-@theme inline {
-  --color-bg: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-2: var(--surface-2);
-  --color-line: var(--line);
-  --color-line-strong: var(--line-strong);
-  --color-ink: var(--ink);
-  --color-muted: var(--muted);
-  --color-faint: var(--faint);
-  --color-gold: var(--gold);
-  --color-gold-dim: var(--gold-dim);
-  --color-gold-ink: var(--gold-ink);
-  --color-gold-soft: var(--gold-soft);
-  --color-danger: var(--danger);
-  --color-success: var(--success);
-  /* --font-aktiv is unset until licensed Aktiv Grotesk files are loaded. See app/fonts.ts. */
-  --font-sans: var(--font-instrument), "Avenir Next", "Segoe UI", sans-serif;
-  --font-display: var(--font-aktiv, var(--font-instrument)), "Avenir Next", "Segoe UI", sans-serif;
-}
+/* Colours and type live in theme.css. */
+@import "./theme.css";
 
 body {
   background: var(--bg);
   color: var(--ink);
-  font-family: var(--font-sans), "Avenir Next", "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
 }
 
 @layer utilities {
@@ -70,7 +15,7 @@ body {
 }
 
 ::selection {
-  background: var(--gold-soft);
+  background: var(--accent-soft);
 }
 
 @keyframes alfred-dot {
@@ -92,7 +37,7 @@ body {
 
 .auth-screen {
   background-color: var(--bg);
-  background-image: radial-gradient(70% 42% at 50% -12%, var(--gold-soft), transparent 70%);
+  background-image: radial-gradient(70% 42% at 50% -12%, var(--accent-soft), transparent 70%);
 }
 
 .auth-noise {
@@ -105,7 +50,7 @@ body {
 }
 
 .alfred-avatar-glow {
-  background: radial-gradient(circle, rgba(217, 180, 90, 0.28), transparent 68%);
+  background: radial-gradient(circle, color-mix(in srgb, var(--brand) 30%, transparent), transparent 68%);
   animation: alfred-glow 8s ease-in-out infinite;
 }
 
@@ -141,7 +86,7 @@ body {
 
   .auth-brand {
     background:
-      radial-gradient(85% 58% at 28% 18%, var(--gold-soft), transparent 64%),
+      radial-gradient(85% 58% at 28% 18%, var(--accent-soft), transparent 64%),
       var(--bg);
   }
 }

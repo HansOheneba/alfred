@@ -13,7 +13,7 @@ export default function ReviewPage() {
   return (
     <Suspense
       fallback={
-        <AppShell current="dashboard" name="">
+        <AppShell current="review" name="">
           <div className="mx-auto flex w-full max-w-3xl flex-col gap-3 px-4 py-6 sm:px-6" aria-busy="true">
             <Skeleton className="h-8 w-48" />
             <Skeleton className="h-4 w-72 max-w-full" />
@@ -35,7 +35,7 @@ async function ReviewScreen() {
   const name = account.kind === "error" ? "" : account.profile.preferredName.trim();
   if (account.kind === "error") {
     return (
-      <AppShell current="dashboard" name="">
+      <AppShell current="review" name="">
         <p className="mx-auto w-full max-w-3xl px-4 py-8 text-sm text-danger" role="alert">
           {account.message}
         </p>
@@ -48,7 +48,7 @@ async function ReviewScreen() {
     items = await loadReview(account.profile, account.settings);
   } catch (error) {
     return (
-      <AppShell current="dashboard" name={name}>
+      <AppShell current="review" name={name}>
         <p className="mx-auto w-full max-w-3xl px-4 py-8 text-sm text-danger" role="alert">
           {error instanceof Error ? error.message : "Alfred could not load your payments."}
         </p>
@@ -57,7 +57,7 @@ async function ReviewScreen() {
   }
 
   return (
-    <AppShell current="dashboard" name={name}>
+    <AppShell current="review" name={name}>
       <ReviewClient items={items} timeZone={account.profile.timezone} />
     </AppShell>
   );

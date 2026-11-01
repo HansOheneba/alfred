@@ -1,3 +1,4 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
@@ -7,6 +8,7 @@ import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/
 import { SettingsView } from "@/app/settings/settings-view";
 import { loadAccountSettings } from "@/lib/accounts/settings-store";
 import { telegramBotUsername } from "@/lib/telegram/bot-info";
+import { HOME_COOKIE, readHome } from "@/lib/web/home";
 import { loadLedger } from "@/lib/web/ledger";
 
 export default function SettingsPage() {
@@ -64,12 +66,13 @@ async function SettingsContent() {
 
   let data;
   try {
-    const [settings, ledger, botUsername] = await Promise.all([
+    const [settings, ledger, botUsername, cookieStore] = await Promise.all([
       loadAccountSettings(account.settings.supabase, account.userId),
       loadLedger(account.profile, account.settings),
       telegramBotUsername(),
+      cookies(),
     ]);
-    data = { settings, ledger, botUsername };
+    data = { settings, ledger, botUsername, home: readHome(cookieStore.get(HOME_COOKIE)?.value) };
   } catch (error) {
     return (
       <AppShell current="settings" name={account.profile.preferredName.trim()}>
@@ -84,7 +87,7 @@ async function SettingsContent() {
 
   return (
     <AppShell current="settings" name={account.profile.preferredName.trim()}>
-      <SettingsView initial={data.settings} ledger={data.ledger} botUsername={data.botUsername} />
+      <SettingsView initial={data.settings} ledger={data.ledger} botUsername={data.botUsername} home={data.home} />
     </AppShell>
   );
 }

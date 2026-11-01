@@ -9,6 +9,7 @@ import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
 import { DataSection } from "@/app/settings/data-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
+import type { HomeScreen } from "@/lib/web/home";
 import type { Ledger } from "@/lib/web/ledger";
 
 const SECTIONS = [
@@ -19,7 +20,7 @@ const SECTIONS = [
   { id: "reminders", label: "Reminders" },
   { id: "telegram", label: "Telegram" },
   { id: "bank", label: "Bank messages" },
-  { id: "app", label: "Install app" },
+  { id: "app", label: "App & look" },
   { id: "data", label: "Data & privacy" },
 ] as const;
 
@@ -54,10 +55,12 @@ export function SettingsView({
   initial,
   ledger,
   botUsername,
+  home,
 }: {
   initial: AccountSettings;
   ledger: Ledger;
   botUsername: string | null;
+  home: HomeScreen;
 }) {
   const [section, setSection] = useState<SectionId>("profile");
   const [form, setForm] = useState(initial);
@@ -136,11 +139,11 @@ export function SettingsView({
                 data-section={item.id}
                 onClick={() => choose(item.id)}
                 aria-current={active ? "page" : undefined}
-                className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm transition focus-visible:outline-2 focus-visible:outline-gold ${
+                className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm transition focus-visible:outline-2 focus-visible:outline-accent ${
                   active ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"
                 }`}
               >
-                {active ? <span className="mr-2 inline-block size-1.5 rounded-full bg-gold align-middle" aria-hidden="true" /> : null}
+                {active ? <span className="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle" aria-hidden="true" /> : null}
                 {item.label}
               </button>
             );
@@ -257,7 +260,7 @@ export function SettingsView({
           ) : null}
 
           {section === "bank" ? <BankSection bank={ledger.bank} currency={ledger.currency} /> : null}
-          {section === "app" ? <AppSection /> : null}
+          {section === "app" ? <AppSection home={home} /> : null}
           {section === "data" ? <DataSection /> : null}
         </div>
       </div>
@@ -292,11 +295,11 @@ function SaveBar({ dirty, state, onSave, onReset }: { dirty: boolean; state: Sav
 function Choice({ checked, onChange, title, body }: { checked: boolean; onChange: () => void; title: string; body: string }) {
   return (
     <label
-      className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-gold ${
-        checked ? "border-gold bg-gold-soft" : "border-line hover:border-line-strong"
+      className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${
+        checked ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong"
       }`}
     >
-      <input type="radio" name="reply-length" checked={checked} onChange={onChange} className="mt-1 accent-[var(--gold)]" />
+      <input type="radio" name="reply-length" checked={checked} onChange={onChange} className="mt-1 accent-[var(--accent)]" />
       <span>
         <span className="block text-sm font-medium">{title}</span>
         <span className="mt-1 block text-sm text-muted">{body}</span>
@@ -330,8 +333,8 @@ function Reminder({
           aria-checked={enabled}
           aria-labelledby={`${id}-label`}
           onClick={() => onEnabled(!enabled)}
-          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold ${
-            enabled ? "bg-gold" : "bg-surface-2 ring-1 ring-line-strong"
+          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
+            enabled ? "bg-accent" : "bg-surface-2 ring-1 ring-line-strong"
           }`}
         >
           <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
@@ -374,7 +377,7 @@ function TelegramSection({
   const status = saved.telegramLocked ? "linked" : saved.telegramUserId ? "waiting" : "none";
   const badge = {
     linked: { text: "Connected", className: "bg-success/15 text-success" },
-    waiting: { text: "Waiting for your first message", className: "bg-gold-soft text-gold" },
+    waiting: { text: "Waiting for your first message", className: "bg-accent-soft text-accent" },
     none: { text: "Not connected", className: "bg-surface-2 text-muted" },
   }[status];
   const botLink = botUsername ? `https://t.me/${botUsername}` : null;
@@ -398,7 +401,7 @@ function TelegramSection({
             href={botLink}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-10 items-center rounded-full bg-gold px-4 text-sm font-medium text-gold-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold"
+            className="inline-flex h-10 items-center rounded-full bg-accent px-4 text-sm font-medium text-accent-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
           >
             Open Alfred on Telegram
           </a>
@@ -414,7 +417,7 @@ function TelegramSection({
             "Send Alfred any message. That connects and locks the ID to your account.",
           ].map((step, index) => (
             <li key={step} className="flex gap-3">
-              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gold-soft text-xs font-medium text-gold">{index + 1}</span>
+              <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-medium text-accent">{index + 1}</span>
               <span className="pt-0.5 text-muted">{step}</span>
             </li>
           ))}

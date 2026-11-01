@@ -50,7 +50,7 @@ function Item({ item, compact }: { item: LedgerBankItem; compact: boolean }) {
   }
 
   const chip =
-    "inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong px-3 text-xs text-ink transition hover:border-gold/50 hover:bg-gold-soft focus-visible:outline-2 focus-visible:outline-gold disabled:opacity-50";
+    "inline-flex h-8 items-center gap-1.5 rounded-full border border-line-strong px-3 text-xs text-ink transition hover:border-accent/50 hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
 
   return (
     <li className="rounded-xl border border-line bg-surface p-3">
@@ -119,7 +119,7 @@ export function NeedsLabel({ items, compact = false, limit }: { items: LedgerBan
         ))}
       </ul>
       {hidden > 0 ? (
-        <Link href="/review" className="mt-2 inline-block text-xs text-gold underline-offset-4 hover:underline">
+        <Link href="/review" className="mt-2 inline-block text-xs text-accent underline-offset-4 hover:underline">
           Review all {items.length} →
         </Link>
       ) : null}
