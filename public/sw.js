@@ -1,6 +1,6 @@
 // Alfred's service worker: fast repeat loads and a friendly offline screen.
 // It never caches API responses, sign-in, or pages with personal data.
-const VERSION = "alfred-v1";
+const VERSION = "alfred-v2";
 const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/alfred.png", "/android-chrome-192x192.png"];

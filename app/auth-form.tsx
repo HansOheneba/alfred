@@ -241,7 +241,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
                   type="button"
                   aria-pressed={showPassword}
                   onClick={() => setShowPassword((value) => !value)}
-                  className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-gold"
+                  className="absolute inset-y-0 right-0 px-3 text-xs font-medium text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
                 >
                   {showPassword ? "Hide" : "Show"}
                 </button>
@@ -281,7 +281,14 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
             Sign in
           </Link>
         </p>
-      ) : null}
+      ) : (
+        <p className="mt-8 text-sm text-muted">
+          Been invited?{" "}
+          <Link href="/signup" className={textLinkClass}>
+            Create an account
+          </Link>
+        </p>
+      )}
     </AuthScreen>
   );
 }
@@ -372,8 +379,8 @@ function MethodButton({
       aria-pressed={pressed}
       disabled={disabled}
       onClick={onClick}
-      className={`h-11 rounded-lg text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-gold disabled:opacity-50 ${
-        pressed ? "bg-bg text-ink ring-1 ring-gold/70" : "text-muted hover:text-ink"
+      className={`h-11 rounded-lg text-sm font-medium transition-colors focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50 ${
+        pressed ? "bg-bg text-ink ring-1 ring-accent/70" : "text-muted hover:text-ink"
       }`}
     >
       {children}
@@ -452,9 +459,9 @@ function QuietButton({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElem
 const headingClass = "font-display text-[1.65rem] font-medium leading-tight tracking-tight text-ink";
 const supportClass = "mt-2 text-sm leading-6 text-muted";
 const inputClass =
-  "h-12 w-full rounded-xl border border-line-strong bg-surface px-3.5 text-base text-ink placeholder:text-faint transition-colors hover:border-gold/40 focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold-soft";
+  "h-12 w-full rounded-xl border border-line-strong bg-surface px-3.5 text-base text-ink placeholder:text-faint transition-colors hover:border-accent/40 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft";
 const primaryButtonClass =
-  "inline-flex h-12 w-full items-center justify-center rounded-xl bg-gold text-[15px] font-medium text-gold-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-12 w-full items-center justify-center rounded-xl bg-accent text-[15px] font-medium text-accent-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50";
 const quietButtonClass =
-  "text-sm text-muted underline decoration-line-strong underline-offset-4 transition hover:text-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:opacity-50";
-const textLinkClass = "text-gold underline decoration-gold/40 underline-offset-4 hover:decoration-gold focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold";
+  "text-sm text-muted underline decoration-line-strong underline-offset-4 transition hover:text-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-50";
+const textLinkClass = "text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";

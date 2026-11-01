@@ -22,18 +22,18 @@ export const ALFRED_EMAIL_AVATAR_URL = `${DASHBOARD_URL}/email/alfred.png`;
 
 export const OTP_EMAIL_SUBJECT = "Your Alfred sign-in code";
 
-const fontFamily = '"Instrument Sans", "Avenir Next", "Segoe UI", Helvetica, Arial, sans-serif';
+const fontFamily = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif';
 
-/** Light-theme tokens from app/globals.css, written as hex because email clients ignore CSS variables. */
+/** Light-theme tokens from app/theme.css, written as hex because email clients ignore CSS variables. */
 const color = {
-  page: "#f8f7f3",
+  page: "#fcfcfe",
   paper: "#ffffff",
-  ink: "#1b1b1d",
-  muted: "#66666c",
-  line: "#e6e2d8",
-  gold: "#d9b45a",
-  otp: "#f7f3ea",
-  otpLine: "#e4dccb",
+  ink: "#1d1c27",
+  muted: "#736d7d",
+  line: "#e8e4ef",
+  accent: "#137d70",
+  otp: "#eef8f4",
+  otpLine: "#cfe6dd",
 } as const;
 
 const sheet: CSSProperties = {
@@ -171,7 +171,7 @@ export function OtpEmail({ code, expiryLabel }: OtpEmailProps) {
                     <Text style={wordmark}>Alfred</Text>
                   </Column>
                 </Row>
-                <Rule tone={color.gold} weight={2} before={22} after={28} />
+                <Rule tone={color.accent} weight={2} before={22} after={28} />
                 <Heading as="h1" m={0} style={heading}>
                   Your Alfred sign-in code
                 </Heading>
@@ -259,8 +259,8 @@ function OtpPanel({ code }: { code: string }) {
               cellPadding={0}
               cellSpacing={0}
               role="presentation"
-              bgcolor={color.gold}
-              style={{ width: "100%", backgroundColor: color.gold }}
+              bgcolor={color.accent}
+              style={{ width: "100%", backgroundColor: color.accent }}
             >
               <tbody>
                 <tr>

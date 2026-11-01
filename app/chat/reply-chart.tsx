@@ -20,7 +20,7 @@ export function ReplyChart({ chart }: { chart: ChatChart }) {
             <XAxis type="number" hide />
             <YAxis type="category" dataKey="label" width={92} tickLine={false} axisLine={false} tick={{ fill: "var(--muted)", fontSize: 12 }} />
             <Tooltip
-              cursor={{ fill: "var(--gold-soft)" }}
+              cursor={{ fill: "var(--accent-soft)" }}
               contentStyle={{ background: "var(--surface)", border: "1px solid var(--line-strong)", borderRadius: 12, color: "var(--ink)", fontSize: 12 }}
               itemStyle={{ color: "var(--ink)" }}
               labelStyle={{ color: "var(--muted)" }}

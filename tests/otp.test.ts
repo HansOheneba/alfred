@@ -31,7 +31,7 @@ describe("otp email", () => {
     expect(message.html).toContain('alt="Alfred"');
     expect(message.html).toContain("Alfred");
     expect(message.html).toContain("<table");
-    expect(message.html).toContain("background-color:#f8f7f3");
+    expect(message.html).toContain("background-color:#fcfcfe");
     expect(message.html).not.toContain("localhost");
     expect(message.html).not.toContain("file:");
     expect(EMAIL_OTP_EXPIRY_SECONDS).toBe(3600);

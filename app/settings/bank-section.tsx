@@ -57,7 +57,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
 function Step({ n, children }: { n: number; children: ReactNode }) {
   return (
     <li className="flex gap-3">
-      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-gold-soft text-xs font-medium text-gold">{n}</span>
+      <span className="grid size-6 shrink-0 place-items-center rounded-full bg-accent-soft text-xs font-medium text-accent">{n}</span>
       <div className="min-w-0 flex-1 leading-6">{children}</div>
     </li>
   );
@@ -174,7 +174,7 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
         ) : null}
 
         {token ? (
-          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-gold/30 bg-gold-soft p-4">
+          <div className="mt-5 flex flex-col gap-3 rounded-2xl border border-accent/30 bg-accent-soft p-4">
             <p className="text-sm font-medium text-ink">Your forwarding key</p>
             <p className="text-xs leading-5 text-muted">Copy it into your Shortcut now. You won&apos;t see this key again; if you lose it, reset it here.</p>
             <CopyRow label="Key" value={token} />
@@ -191,7 +191,7 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
         <ol className="flex flex-col gap-3 text-sm text-muted">
           <Step n={1}>
             On your iPhone, open{" "}
-            <a href="/send-to-alfred.shortcut" className="font-medium text-gold underline underline-offset-2">
+            <a href="/send-to-alfred.shortcut" className="font-medium text-accent underline underline-offset-2">
               the Send to Alfred shortcut
             </a>{" "}
             and tap <span className={em}>Add Shortcut</span>. When it asks, paste your forwarding key.
@@ -265,7 +265,7 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
         title={`Needs a label${bank.needsLabel.length ? ` (${bank.needsLabel.length})` : ""}`}
         action={
           bank.needsLabel.length > 1 ? (
-            <Link href="/review" className="text-xs text-gold underline-offset-4 hover:underline">
+            <Link href="/review" className="text-xs text-accent underline-offset-4 hover:underline">
               Label several at once →
             </Link>
           ) : undefined

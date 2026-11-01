@@ -2,7 +2,8 @@ import { chatDecisionSchema, chatTextSchema } from "@/lib/accounts/chat-request"
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import type { ChatMessageRecord } from "@/lib/accounts/messages";
-import { ensureAccount } from "@/lib/accounts/settings-store";
+import { openAccount } from "@/lib/accounts/settings-store";
+import { NOT_INVITED } from "@/lib/auth/invites";
 import { LIMITS } from "@/lib/config";
 import { getStudioSettings } from "@/lib/env";
 import { logError } from "@/lib/log";
@@ -30,7 +31,9 @@ export async function GET(): Promise<Response> {
   if (!user) return Response.json({ ok: false, text: "Sign in to talk to Alfred." }, { status: 401 });
   try {
     const settings = getStudioSettings();
-    await ensureAccount(settings.supabase, user.id);
+    if ((await openAccount(settings.supabase, user)) === "not_invited") {
+      return Response.json({ ok: false, text: NOT_INVITED }, { status: 403 });
+    }
     const history = await createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80);
     return Response.json({ ok: true, messages: history.map(present) });
   } catch (error) {
@@ -70,7 +73,9 @@ export async function POST(request: Request): Promise<Response> {
     if (!allowed) {
       return Response.json({ ok: false, text: "Too many messages. Wait a minute and try again." }, { status: 429 });
     }
-    await ensureAccount(settings.supabase, user.id);
+    if ((await openAccount(settings.supabase, user)) === "not_invited") {
+      return Response.json({ ok: false, text: NOT_INVITED }, { status: 403 });
+    }
     const profile = await createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id);
     if (!profile) return Response.json({ ok: false, text: "Your profile is not ready yet." }, { status: 500 });
     const turn = text.success

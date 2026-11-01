@@ -1,0 +1,94 @@
+/*
+ * Alfred's design tokens: the one file to edit to change how Alfred looks.
+ *
+ * Light is the default. [data-theme="dark"] on <html> switches to dark.
+ * Every colour in the app comes from these variables through the Tailwind
+ * names in the @theme block below (bg-surface, text-accent, text-income…),
+ * so a change here reaches every screen.
+ */
+
+:root {
+  /* Surfaces */
+  --bg: #fcfcfe; /* page canvas */
+  --surface: #ffffff; /* cards, dock, dialogs */
+  --surface-2: #f4f3f8; /* hovers, inputs, quiet fills */
+  --line: #e8e4ef;
+  --line-strong: #d6d0e0;
+
+  /* Text */
+  --ink: #1d1c27;
+  --muted: #736d7d;
+  --faint: #9a94a4;
+
+  /* Action colour: buttons, links, the active tab */
+  --accent: #137d70;
+  --accent-strong: #0c665b;
+  --accent-ink: #ffffff; /* text on an accent fill */
+  --accent-soft: #eef8f4;
+
+  /* Brand colour: Alfred's own violet, used sparingly (mark, highlights, charts) */
+  --brand: #7254ca;
+  --brand-soft: #ede8fc;
+
+  /* Money */
+  --income: #286d59; /* money in */
+  --outgoing: #ab4e43; /* money out */
+
+  /* Feedback */
+  --danger: #b3412f;
+  --success: #286d59;
+
+  color-scheme: light;
+}
+
+:root[data-theme="dark"] {
+  --bg: #18151f;
+  --surface: #211d29;
+  --surface-2: #2b2635;
+  --line: #393140;
+  --line-strong: #4a4153;
+
+  --ink: #faf8fd;
+  --muted: #b1a3c0;
+  --faint: #857a92;
+
+  --accent: #5cc4b2;
+  --accent-strong: #7fd6c6;
+  --accent-ink: #0b211d;
+  --accent-soft: rgba(92, 196, 178, 0.14);
+
+  --brand: #b59cff;
+  --brand-soft: #352942;
+
+  --income: #83c5ab;
+  --outgoing: #edaaa2;
+
+  --danger: #f0998c;
+  --success: #83c5ab;
+
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-2: var(--surface-2);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-accent: var(--accent);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-ink: var(--accent-ink);
+  --color-accent-soft: var(--accent-soft);
+  --color-brand: var(--brand);
+  --color-brand-soft: var(--brand-soft);
+  --color-income: var(--income);
+  --color-outgoing: var(--outgoing);
+  --color-danger: var(--danger);
+  --color-success: var(--success);
+  /* The phone's own typeface: San Francisco on Apple devices, Segoe on Windows, Roboto on Android. */
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", sans-serif;
+  --font-display: var(--font-sans);
+}

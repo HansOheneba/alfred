@@ -1,6 +1,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 
+import { findInvite, NOT_INVITED } from "@/lib/auth/invites";
 import { createEmailOtp, type OtpVerifyType } from "@/lib/auth/issue-otp";
 import { otpEmail, readResendConfig, sendResendEmail } from "@/lib/email/resend";
 import { getDatabaseSettings } from "@/lib/env";
@@ -25,6 +26,10 @@ export async function POST(request: Request): Promise<Response> {
   const parsed = requestBody.safeParse(json);
   if (!parsed.success || !EMAIL.test(parsed.data.email)) {
     return Response.json({ ok: false, text: "Enter a valid email address." }, { status: 400 });
+  }
+
+  if (parsed.data.mode === "sign-up" && !findInvite(parsed.data.email)) {
+    return Response.json({ ok: false, text: NOT_INVITED }, { status: 403 });
   }
 
   const resend = readResendConfig();

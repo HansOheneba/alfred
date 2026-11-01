@@ -34,7 +34,7 @@ function Person({ person }: { person: KnownPerson }) {
       <div className="flex items-baseline justify-between gap-3">
         <h2 className="min-w-0 truncate text-[15px] text-ink">{person.name}</h2>
         {!editing ? (
-          <button type="button" className="shrink-0 text-xs text-gold underline-offset-4 hover:underline" onClick={() => setEditing(true)}>
+          <button type="button" className="shrink-0 text-xs text-accent underline-offset-4 hover:underline" onClick={() => setEditing(true)}>
             {person.note ? "Edit note" : "Add a note"}
           </button>
         ) : null}

@@ -77,7 +77,7 @@ function Progress({ value, over = false }: { value: number; over?: boolean }) {
   const width = Math.max(0, Math.min(100, value));
   return (
     <div className="h-2 overflow-hidden rounded-full bg-surface-2" role="presentation">
-      <div className={`h-full rounded-full ${over ? "bg-danger" : width >= 80 ? "bg-gold" : "bg-success"}`} style={{ width: `${width}%` }} />
+      <div className={`h-full rounded-full ${over ? "bg-danger" : width >= 80 ? "bg-accent" : "bg-success"}`} style={{ width: `${width}%` }} />
     </div>
   );
 }
@@ -389,7 +389,7 @@ export function GoalsSection({ ledger }: { ledger: Ledger }) {
                       {goal.status === "completed" ? "Completed 🎉" : goal.targetDate ? `By ${displayDate(goal.targetDate)}` : "No target date"}
                     </p>
                   </div>
-                  <span className="text-sm font-medium tabular-nums text-gold">{percent}%</span>
+                  <span className="text-sm font-medium tabular-nums text-accent">{percent}%</span>
                 </div>
                 <div className="mt-3">
                   <Progress value={percent} />
@@ -467,7 +467,7 @@ export function GoalsSection({ ledger }: { ledger: Ledger }) {
                   type="checkbox"
                   checked={draft.completed}
                   onChange={(event) => setDraft({ ...draft, completed: event.target.checked })}
-                  className="size-4 accent-[var(--gold)]"
+                  className="size-4 accent-[var(--accent)]"
                 />
                 Mark as completed
               </label>

@@ -3,6 +3,7 @@ import type { CommunicationPreference } from "@/lib/config";
 import { DatabaseError } from "@/lib/errors";
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { parseTelegramUserId } from "@/lib/accounts/directory";
+import { findInvite } from "@/lib/auth/invites";
 import { query } from "@/lib/supabase/connection";
 
 export type AccountSettings = {
@@ -50,6 +51,27 @@ export function parseMinute(value: string): number | null {
   const minute = Number(match[2]);
   if (hour > 23 || minute > 59) return null;
   return hour * 60 + minute;
+}
+
+/**
+ * Makes sure a signed-in person has an account. A new account needs an invite
+ * (see lib/auth/invites.ts); its Telegram ID, if the invite has one, is linked
+ * straight away. If another account already holds that ID it stays there.
+ */
+export async function openAccount(
+  settings: SupabaseSettings,
+  user: { id: string; email?: string | null },
+): Promise<"ready" | "not_invited"> {
+  const existing = await query<{ id: string }>(settings, "select id from public.profiles where id = $1", [user.id]);
+  if (existing.length > 0) {
+    await ensureAccount(settings, user.id);
+    return "ready";
+  }
+  const invite = findInvite(user.email);
+  if (!invite) return "not_invited";
+  await ensureAccount(settings, user.id);
+  if (invite.telegramUserId) await createSupabaseAccountDirectory(settings).updateTelegramId(user.id, invite.telegramUserId);
+  return "ready";
 }
 
 export async function ensureAccount(settings: SupabaseSettings, ownerId: string): Promise<void> {

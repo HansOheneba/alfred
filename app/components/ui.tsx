@@ -4,14 +4,15 @@ import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "re
 
 import { Spinner } from "@/app/components/status";
 
-export const CATEGORY_COLORS = ["#d9b45a", "#7aa7e8", "#e48a5c", "#7fc8a0", "#b98ad9", "#5fb8b2", "#e07a8c", "#9c9a92", "#c9a3e8", "#8fb3c9"];
+// Category hues from the My Money palette: distinct, but muted enough to sit beside the teal.
+export const CATEGORY_COLORS = ["#7254ca", "#137d70", "#c77493", "#c9a15f", "#6194dd", "#b94e5b", "#67a69b", "#9b91b3", "#e08a5c", "#8d8994"];
 
 export function categoryColor(index: number): string {
   return CATEGORY_COLORS[index % CATEGORY_COLORS.length];
 }
 
 const buttonStyles = {
-  primary: "bg-gold text-gold-ink hover:brightness-110",
+  primary: "bg-accent text-accent-ink hover:brightness-110",
   secondary: "border border-line-strong bg-surface text-ink hover:bg-surface-2",
   ghost: "text-muted hover:bg-surface-2 hover:text-ink",
   danger: "bg-danger text-white hover:brightness-110",
@@ -28,7 +29,7 @@ export function Button({
     <button
       type="button"
       {...props}
-      className={`inline-flex items-center justify-center gap-2 rounded-full font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-gold disabled:cursor-not-allowed disabled:opacity-50 ${sizing} ${buttonStyles[variant]} ${className}`}
+      className={`inline-flex items-center justify-center gap-2 rounded-full font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${sizing} ${buttonStyles[variant]} ${className}`}
     />
   );
 }
@@ -69,7 +70,7 @@ export function Field({ label, hint, children }: { label: string; hint?: ReactNo
 }
 
 export const inputClass =
-  "h-10 w-full rounded-xl border border-line-strong bg-bg px-3 text-sm text-ink placeholder:text-faint focus:border-gold focus:outline-none focus:ring-2 focus:ring-gold-soft";
+  "h-10 w-full rounded-xl border border-line-strong bg-bg px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft";
 
 /** A modal built on <dialog>, so focus trapping and Escape come from the browser. */
 export function Dialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {

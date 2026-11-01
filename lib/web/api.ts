@@ -1,7 +1,8 @@
 import type { z } from "zod";
 
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
-import { ensureAccount } from "@/lib/accounts/settings-store";
+import { openAccount } from "@/lib/accounts/settings-store";
+import { NOT_INVITED } from "@/lib/auth/invites";
 import type { StudioSettings, UserProfile } from "@/lib/config";
 import { getStudioSettings } from "@/lib/env";
 import type { FinanceStore } from "@/lib/finance/store";
@@ -15,7 +16,7 @@ export async function requireOwner(): Promise<Owner | Response> {
   const user = await getAuthUser();
   if (!user) return fail("Sign in first.", 401);
   const settings = getStudioSettings();
-  await ensureAccount(settings.supabase, user.id);
+  if ((await openAccount(settings.supabase, user)) === "not_invited") return fail(NOT_INVITED, 403);
   const profile = await createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id);
   if (!profile) return fail("Your profile is not ready yet.", 500);
   return { profile, settings, store: createSupabaseFinanceStore(settings.supabase) };

@@ -96,7 +96,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
   }
 
   const chip =
-    "inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-3.5 text-sm text-ink transition hover:border-gold/50 hover:bg-gold-soft focus-visible:outline-2 focus-visible:outline-gold disabled:opacity-50";
+    "inline-flex h-9 items-center gap-1.5 rounded-full border border-line-strong px-3.5 text-sm text-ink transition hover:border-accent/50 hover:bg-accent-soft focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-50";
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-5 px-4 py-6 pb-72 sm:px-6">
@@ -133,7 +133,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
       {items.length === 0 ? (
         <EmptyState>
           Nothing is waiting. New payments Alfred can&rsquo;t place on its own will show up here.{" "}
-          <Link href="/dashboard" className="text-gold underline-offset-2 hover:underline">
+          <Link href="/dashboard" className="text-accent underline-offset-2 hover:underline">
             Back to the dashboard
           </Link>
         </EmptyState>
@@ -146,11 +146,11 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
             const sum = group.items.reduce((value, item) => value + cents(item.amount), 0);
             const first = group.items[0];
             return (
-              <li key={group.key} className={`rounded-2xl border bg-surface transition ${all ? "border-gold/60" : "border-line"}`}>
+              <li key={group.key} className={`rounded-2xl border bg-surface transition ${all ? "border-accent/60" : "border-line"}`}>
                 <label className="flex cursor-pointer items-center gap-3 px-4 py-3">
                   <input
                     type="checkbox"
-                    className="size-4 accent-[var(--color-gold)]"
+                    className="size-4 accent-[var(--color-accent)]"
                     checked={all}
                     ref={(element) => {
                       if (element) element.indeterminate = some;
@@ -170,7 +170,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                       {group.items.length === 1 && first.purpose ? ` · “${first.purpose}”` : ""}
                     </span>
                   </span>
-                  <span className={`shrink-0 tabular-nums text-[15px] font-medium ${first.direction === "in" ? "text-success" : "text-ink"}`}>
+                  <span className={`shrink-0 tabular-nums text-[15px] font-medium ${first.direction === "in" ? "text-income" : "text-ink"}`}>
                     {first.direction === "in" ? "+" : ""}
                     {formatAmount((sum / 100).toFixed(2), first.currency)}
                   </span>
@@ -182,7 +182,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                         <label className="flex cursor-pointer items-center gap-3 py-2 pl-7 text-sm">
                           <input
                             type="checkbox"
-                            className="size-3.5 accent-[var(--color-gold)]"
+                            className="size-3.5 accent-[var(--color-accent)]"
                             checked={selected.has(item.id)}
                             onChange={(event) => toggle([item.id], event.target.checked)}
                           />
@@ -288,7 +288,7 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                     </label>
                   ) : null}
                   <label className="flex items-center gap-2 text-xs text-muted">
-                    <input type="checkbox" className="size-3.5 accent-[var(--color-gold)]" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
+                    <input type="checkbox" className="size-3.5 accent-[var(--color-accent)]" checked={remember} onChange={(event) => setRemember(event.target.checked)} />
                     Remember these people
                   </label>
                 </div>
