@@ -17,28 +17,32 @@ import { logError } from "@/lib/log";
  */
 export type UnknownTextReader = (text: string, options: { sender: string | null; now: Date }) => Promise<ParsedBankMessage[]>;
 
-/** Worth asking the model about: names cedis and has a figure. */
+/** Worth asking the model about: names cedis and has a figure. Any sender: the model tells alerts from people's messages. */
 export function looksLikeMoney(text: string): boolean {
   return /\bGH(?:S|₵|¢)|\bcedis?\b/i.test(text) && /\d/.test(text) && text.length <= 1200;
 }
 
-const PROMPT = `You read SMS alerts from banks and mobile money providers in Ghana.
-For each separate alert in the text, say whether it records money actually moving into or out of the person's account.
+const PROMPT = `You read text messages for a person in Ghana and pick out the ones that record money moving in their own accounts.
+Texts can come from banks, mobile money providers and merchants, but also from people. The sender is a name like "Ecobank" or a phone number.
 
+For each separate message in the text, say whether it is an automated alert from a bank, mobile money provider or merchant system (from_provider), and whether it records money actually moving into or out of the person's account (moves_money).
+
+A message a person wrote is never from_provider and never moves_money, even when it talks about money ("I've sent you GHS 50", "pay me back the 200", "can you send 100 cedis"): the provider's own alert is what counts.
 Not money moving: declined or failed payments, one-time codes, balance-only notices, loan or product offers, promotions, reminders.
 A card payment the bank has put on hold ("earmarked", "reserved", "authorised", "pending") IS money moving: set on_hold to true.
 
 Copy figures exactly as written in the text. Use the Ghana cedi (GHS) figure; when a foreign amount has a cedi equivalent, use the cedi one.
 counterparty is who the money went to or came from, copied from the text, without account or phone numbers. Use null when the text doesn't say.
 transaction_id is the provider's reference number for the payment, copied from the text, or null.
-bank is the bank or provider's short name, like "Ecobank" or "Fidelity", or null.
+bank is the bank or provider's short name, like "Ecobank" or "Fidelity", or null. Mobile money alerts ("Cash In", "Cash Out", "MoMo", "Payment received for") are "MoMo" for MTN, "Telecel Cash" or "AirtelTigo Money".
 
-Reply with JSON only: {"alerts":[{"moves_money":true,"direction":"in"|"out","amount":"100.00","fee":"1.00"|null,"balance":"1947.22"|null,"counterparty":"KOFI MENSAH"|null,"transaction_id":"123456"|null,"on_hold":false,"bank":"Absa"|null}]}`;
+Reply with JSON only: {"alerts":[{"from_provider":true,"moves_money":true,"direction":"in"|"out","amount":"100.00","fee":"1.00"|null,"balance":"1947.22"|null,"counterparty":"KOFI MENSAH"|null,"transaction_id":"123456"|null,"on_hold":false,"bank":"Absa"|null}]}`;
 
 const answerSchema = z.object({
   alerts: z
     .array(
       z.object({
+        from_provider: z.boolean().nullish(),
         moves_money: z.boolean(),
         direction: z.enum(["in", "out"]).nullish(),
         amount: z.string().nullish(),
@@ -96,7 +100,8 @@ export function sourceSlug(sender: string | null, bank: string | null | undefine
  * money, or whose amount or direction can't be confirmed from the text.
  */
 export function checkAlert(text: string, alert: ModelAlert, options: { sender: string | null; now: Date }): ParsedBankMessage | null {
-  if (!alert.moves_money || !alert.direction) return null;
+  // Only a provider's own alert goes in the books; a person's message about money never does.
+  if (alert.from_provider === false || !alert.moves_money || !alert.direction) return null;
   const figures = figuresIn(text);
   const amount = figure(alert.amount, figures);
   if (!amount || Number(amount) <= 0) return null;

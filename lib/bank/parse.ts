@@ -333,7 +333,7 @@ function fingerprint(message: Parsed): string {
  */
 export function parseBankText(
   text: string,
-  options: { now: Date; timeZone: string; sender?: string | null },
+  options: { now: Date; timeZone: string; sender?: string | null; loose?: boolean },
 ): ParsedBankMessage[] {
   const hint: BankSource | null = options.sender
     ? /gcb/i.test(options.sender)
@@ -342,8 +342,8 @@ export function parseBankText(
         ? "momo"
         : null
     : null;
-  // The loose fallback is for MoMo and GCB wordings; texts from another named sender are left to the model reader.
-  const generic = !options.sender?.trim() || hint !== null;
+  // The loose fallback is for MoMo and GCB wordings; other senders' texts are left to the model reader.
+  const generic = options.loose ?? (!options.sender?.trim() || hint !== null);
   const headers = findHeaders(text, options.now, options.timeZone);
   const starts = [...text.matchAll(MESSAGE_START)].map((match) => match.index ?? 0);
   const bounds = starts.length > 0 ? starts : [0];

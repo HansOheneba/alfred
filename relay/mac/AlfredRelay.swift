@@ -1,5 +1,5 @@
-// Alfred relay for macOS: forwards new MoMo and GCB texts from the Messages
-// app to Alfred. Needs "Text Message Forwarding" on the iPhone so SMS reach
+// Alfred relay for macOS: forwards new SMS that mention cedis from the
+// Messages app to Alfred, which works out which ones moved the person's money. Needs "Text Message Forwarding" on the iPhone so SMS reach
 // this Mac, and Full Disk Access for this binary so it can read chat.db.
 //
 //   alfred-relay           send anything new since the last run
@@ -9,7 +9,7 @@
 //   { "key": "alf_…" }
 //
 // What it can touch is limited twice over: this code only reads chat.db and
-// only sends bank texts to Alfred, and before doing anything it locks itself
+// only sends SMS that mention money to Alfred (never iMessages), and before doing anything it locks itself
 // into sandbox.sb (built into the program), so macOS refuses every other file
 // in your home folder and any other network use. It won't run unsandboxed.
 
@@ -24,7 +24,7 @@ let checkOnly = CommandLine.arguments.contains("--check")
 
 /// The only place texts are sent. Not configurable, so a changed config file can't redirect them.
 let endpoint = URL(string: "https://alfred.hansopoku.com/api/ingest/sms")!
-/// Only money texts leave this Mac, the same filter as the iPhone automation.
+/// Only texts that mention money leave this Mac, the same filter as the iPhone automation.
 let moneyPattern = try! NSRegularExpression(pattern: "\\b(GHS|GH₵|GH¢|CEDIS)", options: [.caseInsensitive])
 /// On the first run, catch up on the last week. Alfred skips anything it already has.
 let firstRunLookback: TimeInterval = 7 * 86_400
@@ -38,6 +38,8 @@ struct Text {
     let body: String
     let sender: String
     let receivedAt: Date
+    /// "SMS", "iMessage" or "RCS".
+    let service: String
 }
 
 func log(_ message: String) {
@@ -80,7 +82,7 @@ func readTexts(after rowid: Int64?) throws -> [Text] {
     defer { sqlite3_close(db) }
 
     var sql = """
-        select m.ROWID, m.text, m.attributedBody, m.date, coalesce(h.id, '')
+        select m.ROWID, m.text, m.attributedBody, m.date, coalesce(h.id, ''), coalesce(m.service, '')
         from message m left join handle h on h.ROWID = m.handle_id
         where m.is_from_me = 0 and
         """
@@ -110,7 +112,8 @@ func readTexts(after rowid: Int64?) throws -> [Text] {
             body = decodeAttributedBody(data) ?? ""
         }
         let sender = String(cString: sqlite3_column_text(statement, 4))
-        texts.append(Text(rowid: id, body: body, sender: sender, receivedAt: appleDate(sqlite3_column_int64(statement, 3))))
+        let service = String(cString: sqlite3_column_text(statement, 5))
+        texts.append(Text(rowid: id, body: body, sender: sender, receivedAt: appleDate(sqlite3_column_int64(statement, 3)), service: service))
     }
     return texts
 }
@@ -119,14 +122,12 @@ func isMoney(_ body: String) -> Bool {
     moneyPattern.firstMatch(in: body, range: NSRange(body.startIndex..., in: body)) != nil
 }
 
-/// Banks and MoMo send from named sender IDs such as "MobileMoney" or "GCB Bank". People text from a
-/// phone number or an email address, so their messages are never sent, even if they mention cedis.
-func isFromBank(_ sender: String) -> Bool {
-    !sender.contains("@") && sender.rangeOfCharacter(from: .letters) != nil
-}
-
+/// Banks, MoMo and merchants send SMS, from a name like "MobileMoney" or sometimes a number. Every SMS
+/// that mentions cedis goes, whoever sent it: Alfred reads each one and keeps only the provider alerts that
+/// moved money, so a friend's "I've sent you GHS 50" is never counted. iMessages (from people, and from an
+/// email address) never leave this Mac.
 func shouldSend(_ text: Text) -> Bool {
-    isFromBank(text.sender) && isMoney(text.body)
+    (text.service == "SMS" || text.service == "RCS") && !text.sender.contains("@") && isMoney(text.body)
 }
 
 enum SendResult { case sent, rejected, retryLater }

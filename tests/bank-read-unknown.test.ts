@@ -50,6 +50,8 @@ describe("reading texts from banks without rules", () => {
       externalId: null,
     });
     expect(checkAlert(text, alert({ moves_money: false }), options)).toBeNull();
+    // A person's message about money never counts, even if the model thinks it moved money.
+    expect(checkAlert(text, alert({ from_provider: false }), options)).toBeNull();
     expect(checkAlert(text, alert({ direction: null }), options)).toBeNull();
   });
 
@@ -112,6 +114,20 @@ describe("learning a new bank", () => {
     }
     const trusted = await send(ECO("250.00", "900.00", "PS9999"));
     expect(trusted.outcomes[0]).toMatchObject({ outcome: "recorded", category: "Food" });
+  });
+
+  it("lets the model, not the loose rule, decide on a forwarded text with no sender", async () => {
+    const { deps, owner, bank } = setup();
+    // A friend's text, forwarded by the phone without a sender: the loose rule would read it as money sent.
+    const friend = "I have sent you GHS 50 for the fuel, check your momo";
+    deps.readUnknown = async (text, opts) => [checkAlert(text, alert({ from_provider: false, amount: "50", direction: "in", counterparty: null, transaction_id: null, balance: null }), opts)].filter((item) => item !== null);
+    const result = await ingestBankText(deps, owner, friend, { channel: "shortcut" });
+    expect(result.found).toBe(0);
+    expect(await bank.listMessages("42")).toEqual([]);
+    // Without a model, the loose rule still reads MoMo wordings it has no exact rule for.
+    deps.readUnknown = null;
+    const fallback = await ingestBankText(deps, owner, "You have received GHS 20.00 from ABENA KYEI. Your new balance: GHS 80.00", { channel: "shortcut" });
+    expect(fallback.found).toBe(1);
   });
 
   it("doesn't ask the model about MoMo or GCB texts the rules skipped", async () => {

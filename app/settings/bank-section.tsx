@@ -209,12 +209,12 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
           </Step>
           <Step n={4}>
             Tap <span className={em}>Done</span>, then repeat steps 2–3 with{" "}
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">CEDIS</code> for GCB texts.
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">CEDIS</code>, for banks that write it out.
           </Step>
-          <Step n={5}>Test it: wait for a MoMo text, or have someone send you one. Alfred will message you on Telegram, or it&apos;ll show under &ldquo;Needs a label&rdquo; below.</Step>
+          <Step n={5}>Test it: wait for a MoMo or bank text, or have someone send you money. Alfred will message you on Telegram, or it&apos;ll show under &ldquo;Needs a label&rdquo; below.</Step>
         </ol>
         <p className="mt-4 rounded-xl bg-surface-2 p-3 text-xs leading-5 text-muted">
-          Privacy: the Shortcut only sends texts containing GHS or CEDIS. Alfred keeps only money messages and ignores the rest. You can reset or turn off the key at any time.
+          Privacy: the Shortcut only sends texts containing GHS or CEDIS. Alfred keeps only alerts from banks, MoMo and merchants that moved your money; a friend&apos;s &ldquo;I&apos;ve sent you GHS 50&rdquo; is read and dropped, never stored. You can reset or turn off the key at any time.
         </p>
       </Card>
 
@@ -280,7 +280,10 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
 
       <Card title="How Alfred handles these">
         <ul className="flex list-disc flex-col gap-1.5 pl-5 text-sm leading-6 text-muted">
-          <li>MoMo fees are logged automatically under Fees.</li>
+          <li>MoMo, GCB and Absa texts are read by Alfred&apos;s own rules. Any other bank&apos;s texts are read by AI, and Alfred checks every figure against the text; he asks you about the first few from a new bank.</li>
+          <li>When a bank sends several texts for one payment (a debit, a transfer, a fee), it&apos;s counted once.</li>
+          <li>A card payment on hold counts straight away. If the same amount leaves later, Alfred asks whether it&apos;s the same payment.</li>
+          <li>Fees are logged automatically under Fees.</li>
           <li>Loan deposits are borrowed money, so they&apos;re not counted as income.</li>
           <li>Transfers between your own accounts aren&apos;t counted as income or spending.</li>
           <li>Unknown payees get a Telegram question (held from 10pm to 7am), and Alfred remembers your answer next time.</li>

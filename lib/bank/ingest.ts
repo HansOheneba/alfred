@@ -154,12 +154,15 @@ export async function ingestBankText(
   options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
 ): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number }> {
   const now = options.receivedAt ?? deps.now;
-  let parsed = parseBankText(text, { now, timeZone: profile.timezone, sender: options.sender });
-  let readBy: BankMessage["readBy"] = "rules";
-  // A bank Alfred has no rules for: the model reads it, and the server checks its figures against the text.
   // Texts from MoMo and GCB that the rules skipped are notices, not payments.
   const knownSender = /gcb|momo|mobile ?money|\bmtn\b/i.test(options.sender ?? "");
-  if (parsed.length === 0 && deps.readUnknown && !knownSender && options.channel !== "screenshot" && looksLikeMoney(text)) {
+  // Forwarded texts can be from anyone, so outside MoMo and GCB the model decides what's a payment, not
+  // the loose "GHS plus a money word" rule, which would take "I've sent you GHS 50" from a friend.
+  const modelReads = Boolean(deps.readUnknown) && !knownSender && options.channel !== "screenshot";
+  let parsed = parseBankText(text, { now, timeZone: profile.timezone, sender: options.sender, loose: !modelReads });
+  let readBy: BankMessage["readBy"] = "rules";
+  // A bank Alfred has no rules for: the model reads it, and the server checks its figures against the text.
+  if (parsed.length === 0 && deps.readUnknown && modelReads && looksLikeMoney(text)) {
     parsed = await deps.readUnknown(text, { sender: options.sender ?? null, now });
     readBy = "model";
   }
