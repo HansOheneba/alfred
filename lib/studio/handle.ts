@@ -20,6 +20,7 @@ import { clientTurnUpdateId, type ChatMessageRecord, type MessageLog } from "@/l
 import { logError } from "@/lib/log";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
+import { createSupabaseInvestmentStore, type InvestmentStore } from "@/lib/investments/store";
 
 export const STUDIO_CHAT_ID = 0;
 
@@ -47,6 +48,8 @@ export type StudioDeps = {
   voice?: Voice | null;
   bank?: BankStore | null;
   loans?: LoanStore | null;
+  /** Investments: what the person holds and the money they put in. */
+  investments?: InvestmentStore | null;
   people?: PeopleStore | null;
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
@@ -119,6 +122,7 @@ export async function handleProfileTurn(
     createId: deps.createId,
     createActionId: deps.createActionId,
     loans: deps.loans ?? null,
+    investments: deps.investments ?? null,
     people: deps.people ?? null,
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
     bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
@@ -252,6 +256,7 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     voice: createVoice(settings.deepseek),
     bank: createSupabaseBankStore(settings.supabase),
     loans: createSupabaseLoanStore(settings.supabase),
+    investments: createSupabaseInvestmentStore(settings.supabase),
     people: createSupabasePeopleStore(settings.supabase),
     notebook: createSupabaseNotebookStore(settings.supabase),
   };

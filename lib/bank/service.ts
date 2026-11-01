@@ -3,6 +3,7 @@ import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { ingestBankText, type IngestOutcome } from "@/lib/bank/ingest";
 import { announceOutcomes } from "@/lib/bank/notify";
 import { createUnknownTextReader } from "@/lib/bank/read-unknown";
+import { createSupabaseInvestmentStore } from "@/lib/investments/store";
 import { createSupabaseBankStore, hashIngestToken, type BankMessage } from "@/lib/bank/store";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { newTransactionId } from "@/lib/finance/ids";
@@ -37,6 +38,7 @@ export async function ingestBankMessages(
       bank: createSupabaseBankStore(settings),
       ledger: createSupabaseFinanceStore(settings),
       loans: createSupabaseLoanStore(settings),
+      investments: createSupabaseInvestmentStore(settings),
       now: new Date(),
       createId: newTransactionId,
       readUnknown: unknownReader(),
@@ -59,14 +61,14 @@ function unknownReader() {
 /** How long a burst of forwarded texts must go quiet before Alfred sums it up. */
 export const ANNOUNCE_QUIET_MS = 6_000;
 
-function outcomeOf(message: BankMessage, filed: Map<string, { category: string; chipIn: boolean }>): IngestOutcome {
-  const settled = ["needs_label", "recorded", "matched", "transfer", "loan", "skipped"] as const;
+function outcomeOf(message: BankMessage, filed: Map<string, { category: string; chipIn: boolean }>, invested: Map<string, string>): IngestOutcome {
+  const settled = ["needs_label", "recorded", "matched", "transfer", "loan", "skipped", "invested"] as const;
   const outcome = settled.find((status) => status === message.status) ?? "recorded";
   const transaction = message.transactionId ? filed.get(message.transactionId) : undefined;
   return {
     message,
     outcome,
-    category: transaction?.category,
+    category: message.status === "invested" ? invested.get(message.id) ?? "an investment" : transaction?.category,
     chipIn: transaction?.chipIn,
     feeRecorded: Boolean(message.feeTransactionId),
   };
@@ -96,6 +98,17 @@ export async function announceWhenQuiet(
       )
     : [];
   const filed = new Map(rows.map((row) => [row.transaction_id, { category: row.category, chipIn: row.chip_in }]));
+  // Which investment each payment went into, by the bank message it came from.
+  const investedIds = claimed.filter((item) => item.status === "invested").map((item) => item.id);
+  const investedRows = investedIds.length
+    ? await query<{ bank_message_id: string; name: string }>(
+        settings,
+        `select c.bank_message_id::text, i.name from public.investment_contributions c join public.investments i on i.id = c.investment_id
+         where c.owner_id = $1::uuid and c.bank_message_id::text = any($2::text[])`,
+        [profile.profileId, investedIds],
+      )
+    : [];
+  const invested = new Map(investedRows.map((row) => [row.bank_message_id, row.name]));
   await announceOutcomes(
     {
       settings,
@@ -107,6 +120,6 @@ export async function announceWhenQuiet(
       profile,
       now: new Date(),
     },
-    claimed.map((message) => outcomeOf(message, filed)),
+    claimed.map((message) => outcomeOf(message, filed, invested)),
   );
 }

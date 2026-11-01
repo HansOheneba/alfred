@@ -28,6 +28,7 @@ import { aboutForPrompt, type NotebookStore } from "@/lib/notebook/store";
 import { notesForPrompt, type PeopleStore } from "@/lib/people/store";
 import type { InlineButton } from "@/lib/telegram/client";
 import { localGreeting } from "@/lib/telegram/messages";
+import { KIND_LABELS, type InvestmentStore } from "@/lib/investments/store";
 
 /** What a conversation turn needs, from Telegram or the website. */
 export type TurnDeps = {
@@ -38,6 +39,8 @@ export type TurnDeps = {
   voice?: Voice | null;
   bank?: BankStore | null;
   loans?: LoanStore | null;
+  /** Investments: what the person holds and the money they put in. */
+  investments?: InvestmentStore | null;
   people?: PeopleStore | null;
   notebook?: NotebookStore | null;
 };
@@ -56,7 +59,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   if (settled) return { kind: "text", text: settled.text, context: settled.context };
 
   const ingest: IngestDeps | null = deps.bank
-    ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people }
+    ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }
     : null;
   const shortcut = ingest ? await labelShortcut(ingest, ctx.profile, text) : null;
   if (shortcut) return { kind: "text", text: shortcut.text, intent: "bank:label", buttons: shortcut.buttons };
@@ -82,6 +85,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
     people: await notesForPrompt(deps.people, ctx.profile.profileId),
     about: await aboutForPrompt(deps.notebook, ctx.profile.profileId),
+    investments: await investmentsForPrompt(deps.investments, ctx.profile.profileId),
     model: waiting || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
     open: (history) => (open = openThread({ history, waiting, pending, now: ctx.now })),
   });
@@ -160,4 +164,10 @@ function combine(parts: TurnReply[], action: InterpretedAction): TurnReply {
   const intent = action.type === "several" ? action.actions.map((item) => intentOf(item)).join("+").slice(0, 60) : parts[0].intent;
   const base = confirm?.kind === "confirm" ? { kind: "confirm" as const, text, actionId: confirm.actionId } : { kind: "text" as const, text };
   return { ...base, ...(context ? { context } : {}), ...(chart ? { chart } : {}), ...(buttons ? { buttons } : {}), intent };
+}
+
+/** "Risevest (US stocks, USD)" for each investment, so the model can name the one the user means. */
+async function investmentsForPrompt(store: InvestmentStore | null | undefined, ownerId: string): Promise<string[]> {
+  if (!store) return [];
+  return (await store.list(ownerId)).map((item) => `${item.name} (${KIND_LABELS[item.kind]}, ${item.currency}${item.maturesOn ? `, matures ${item.maturesOn}` : ""})`);
 }

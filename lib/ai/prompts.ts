@@ -34,6 +34,10 @@ const ACTION_SHAPES = [
   '{"type":"get_loans","person":null}',
   '{"type":"record_loan","direction":"lent","person":"Kofi","amount":"100.00","currency":"GHS","date":null,"note":null}',
   `{"type":"get_transaction_history",${RANGE},"limit":null}`,
+  '{"type":"get_investments","name":null,"net_worth":false}',
+  '{"type":"add_investment","name":"Risevest","kind":"us_stocks","provider":"Risevest","currency":"USD","value":null,"invested_before":null,"principal":null,"rate":null,"started_on":null,"matures_on":null,"holdings":[{"symbol":"VOO","quantity":1.5}]}',
+  '{"type":"update_investment","name":"Databank fund","kind":null,"provider":null,"currency":null,"value":"8400.00","invested_before":null,"principal":null,"rate":null,"started_on":null,"matures_on":null,"holdings":null,"closed":null}',
+  '{"type":"invest_money","name":"T-bill","amount":"500.00","currency":"GHS","direction":"in","date":null}',
   '{"type":"set_budget","category":"Food","amount":"800.00","currency":"GHS","period":"YYYY-MM or null"}',
   '{"type":"get_budget_status","category":null,"period":null}',
   '{"type":"create_savings_goal","name":"Laptop","target_amount":"3000.00","currency":"GHS","target_date":null,"current_amount":null}',
@@ -71,6 +75,8 @@ export function buildSystemPrompt(input: {
   /** What the user has told Alfred about people, one "Name: note" per line. */
   people?: string[];
   about?: string[];
+  /** The user's investments, one "Name (kind, currency)" per line. */
+  investments?: string[];
   /** What's open in the conversation: what Alfred just asked, offered, or promised. */
   open?: string[];
 }): string {
@@ -126,6 +132,12 @@ export function buildSystemPrompt(input: {
     "remember_about_me when the user tells you a standing fact about themself or how they want their money handled, like when they're paid or a rule for a kind of payment. note is the fact in a sentence in the user's own words, like \"I'm paid on the 25th.\" Facts about other people use remember_person.",
     "get_loans when they ask who owes them money, who they owe, or how much is owed either way with someone; set person when they name someone.",
     "record_loan for loans that didn't come through their bank texts, such as cash: direction lent when they lent someone money, repaid when that person paid them back, borrowed when someone lent the user money (so the user owes them), paid_back when the user paid back money they borrowed. Lending and borrowing are not spending or income.",
+    "Investments are not spending or income. add_investment when the user tells you about one you don't have yet; kind is us_stocks (Risevest, Bamboo, a US broker), gse_stocks (Ghana Stock Exchange shares), tbill, fixed_deposit, bond, mutual_fund (Databank, IC, Fidelity funds), pension (Tier 2 or 3), crypto, or other. Fill only what they said: value is what it's worth now; invested_before is what they had put in before; for a T-bill, fixed deposit or bond, principal, rate (yearly percent), started_on and matures_on (a 91-day T-bill bought today matures 91 days from today); holdings are tickers and how many shares or units. currency is USD for dollar accounts, otherwise null.",
+    "update_investment when they give a new value, holdings, a rate or a maturity for an investment they have, or say they've sold or cashed it out (closed true). A screenshot of an investment app showing its balance is update_investment with that value.",
+    "invest_money when they say they put money into an investment or took money out, outside their bank texts (direction in or out).",
+    "get_investments when they ask how their investments are doing, what they're worth, their returns, or when something matures; set name when they ask about one. Set net_worth true when they ask for their net worth or everything they have.",
+    "The user's investments:",
+    ...(input.investments?.length ? input.investments : ["None yet."]),
     "get_spending_summary for how much was spent. Use detail total for a total, by_category for a breakdown, largest for the biggest expenses, and comparison to compare with the previous period.",
     "get_income_summary for money received.",
     "get_budget_status for how much of a budget remains. get_financial_overview for an overall picture. get_transaction_history to list transactions.",
@@ -199,6 +211,7 @@ function waitingLines(waiting: { lines: string[]; current: number } | null | und
     "- action borrowed: money someone lent the user, incoming only, so the user now owes them (\"he gave me a loan\", \"I borrowed it from her\", \"I owe him\"); person is who lent it, or null for the sender.",
     "- action paid_back: the user paying back money they borrowed, outgoing only; person is who they paid, or null for the payee. Only for someone the list says the user owes.",
     "- action own_transfer: the user's own money moving between their own accounts.",
+    "- action investment: money the user put into an investment (outgoing), like Risevest, Bamboo, a T-bill, a fund or a pension, or took out of one (incoming). investment is its name, like \"Risevest\". It isn't spending or income.",
     "- action skip: a test, a mistake, a reversal, or something not to count.",
     "If the user says a payment's account isn't theirs or not to look at that account, use ignore_account instead of label_payments; it skips that account's payments for good.",
     "Include a payment only when the message clearly points at it: by name (nicknames and first names count, like Debby for Deborah), amount, date, network, or words like all, both, the rest. \"Everything to X\" covers every listed payment to X and no one else's.",

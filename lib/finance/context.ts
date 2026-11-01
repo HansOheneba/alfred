@@ -27,6 +27,8 @@ export async function interpretWithContext(input: {
   people?: string[];
   /** What Alfred has learnt about the user themself. */
   about?: string[];
+  /** The user's investments, one per line. */
+  investments?: string[];
   model?: string;
   /** Works out what's open in the conversation from its recent messages. */
   open?: (history: ChatMessageRecord[]) => string[];
@@ -90,6 +92,7 @@ export async function interpretWithContext(input: {
       waiting: input.waiting,
       people: input.people,
       about: input.about,
+      investments: input.investments,
       model: input.model,
       open: input.open?.(ownHistory),
     });

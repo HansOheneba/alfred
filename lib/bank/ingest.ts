@@ -1,6 +1,7 @@
 import { accountOf, isOwnName, parseBankText, payeeKey, purposeOf, sourceName, withoutRecipient, type ParsedBankMessage } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import { looksLikeMoney, type UnknownTextReader } from "@/lib/bank/read-unknown";
+import { findInvestment, type Investment, type InvestmentStore } from "@/lib/investments/store";
 import { bareTwin, feeDescription, feeFor, feesAround, holdFor, isBare, namedTwin, nearby } from "@/lib/bank/related";
 import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
@@ -24,11 +25,14 @@ export type IngestDeps = {
   people?: PeopleStore | null;
   /** Reads texts from banks Alfred has no rules for. Without it, those texts are left out. */
   readUnknown?: UnknownTextReader | null;
+  /** Where money into investments is tracked. Without it, the Investment label isn't offered. */
+  investments?: InvestmentStore | null;
 };
 
 export type IngestOutcome = {
   message: BankMessage;
-  outcome: "matched" | "recorded" | "needs_label" | "transfer" | "loan" | "skipped";
+  outcome: "matched" | "recorded" | "needs_label" | "transfer" | "loan" | "skipped" | "invested";
+  /** The category it was filed under, or for money into an investment, the investment's name. */
   category?: string;
   /** Filed as someone's share of a bill, lowering `category`'s spending. */
   chipIn?: boolean;
@@ -259,6 +263,15 @@ export async function ingestBankText(
     }
 
     const rule = learnable(stored.counterparty) ? await deps.bank.getRule(profile.profileId, payeeKey(stored.counterparty)) : null;
+    // A payee that funds an investment: the money goes in there, not into spending.
+    if (rule?.kind === "investment" && deps.investments) {
+      const investment = findInvestment(await deps.investments.list(profile.profileId), rule.description);
+      if (investment) {
+        await invest(deps, profile, stored, investment);
+        outcomes.push({ message: { ...stored, status: "invested" }, outcome: "invested", category: investment.name, feeRecorded });
+        continue;
+      }
+    }
     // Someone who chips in toward a bill: their money lowers that category's spending.
     if (rule?.kind === "chip_in") {
       const billCategory = stored.direction === "in" ? normalizeCategory(rule.category, "expense") : null;
@@ -294,6 +307,20 @@ export async function ingestBankText(
   }
 
   return { outcomes, duplicates, found: parsed.length };
+}
+
+/** Records a bank payment as money into (out, from the bank's side) or out of an investment. Returns the contribution's id. */
+async function invest(deps: IngestDeps, profile: UserProfile, message: BankMessage, investment: Investment): Promise<string> {
+  const contribution = await deps.investments!.addContribution(profile.profileId, {
+    investmentId: investment.id,
+    amount: message.direction === "out" ? message.amount : `-${message.amount}`,
+    currency: message.currency,
+    occurredOn: zonedYmd(new Date(message.occurredAt), profile.timezone),
+    bankMessageId: message.id,
+    note: describe(message),
+  });
+  await deps.bank.updateMessage(profile.profileId, message.id, { status: "invested" });
+  return contribution.id;
 }
 
 /**
@@ -352,6 +379,8 @@ export type Label =
   | { kind: "borrowed"; person?: string | null; note?: string | null }
   /** The person paying back money they borrowed. */
   | { kind: "paid_back"; person?: string | null }
+  /** Money into an investment (or out of it, for money coming in); `investment` names which, or the payee does. */
+  | { kind: "invest"; investment?: string | null }
   /** Someone's share of a bill the person paid, like a housemate's part of the internet. */
   /** `person` is whose share it is when someone else sent it for them, like a friend paying on a housemate's behalf. */
   | { kind: "chip_in"; category: string; description?: string | null; person?: string | null };
@@ -463,6 +492,33 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
     await deps.bank.updateMessage(profile.profileId, message.id, { status: label.kind, kind: LOAN_KINDS[label.kind] });
     change.loanId = entry.id;
     return { ok: true, text: await loanReply(deps.loans, profile.profileId, label.kind, person, money), changes: [change] };
+  }
+
+  if (label.kind === "invest") {
+    if (!deps.investments) return { ok: false, text: "I can't track investments right now." };
+    const all = await deps.investments.list(profile.profileId);
+    const key = learnable(message.counterparty) ? payeeKey(message.counterparty) : null;
+    let investment = findInvestment(all, label.investment) ?? (key ? all.find((item) => item.payeeKey === key) ?? null : null) ?? findInvestment(all, message.counterparty);
+    let created = false;
+    if (!investment) {
+      // An investment Alfred doesn't know yet: start one named after the payee, or the name the person gave.
+      const name = (label.investment?.trim() || (key ? titleCase(message.counterparty) : "")).slice(0, 80);
+      if (!name) return { ok: false, text: `Which investment did the ${money} go ${message.direction === "out" ? "into" : "out of"}?` };
+      investment = await deps.investments.create(profile.profileId, { name, kind: "other", payeeKey: key });
+      created = true;
+    } else if (key && !investment.payeeKey) {
+      await deps.investments.update(profile.profileId, investment.id, { payeeKey: key });
+    }
+    change.contributionId = await invest(deps, profile, message, investment);
+    // The payee funds this investment from now on.
+    if (key && options.learn !== false && !looksLikeOwner(message.counterparty, profile.preferredName)) {
+      change.rule = { payeeKey: key, previous: await deps.bank.getRule(profile.profileId, key) };
+      await deps.bank.saveRule(profile.profileId, { payeeKey: key, category: "Investments", description: investment.name, kind: "investment" });
+    }
+    const moved = message.direction === "out" ? `Put ${money} into ${investment.name}` : `Took ${money} out of ${investment.name}`;
+    const later = key && options.learn !== false ? ` Payments ${message.direction === "out" ? "to" : "from"} ${titleCase(message.counterparty)} will go there from now on.` : "";
+    const fresh = created ? ` I've started tracking ${investment.name}; tell me what it is (US stocks, a T-bill, a fund…) and what it's worth, and I'll keep its value.` : "";
+    return { ok: true, text: `${moved}. It isn't counted as ${message.direction === "out" ? "spending" : "income"}.${later}${fresh}`, changes: [change] };
   }
 
   if (label.kind === "chip_in") {
@@ -597,6 +653,7 @@ export async function undoLabels(deps: IngestDeps, profile: UserProfile, changes
     }
     if (change.loanId && deps.loans) await deps.loans.remove(profile.profileId, change.loanId);
     if (change.heldId) await deps.bank.updateMessage(profile.profileId, change.heldId, { kind: "card_hold" });
+    if (change.contributionId && deps.investments) await deps.investments.removeContribution(profile.profileId, change.contributionId);
     if (change.rule) {
       if (change.rule.previous) await deps.bank.saveRule(profile.profileId, change.rule.previous);
       else await deps.bank.deleteRule(profile.profileId, change.rule.payeeKey);

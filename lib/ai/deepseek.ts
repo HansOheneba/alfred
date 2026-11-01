@@ -41,6 +41,8 @@ export type InterpretRequest = {
   people?: string[];
   /** What Alfred has learnt about the user, one note per line. */
   about?: string[];
+  /** The user's investments, one per line. */
+  investments?: string[];
   /** What's open in the conversation: what Alfred just asked, offered, or promised. */
   open?: string[];
   /** A model to use instead of the configured one, for turns that need more care. */
@@ -68,6 +70,7 @@ export async function interpretMessage(
     waiting: request.waiting,
     people: request.people,
     about: request.about,
+    investments: request.investments,
     open: request.open,
   });
   const turnSettings = request.model ? { ...settings, model: request.model } : settings;

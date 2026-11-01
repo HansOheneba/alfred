@@ -132,3 +132,52 @@ describe("card payments on hold", () => {
     expect(later.outcomes[0].message.kind).toBe("payment");
   });
 });
+
+describe("money into investments", () => {
+  const RISEVEST =
+    "Payment made for GHS 1130.00 to RISEVEST TECHNOLOGIES Current Balance: GHS 610.40 . Available Balance: GHS 610.40. Reference: . Transaction ID: 90806991777. Fee charged: GHS0.00 Tax charged: 0.";
+  const RISEVEST_AGAIN =
+    "Payment made for GHS 565.00 to RISEVEST TECHNOLOGIES Current Balance: GHS 45.40 . Available Balance: GHS 45.40. Reference: . Transaction ID: 90806991888. Fee charged: GHS0.00 Tax charged: 0.";
+
+  async function withInvestments() {
+    const { MemoryInvestmentStore } = await import("@/lib/investments/store");
+    const base = setup();
+    const investments = new MemoryInvestmentStore();
+    base.deps.investments = investments;
+    return { ...base, investments };
+  }
+
+  it("starts tracking an investment from a payment, keeps it out of spending, and files the next one on its own", async () => {
+    const { deps, owner, ledger, bank, investments, send } = await withInvestments();
+    const first = await send(RISEVEST);
+    expect(labelButtons(first.outcomes[0].message, "", { investing: true }).flat().map((button) => button.text)).toContain("Investment");
+
+    const answered = await applyLabel(deps, owner, first.outcomes[0].message.id, { kind: "invest" });
+    expect(answered).toMatchObject({ ok: true });
+    if (!answered.ok) throw new Error("label failed");
+    expect(answered.text).toContain("Put GH₵1,130.00 into Risevest Technologies. It isn't counted as spending.");
+    expect(await ledger.listTransactions("42")).toEqual([]);
+    expect((await investments.contributions("42")).map((item) => item.amount)).toEqual(["1130.00"]);
+    expect((await bank.getMessage("42", first.outcomes[0].message.id))?.status).toBe("invested");
+
+    const second = await send(RISEVEST_AGAIN);
+    expect(second.outcomes[0]).toMatchObject({ outcome: "invested", category: "Risevest Technologies" });
+    expect((await investments.contributions("42")).map((item) => item.amount)).toEqual(["1130.00", "565.00"]);
+    expect(await ledger.listTransactions("42")).toEqual([]);
+  });
+
+  it("puts money into an investment the person names, and undo takes it back off", async () => {
+    const { deps, owner, bank, investments, send } = await withInvestments();
+    await investments.create("42", { name: "Risevest", kind: "us_stocks", currency: "USD" });
+    const first = await send(RISEVEST);
+    const answered = await applyLabel(deps, owner, first.outcomes[0].message.id, { kind: "invest", investment: "risevest" });
+    if (!answered.ok) throw new Error("label failed");
+    expect(answered.text).toContain("into Risevest.");
+    expect((await investments.list("42"))[0].payeeKey).toBe("risevest technologies");
+
+    await undoLabels(deps, owner, answered.changes);
+    expect(await investments.contributions("42")).toEqual([]);
+    expect((await bank.getMessage("42", first.outcomes[0].message.id))?.status).toBe("needs_label");
+    expect(await bank.getRule("42", "risevest technologies")).toBeNull();
+  });
+});

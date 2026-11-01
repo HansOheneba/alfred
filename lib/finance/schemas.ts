@@ -3,6 +3,7 @@ import { z } from "zod";
 import { LIMITS } from "@/lib/config";
 import { RELATIVE_PERIODS, isRealDate } from "@/lib/finance/dates";
 import { canonicalizeAmount, toMinor } from "@/lib/finance/money";
+import { INVESTMENT_KINDS } from "@/lib/investments/kinds";
 
 export const amountSchema = z
   .string()
@@ -67,15 +68,39 @@ const changesSchema = z
 /** What some of the payments waiting for a label were, by their number in the list Alfred was shown. */
 export const labelAnswerSchema = z.object({
   items: z.array(z.number().int().min(1).max(60)).min(1).max(60),
-  action: z.enum(["category", "chip_in", "own_transfer", "lent", "repaid", "borrowed", "paid_back", "skip"]),
+  action: z.enum(["category", "chip_in", "own_transfer", "lent", "repaid", "borrowed", "paid_back", "investment", "skip"]),
   category: z.string().max(40).nullable().optional(),
   description: z.string().max(200).nullable().optional(),
   person: z.string().max(120).nullable().optional(),
+  /** For an investment: which one, by name, like "Risevest" or "T-bill". */
+  investment: z.string().max(80).nullable().optional(),
   /** The month (YYYY-MM) a payment counts in when it's for another month, like next month's rent. */
   for_month: z.string().regex(/^\d{4}-\d{2}$/).nullable().optional(),
 });
 
 export type LabelAnswer = z.infer<typeof labelAnswerSchema>;
+
+/** A holding: a ticker (VOO, MTNGH) and how many shares or units. */
+const holdingSchema = z.object({
+  symbol: z.string().regex(/^[A-Za-z0-9.:-]{1,16}$/).transform((value) => value.toUpperCase()),
+  quantity: z.number().min(0).max(1_000_000_000),
+});
+
+/** What the person said about an investment; null for anything they didn't say. */
+const investmentFields = {
+  name: z.string().min(1).max(80),
+  provider: z.string().max(80).nullable().optional(),
+  currency: currencySchema.nullable().optional(),
+  /** What it's worth now, in its currency. */
+  value: nonNegativeAmountSchema.nullable().optional(),
+  /** What was in it before, in its currency. */
+  invested_before: nonNegativeAmountSchema.nullable().optional(),
+  principal: amountSchema.nullable().optional(),
+  rate: z.number().min(0).max(200).nullable().optional(),
+  started_on: isoDateSchema.nullable().optional(),
+  matures_on: isoDateSchema.nullable().optional(),
+  holdings: z.array(holdingSchema).max(30).nullable().optional(),
+};
 
 export const financeActionSchema = z.discriminatedUnion("type", [
   z.object({
@@ -135,6 +160,33 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     currency: currencySchema,
     date: isoDateSchema.nullable().optional(),
     note: z.string().max(200).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("get_investments"),
+    name: z.string().min(1).max(80).nullable().optional(),
+    /** Include cash balances from bank texts, for net worth. */
+    net_worth: z.boolean().nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("add_investment"),
+    ...investmentFields,
+    kind: z.enum(INVESTMENT_KINDS),
+  }),
+  z.object({
+    type: z.literal("update_investment"),
+    ...investmentFields,
+    kind: z.enum(INVESTMENT_KINDS).nullable().optional(),
+    /** True when the person has sold or cashed it all out. */
+    closed: z.boolean().nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("invest_money"),
+    name: z.string().min(1).max(80),
+    amount: amountSchema,
+    currency: currencySchema,
+    /** in: money put into the investment; out: money taken out of it. */
+    direction: z.enum(["in", "out"]),
+    date: isoDateSchema.nullable().optional(),
   }),
   z.object({
     type: z.literal("set_budget"),
@@ -375,6 +427,16 @@ export function normalizeModelValue(value: unknown, today?: string): unknown {
   if ("current_amount" in next && next.current_amount != null) {
     next.current_amount =
       canonicalizeAmount(next.current_amount, { allowZero: true }) ?? next.current_amount;
+  }
+  for (const key of ["value", "invested_before", "principal"] as const) {
+    if (key in next && next[key] != null) next[key] = canonicalizeAmount(next[key], { allowZero: key !== "principal" }) ?? next[key];
+  }
+  if (typeof next.rate === "string") next.rate = Number(next.rate.replace("%", ""));
+  if (Array.isArray(next.holdings)) {
+    next.holdings = next.holdings.map((item) => {
+      const holding = asRecord(item);
+      return holding && typeof holding.quantity === "string" ? { ...holding, quantity: Number(holding.quantity.replace(/,/g, "")) } : item;
+    });
   }
   if ("contribution" in next && next.contribution != null) {
     next.contribution = canonicalizeAmount(next.contribution) ?? next.contribution;

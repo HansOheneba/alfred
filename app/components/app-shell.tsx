@@ -5,7 +5,7 @@ import { useSyncExternalStore, type ReactNode } from "react";
 
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 
-export type Section = "chat" | "dashboard" | "review" | "notebook" | "settings";
+export type Section = "chat" | "dashboard" | "investments" | "review" | "notebook" | "settings";
 
 const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
   {
@@ -26,6 +26,12 @@ const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] 
         <rect x="14" y="14" width="7" height="7" rx="1.5" />
       </>
     ),
+  },
+  {
+    section: "investments",
+    href: "/investments",
+    label: "Investments",
+    icon: <path d="m3 18 6-6 4 4 8-11m-6 0h6v6" />,
   },
   {
     section: "review",

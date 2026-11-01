@@ -39,6 +39,8 @@ import {
   writeTransactions,
 } from "@/lib/finance/transactions";
 import type { TransactionDraft, TransactionRecord } from "@/lib/finance/types";
+import type { InvestmentStore } from "@/lib/investments/store";
+import { addInvestment, getInvestments, investMoney, updateInvestment } from "@/lib/investments/actions";
 import {
   BALANCE_DISCLAIMER,
   formatBudgetLine,
@@ -76,6 +78,8 @@ export type ActionContext = {
   conversation?: ConversationContext | null;
   /** Money lent out. Loan actions say they're unavailable without it. */
   loans?: LoanStore | null;
+  /** Investments: what the person holds and the money they put in. */
+  investments?: InvestmentStore | null;
   /** What the person told Alfred about people. */
   people?: PeopleStore | null;
   /** Everyone named in the person's bank texts, so "Grace" can mean Grace Oppong. */
@@ -110,6 +114,14 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return overview(action, ctx);
     case "get_insights":
       return insights(action, ctx);
+    case "get_investments":
+      return getInvestments(action, ctx);
+    case "add_investment":
+      return addInvestment(action, ctx);
+    case "update_investment":
+      return updateInvestment(action, ctx);
+    case "invest_money":
+      return investMoney(action, ctx);
     case "remember_person":
       return rememberPerson(action, ctx);
     case "ignore_account":

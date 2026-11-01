@@ -35,6 +35,7 @@ import { interpretWithContext } from "@/lib/finance/context";
 import { converse } from "@/lib/conversation/turn";
 import { welcomeFor } from "@/lib/conversation/welcome";
 import { userFacingError, UNLINKED_TEXT } from "@/lib/telegram/messages";
+import { createSupabaseInvestmentStore, type InvestmentStore } from "@/lib/investments/store";
 
 export type HandlerDeps = {
   settings: AppSettings;
@@ -48,6 +49,8 @@ export type HandlerDeps = {
   voice?: Voice | null;
   bank?: BankStore | null;
   loans?: LoanStore | null;
+  /** Investments: what the person holds and the money they put in. */
+  investments?: InvestmentStore | null;
   people?: PeopleStore | null;
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
@@ -201,7 +204,7 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     const choice = label ? (message?.kind === "hold_settle" && label.kind === "skip" ? "Yes, same payment" : labelChoiceText(label)) : "";
     return withClaim(update.update_id, actor, profile, deps, { userText: choice || "Label", channel: "telegram" }, async () => {
       if (!message || !label) return { kind: "text", text: "That button is no longer valid." };
-      const ingest = { bank, ledger: store, now: deps.now(), createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people };
+      const ingest = { bank, ledger: store, now: deps.now(), createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null };
       const asked = await questionFor(ingest.loans, profile, message, deps.people, bank);
       const result = await applyLabel(ingest, profile, message.id, label);
       if (result.ok) await bank.saveUndo(profile.profileId, result.changes);
@@ -342,6 +345,7 @@ function actionContext(
     createId: deps.createId,
     createActionId: deps.createActionId,
     loans: deps.loans ?? null,
+    investments: deps.investments ?? null,
     people: deps.people ?? null,
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
     bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
@@ -405,6 +409,7 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     voice: settings.deepseek ? createVoice(settings.deepseek, fetchImpl) : null,
     bank: settings.supabase ? createSupabaseBankStore(settings.supabase) : null,
     loans: settings.supabase ? createSupabaseLoanStore(settings.supabase) : null,
+    investments: settings.supabase ? createSupabaseInvestmentStore(settings.supabase) : null,
     people: settings.supabase ? createSupabasePeopleStore(settings.supabase) : null,
     notebook: settings.supabase ? createSupabaseNotebookStore(settings.supabase) : null,
     readPhoto: settings.deepseek

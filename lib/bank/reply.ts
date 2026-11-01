@@ -73,6 +73,7 @@ export function filedAs(label: Label): string {
   if (label.kind === "transfer") return "the user's own money";
   if (label.kind === "skip") return "left out";
   if (label.kind === "lent") return "money the user lent";
+  if (label.kind === "invest") return `money into ${label.investment ?? "an investment"}`;
   if (label.kind === "repaid") return "paying the user back";
   if (label.kind === "borrowed") return "money lent to the user";
   return "the user paying back a debt";
@@ -136,6 +137,7 @@ export function resolvedFrom(answers: LabelAnswer[], listed: BankMessage[]): Res
       if (answer.action === "repaid") return { messageIds, label: { kind: "repaid", person: answer.person ?? null } };
       if (answer.action === "borrowed") return { messageIds, label: { kind: "borrowed", person: answer.person ?? null, note: answer.description ?? null } };
       if (answer.action === "paid_back") return { messageIds, label: { kind: "paid_back", person: answer.person ?? null } };
+      if (answer.action === "investment") return { messageIds, label: { kind: "invest", investment: answer.investment ?? answer.description ?? null } };
       if (!answer.category) return null;
       if (answer.action === "chip_in") return { messageIds, label: { kind: "chip_in", category: answer.category, description: answer.description ?? null, person: answer.person ?? null } };
       return { messageIds, label: { kind: "category", category: answer.category, description: answer.description ?? null, forMonth: answer.for_month ?? null } };

@@ -18,6 +18,7 @@ function line(outcome: IngestOutcome): string {
     loan: "loan deposit, not counted as income",
     needs_label: "what was this?",
     skipped: "tiny test charge, left out",
+    invested: `into ${outcome.category}, not counted as spending`,
   }[outcome.outcome];
   return `• ${money}${who} · ${what}`;
 }
