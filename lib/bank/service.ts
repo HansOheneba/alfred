@@ -2,6 +2,7 @@ import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-director
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { ingestBankText, type IngestOutcome } from "@/lib/bank/ingest";
 import { announceOutcomes } from "@/lib/bank/notify";
+import { createUnknownTextReader } from "@/lib/bank/read-unknown";
 import { createSupabaseBankStore, hashIngestToken, type BankMessage } from "@/lib/bank/store";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { newTransactionId } from "@/lib/finance/ids";
@@ -10,6 +11,7 @@ import { createSupabaseLoanStore } from "@/lib/finance/loans";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { query } from "@/lib/supabase/connection";
 import { createTelegramClient } from "@/lib/telegram/client";
+import { getStudioSettings } from "@/lib/env";
 
 /** The person a forwarding secret belongs to, if it's valid. */
 export async function ownerForToken(settings: SupabaseSettings, token: string): Promise<UserProfile | null> {
@@ -37,11 +39,21 @@ export async function ingestBankMessages(
       loans: createSupabaseLoanStore(settings),
       now: new Date(),
       createId: newTransactionId,
+      readUnknown: unknownReader(),
     },
     profile,
     text,
     options,
   );
+}
+
+/** The model reader for unfamiliar banks, or null when DeepSeek isn't configured. */
+function unknownReader() {
+  try {
+    return createUnknownTextReader(getStudioSettings().deepseek);
+  } catch {
+    return null;
+  }
 }
 
 /** How long a burst of forwarded texts must go quiet before Alfred sums it up. */

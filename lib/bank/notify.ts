@@ -1,5 +1,6 @@
 import { IN_CHOICES, OUT_CHOICES, labelQuestion, learnable, looksLikeOwner, titleCase, type IngestOutcome, type Label } from "@/lib/bank/ingest";
 import { classifyPayee } from "@/lib/bank/payees";
+import { holdFor } from "@/lib/bank/related";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { MessageLog } from "@/lib/accounts/messages";
 import { DASHBOARD_URL, type SupabaseSettings, type UserProfile } from "@/lib/config";
@@ -32,6 +33,8 @@ function summaryLine(outcome: IngestOutcome): string | null {
   const who = message.counterparty ? titleCase(message.counterparty) : "";
   if (outcome.outcome === "recorded" && outcome.chipIn) return `Counted ${money}${who ? ` from ${who}` : ""} as their share of ${outcome.category}.`;
   if (outcome.outcome === "recorded") return `Filed ${money}${who ? ` to ${who}` : ""} under ${outcome.category}.`;
+  // A bank's second text about a payment another text already covers: nothing new to say.
+  if (outcome.outcome === "matched" && !who && !message.transactionId) return null;
   if (outcome.outcome === "matched") return `${money}${who ? ` to ${who}` : ""} matches something you already logged, so I've linked it.`;
   if (outcome.outcome === "transfer") return `${money} moved between your own accounts. Not counted as income or spending.`;
   if (outcome.outcome === "loan") return `${money} came in from your loan account. That's borrowed money, so I haven't counted it as income.`;
@@ -64,6 +67,12 @@ export function labelButtons(message: BankMessage, ownerName = "", options: { se
   const choices: readonly string[] = message.direction === "out" ? OUT_CHOICES : IN_CHOICES;
   const buttons = choices.map((category, index) => ({ text: category, callbackData: `b:${message.id}:c${index}` }));
   const rows: InlineButton[][] = [];
+  // Skipping a possible card-hold debit means it's the same payment, which is the likely answer.
+  if (message.kind === "hold_settle") {
+    rows.push([{ text: "Yes, same payment", callbackData: `b:${message.id}:s` }]);
+    for (let index = 0; index < buttons.length; index += 4) rows.push(buttons.slice(index, index + 4));
+    return rows;
+  }
   const own: InlineButton = { text: message.direction === "in" ? "My own money" : "My own account", callbackData: `b:${message.id}:t` };
   const ownerLike = looksLikeOwner(message.counterparty, ownerName);
   // When the sender looks like the person, or a debt is open with them, the likeliest answer goes first.
@@ -123,11 +132,18 @@ export type Question = { text: string; buttons: InlineButton[][] };
  * owes the person, or to someone the person owes, is asked about as a
  * possible repayment.
  */
-export async function questionFor(loans: LoanStore | undefined, profile: UserProfile, message: BankMessage, people?: PeopleStore | null): Promise<Question> {
+export async function questionFor(
+  loans: LoanStore | undefined,
+  profile: UserProfile,
+  message: BankMessage,
+  people?: PeopleStore | null,
+  bank?: BankStore,
+): Promise<Question> {
   const debt =
     loans && learnable(message.counterparty) ? await (message.direction === "in" ? owedBy : oweTo)(loans, profile.profileId, message.counterparty) : null;
+  const hold = message.kind === "hold_settle" && bank ? await holdFor(bank, message) : null;
   return {
-    text: `${labelQuestion(message, profile.timezone, profile.preferredName, debt)}${debt ? "" : await whoTheyAre(people, profile, message)}`,
+    text: `${labelQuestion(message, profile.timezone, profile.preferredName, debt, hold)}${debt ? "" : await whoTheyAre(people, profile, message)}`,
     buttons: labelButtons(message, profile.preferredName, { settling: Boolean(debt), lending: Boolean(loans) }),
   };
 }
@@ -197,7 +213,7 @@ export async function announceOutcomes(delivery: Delivery, outcomes: IngestOutco
     if (lines.length > 0) await send(delivery, chatId, lines.join("\n"));
     return { asked: 0 };
   }
-  const question = await questionFor(delivery.loans, delivery.profile, next, delivery.people);
+  const question = await questionFor(delivery.loans, delivery.profile, next, delivery.people, delivery.bank);
   const total = (await delivery.bank.listMessages(delivery.profile.profileId, "needs_label")).length;
   const intro = total > 1 ? [`${NATURAL_HINT}`, "", `First of ${total}:`] : [];
   await send(delivery, chatId, [...lines, ...(lines.length ? [""] : []), ...intro, question.text].join("\n"), [...question.buttons, ...reviewRow(total)]);
@@ -223,7 +239,7 @@ export async function askHeldQuestions(delivery: Omit<Delivery, "profile">, prof
     if (!waiting.some((item) => !item.askedAt)) continue;
     const next = await askNextWaiting({ ...delivery, profile });
     if (!next) continue;
-    const question = await questionFor(delivery.loans, profile, next, delivery.people);
+    const question = await questionFor(delivery.loans, profile, next, delivery.people, delivery.bank);
     const intro = waiting.length > 1 ? [`${plural(waiting.length, "payment")} still need a label. ${NATURAL_HINT}`, "", "First:"] : [];
     await send({ ...delivery, profile }, chatId, [...intro, question.text].join("\n"), [...question.buttons, ...reviewRow(waiting.length)]);
     asked += 1;

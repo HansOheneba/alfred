@@ -6,7 +6,11 @@ import type { BankSource } from "@/lib/bank/parse";
 import type { MemoryNotebookStore } from "@/lib/notebook/store";
 
 export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid" | "borrowed" | "paid_back";
-export type BankKind = "payment" | "transfer_own" | "loan_in" | "unknown" | "loan_out" | "loan_repay";
+/**
+ * `card_hold` is a card payment the bank put on hold; it counts as spent.
+ * `hold_settle` is a later debit that may be that payment going through, asked about before it counts.
+ */
+export type BankKind = "payment" | "transfer_own" | "loan_in" | "unknown" | "loan_out" | "loan_repay" | "card_hold" | "hold_settle";
 
 export type BankMessage = {
   id: string;
@@ -27,9 +31,11 @@ export type BankMessage = {
   feeTransactionId: string | null;
   askedAt: string | null;
   raw: string;
+  /** Whether Alfred's own rules read the text, or the model did because no rule fit. */
+  readBy: "rules" | "model";
 };
 
-export type NewBankMessage = Omit<BankMessage, "id" | "transactionId" | "feeTransactionId" | "askedAt"> & { textHash: string };
+export type NewBankMessage = Omit<BankMessage, "id" | "transactionId" | "feeTransactionId" | "askedAt" | "readBy"> & { textHash: string; readBy?: BankMessage["readBy"] };
 
 export type BankBalance = { source: BankSource; balance: string; at: string };
 
@@ -42,6 +48,8 @@ export type LabelChange = {
   previous: { status: BankStatus; kind: BankKind };
   transactionIds: string[];
   loanId?: string;
+  /** A card hold this payment was confirmed to be, so undo can put the hold back. */
+  heldId?: string;
   /** What the payment was filed as, like "Transport" or "paying you back", so a correction can refer to it. */
   filedAs?: string;
   rule?: { payeeKey: string; previous: PayeeRule | null };
@@ -55,6 +63,8 @@ export interface BankStore {
   /** Corrects the date of a stored message that still needs a label, when a later copy shows when it really happened. */
   correctDate(ownerId: string, textHash: string, occurredAt: string): Promise<void>;
   listMessages(ownerId: string, status?: BankStatus): Promise<BankMessage[]>;
+  /** Messages that happened between two instants (inclusive), oldest first. */
+  listBetween(ownerId: string, from: string, to: string): Promise<BankMessage[]>;
   /** Ledger transaction ids already linked to a bank message, so one manual entry isn't matched twice. */
   linkedTransactionIds(ownerId: string): Promise<Set<string>>;
   getRule(ownerId: string, payeeKey: string): Promise<PayeeRule | null>;
@@ -99,10 +109,11 @@ type MessageRow = {
   fee_transaction_id: string | null;
   asked_at: Date | null;
   raw: string;
+  read_by: BankMessage["readBy"];
 };
 
 const columns = `id, owner_id, source, channel, external_id, direction, kind, amount::text, fee::text, currency, counterparty,
-  balance::text, occurred_at, status, transaction_id::text, fee_transaction_id::text, asked_at, raw`;
+  balance::text, occurred_at, status, transaction_id::text, fee_transaction_id::text, asked_at, raw, read_by`;
 
 function fromRow(row: MessageRow): BankMessage {
   return {
@@ -124,6 +135,7 @@ function fromRow(row: MessageRow): BankMessage {
     feeTransactionId: row.fee_transaction_id,
     askedAt: row.asked_at ? row.asked_at.toISOString() : null,
     raw: row.raw,
+    readBy: row.read_by ?? "rules",
   };
 }
 
@@ -133,13 +145,13 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       const rows = await query<MessageRow>(
         settings,
         `insert into public.bank_messages
-           (owner_id, source, channel, external_id, text_hash, direction, kind, amount, fee, currency, counterparty, balance, occurred_at, status, raw)
-         values ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)
+           (owner_id, source, channel, external_id, text_hash, direction, kind, amount, fee, currency, counterparty, balance, occurred_at, status, raw, read_by)
+         values ($1::uuid,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
          on conflict do nothing
          returning ${columns}`,
         [
           row.ownerId, row.source, row.channel, row.externalId, row.textHash, row.direction, row.kind, row.amount, row.fee,
-          row.currency, row.counterparty, row.balance, row.occurredAt, row.status, row.raw.slice(0, 1200),
+          row.currency, row.counterparty, row.balance, row.occurredAt, row.status, row.raw.slice(0, 1200), row.readBy ?? "rules",
         ],
       );
       return rows[0] ? fromRow(rows[0]) : null;
@@ -171,6 +183,16 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       if (!/^[0-9a-f-]{36}$/i.test(id)) return null;
       const rows = await query<MessageRow>(settings, `select ${columns} from public.bank_messages where owner_id = $1::uuid and id = $2::uuid`, [ownerId, id]);
       return rows[0] ? fromRow(rows[0]) : null;
+    },
+    async listBetween(ownerId, from, to) {
+      const rows = await query<MessageRow>(
+        settings,
+        `select ${columns} from public.bank_messages
+         where owner_id = $1::uuid and occurred_at between $2 and $3
+         order by occurred_at, created_at`,
+        [ownerId, from, to],
+      );
+      return rows.map(fromRow);
     },
     async listMessages(ownerId, status) {
       const rows = await query<MessageRow>(
@@ -263,7 +285,7 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
         `select distinct on (source) source, balance::text, occurred_at
          from public.bank_messages
          where owner_id = $1::uuid and balance is not null
-         order by source, occurred_at desc`,
+         order by source, occurred_at desc, created_at desc`,
         [ownerId],
       );
       return rows.map((row) => ({ source: row.source, balance: Number(row.balance).toFixed(2), at: row.occurred_at.toISOString() }));
@@ -304,7 +326,7 @@ export class MemoryBankStore implements BankStore {
         (item.textHash === row.textHash || (row.externalId && item.externalId === row.externalId && item.source === row.source)),
     );
     if (duplicate) return null;
-    const message = { ...row, id: `00000000-0000-4000-9000-${String(this.messages.length + 1).padStart(12, "0")}`, transactionId: null, feeTransactionId: null, askedAt: null };
+    const message = { ...row, readBy: row.readBy ?? "rules", id: `00000000-0000-4000-9000-${String(this.messages.length + 1).padStart(12, "0")}`, transactionId: null, feeTransactionId: null, askedAt: null };
     this.messages.push(message);
     return { ...message };
   }
@@ -324,6 +346,12 @@ export class MemoryBankStore implements BankStore {
     return this.messages
       .filter((item) => item.ownerId === ownerId && (!status || item.status === status))
       .sort((left, right) => right.occurredAt.localeCompare(left.occurredAt))
+      .map((item) => ({ ...item }));
+  }
+  async listBetween(ownerId: string, from: string, to: string) {
+    return this.messages
+      .filter((item) => item.ownerId === ownerId && item.occurredAt >= from && item.occurredAt <= to)
+      .sort((left, right) => left.occurredAt.localeCompare(right.occurredAt))
       .map((item) => ({ ...item }));
   }
   async linkedTransactionIds(ownerId: string) {
@@ -356,7 +384,7 @@ export class MemoryBankStore implements BankStore {
     const newest = new Map<BankSource, BankBalance>();
     for (const item of this.messages.filter((message) => message.ownerId === ownerId && message.balance !== null)) {
       const current = newest.get(item.source);
-      if (!current || item.occurredAt > current.at) newest.set(item.source, { source: item.source, balance: item.balance!, at: item.occurredAt });
+      if (!current || item.occurredAt >= current.at) newest.set(item.source, { source: item.source, balance: item.balance!, at: item.occurredAt });
     }
     return [...newest.values()];
   }

@@ -1,5 +1,7 @@
-import { accountOf, isOwnName, parseBankText, payeeKey, purposeOf, withoutRecipient, type ParsedBankMessage } from "@/lib/bank/parse";
+import { accountOf, isOwnName, parseBankText, payeeKey, purposeOf, sourceName, withoutRecipient, type ParsedBankMessage } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
+import { looksLikeMoney, type UnknownTextReader } from "@/lib/bank/read-unknown";
+import { bareTwin, feeDescription, feeFor, feesAround, holdFor, isBare, namedTwin, nearby } from "@/lib/bank/related";
 import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import type { BankAccess } from "@/lib/finance/action-router";
@@ -20,6 +22,8 @@ export type IngestDeps = {
   loans?: LoanStore;
   /** What the person told Alfred about people, mentioned when asking about their payments. */
   people?: PeopleStore | null;
+  /** Reads texts from banks Alfred has no rules for. Without it, those texts are left out. */
+  readUnknown?: UnknownTextReader | null;
 };
 
 export type IngestOutcome = {
@@ -53,6 +57,18 @@ export function looksLikeOwner(counterparty: string, preferredName: string): boo
   return Boolean(first && first.length > 1 && counterparty.trim().toLowerCase().split(/\s+/)[0] === first);
 }
 
+/** How many of a bank's texts, read by the model, the person must confirm before Alfred files that bank's payments on its own. */
+export const TRUSTED_AFTER = 3;
+
+/** Statuses that mean the person settled a payment themselves, confirming Alfred read it right. */
+const CONFIRMED = new Set(["recorded", "matched", "transfer", "lent", "repaid", "borrowed", "paid_back"]);
+
+/** True once enough of a bank's model-read texts have been confirmed by the person. */
+async function trustsReading(bank: BankStore, ownerId: string, source: string): Promise<boolean> {
+  const confirmed = (await bank.listMessages(ownerId)).filter((item) => item.source === source && item.readBy === "model" && CONFIRMED.has(item.status));
+  return confirmed.length >= TRUSTED_AFTER;
+}
+
 /** Labels too vague to teach Alfred anything about a payee. */
 const VAGUE = new Set(["Other", "Misc"]);
 
@@ -66,11 +82,12 @@ function describe(message: Pick<BankMessage, "counterparty" | "direction" | "sou
   if (payee.kind === "channel") return message.direction === "out" ? `Sent to ${payee.channel}` : `From ${payee.channel}`;
   if (payee.kind === "merchant" && payee.label) return payee.label;
   if (message.source === "gcb") return message.direction === "out" ? "GCB card payment" : "GCB card top-up";
+  if (!message.counterparty) return message.direction === "out" ? `${sourceName(message.source)} payment` : `Into ${sourceName(message.source)}`;
   return message.direction === "out" ? `Payment to ${titleCase(message.counterparty)}` : `From ${titleCase(message.counterparty)}`;
 }
 
 function paymentMethod(message: Pick<BankMessage, "source">): string {
-  return message.source === "gcb" ? "GCB card" : message.source === "momo" ? "MoMo" : "";
+  return message.source === "other" ? "" : sourceName(message.source);
 }
 
 async function record(
@@ -136,7 +153,19 @@ export async function ingestBankText(
   text: string,
   options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
 ): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number }> {
-  const parsed = parseBankText(text, { now: options.receivedAt ?? deps.now, timeZone: profile.timezone, sender: options.sender });
+  const now = options.receivedAt ?? deps.now;
+  // Texts from MoMo and GCB that the rules skipped are notices, not payments.
+  const knownSender = /gcb|momo|mobile ?money|\bmtn\b/i.test(options.sender ?? "");
+  // Forwarded texts can be from anyone, so outside MoMo and GCB the model decides what's a payment, not
+  // the loose "GHS plus a money word" rule, which would take "I've sent you GHS 50" from a friend.
+  const modelReads = Boolean(deps.readUnknown) && !knownSender && options.channel !== "screenshot";
+  let parsed = parseBankText(text, { now, timeZone: profile.timezone, sender: options.sender, loose: !modelReads });
+  let readBy: BankMessage["readBy"] = "rules";
+  // A bank Alfred has no rules for: the model reads it, and the server checks its figures against the text.
+  if (parsed.length === 0 && deps.readUnknown && modelReads && looksLikeMoney(text)) {
+    parsed = await deps.readUnknown(text, { sender: options.sender ?? null, now });
+    readBy = "model";
+  }
   const names = await deps.bank.accountNames(profile.profileId);
   const ignored = await deps.bank.ignoredAccounts(profile.profileId);
   const outcomes: IngestOutcome[] = [];
@@ -154,7 +183,7 @@ export async function ingestBankText(
       externalId: item.externalId,
       textHash: item.fingerprint,
       direction: item.direction,
-      kind,
+      kind: kind === "payment" && item.hold ? "card_hold" : kind,
       amount: item.amount,
       fee: item.fee,
       currency: profile.currency,
@@ -163,6 +192,7 @@ export async function ingestBankText(
       occurredAt: item.occurredAt,
       status,
       raw: item.raw,
+      readBy,
     });
     if (!stored) {
       duplicates += 1;
@@ -176,7 +206,7 @@ export async function ingestBankText(
         type: "expense",
         amount: stored.fee,
         category: "Fees",
-        description: `${stored.source === "momo" ? "MoMo" : "Bank"} fee${stored.counterparty ? ` · ${titleCase(stored.counterparty)}` : ""}`,
+        description: `${stored.source === "other" ? "Bank" : sourceName(stored.source)} fee${stored.counterparty ? ` · ${titleCase(stored.counterparty)}` : ""}`,
         suffix: ":fee",
       });
       await deps.bank.updateMessage(profile.profileId, stored.id, { feeTransactionId: feeId });
@@ -184,8 +214,27 @@ export async function ingestBankText(
       feeRecorded = true;
     }
 
+    // Several texts can be one payment, like Absa's debit, transfer and fee: link them so it's counted once.
+    const linked = await linkRelated(deps, profile, stored);
+    if (linked) {
+      outcomes.push({ ...linked, feeRecorded });
+      continue;
+    }
+
     if (status !== "needs_label") {
       outcomes.push({ message: stored, outcome: status, feeRecorded });
+      continue;
+    }
+
+    // A debit that may be a card payment already counted while on hold is asked about before it counts.
+    if (stored.kind === "hold_settle") {
+      outcomes.push({ message: stored, outcome: "needs_label", feeRecorded });
+      continue;
+    }
+
+    // While Alfred is still learning a bank's texts, the person confirms each payment, so a misreading can't slip in.
+    if (stored.readBy === "model" && !(await trustsReading(deps.bank, profile.profileId, stored.source))) {
+      outcomes.push({ message: stored, outcome: "needs_label", feeRecorded });
       continue;
     }
 
@@ -245,6 +294,49 @@ export async function ingestBankText(
   }
 
   return { outcomes, duplicates, found: parsed.length };
+}
+
+/**
+ * Links a new text to others about the same payment. Returns its outcome when
+ * that settles it (a duplicate, or a fee), or null to carry on as usual. A
+ * bare debit that may be a card payment already on hold is marked
+ * `hold_settle` so it's asked about.
+ */
+async function linkRelated(deps: IngestDeps, profile: UserProfile, stored: BankMessage): Promise<Omit<IngestOutcome, "feeRecorded"> | null> {
+  const around = await nearby(deps.bank, stored);
+  if (isBare(stored)) {
+    // The named text for the same payment already counts it; this one only adds the balance.
+    const twin = namedTwin(stored, around);
+    if (twin) {
+      await deps.bank.updateMessage(profile.profileId, stored.id, { status: "matched", transactionId: twin.transactionId });
+      return { message: { ...stored, status: "matched", transactionId: twin.transactionId }, outcome: "matched" };
+    }
+    const payment = feeFor(stored, around);
+    if (payment) {
+      const id = await record(deps, profile, stored, { type: "expense", amount: stored.amount, category: "Fees", description: feeDescription(stored, payment, titleCase) });
+      await deps.bank.updateMessage(profile.profileId, stored.id, { status: "recorded", transactionId: id });
+      return { message: { ...stored, status: "recorded", transactionId: id }, outcome: "recorded", category: "Fees" };
+    }
+    if (await holdFor(deps.bank, stored)) {
+      await deps.bank.updateMessage(profile.profileId, stored.id, { kind: "hold_settle" });
+      stored.kind = "hold_settle";
+    }
+  } else {
+    const twin = bareTwin(stored, around);
+    // Already filed from its bare twin, before the named text arrived: link to that.
+    if (twin?.status === "recorded" && twin.transactionId) {
+      await deps.bank.updateMessage(profile.profileId, stored.id, { status: "matched", transactionId: twin.transactionId });
+      return { message: { ...stored, status: "matched", transactionId: twin.transactionId }, outcome: "matched" };
+    }
+    // Otherwise this named text is the one to ask about, and the bare one stops waiting.
+    if (twin?.status === "needs_label") await deps.bank.updateMessage(profile.profileId, twin.id, { status: "matched" });
+  }
+  // Fee texts that arrived before the payment they belong to.
+  for (const fee of feesAround(stored, around)) {
+    const id = await record(deps, profile, fee, { type: "expense", amount: fee.amount, category: "Fees", description: feeDescription(fee, stored, titleCase) });
+    await deps.bank.updateMessage(profile.profileId, fee.id, { status: "recorded", transactionId: id });
+  }
+  return null;
 }
 
 export type Label =
@@ -314,6 +406,15 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   const change: LabelChange = { messageId: message.id, previous: { status: message.status, kind: message.kind }, transactionIds: [] };
 
   if (label.kind === "skip") {
+    // For a debit that may be a card payment on hold, skipping means "yes, the same payment": it already counts.
+    const hold = message.kind === "hold_settle" ? await holdFor(deps.bank, message) : null;
+    if (hold) {
+      await deps.bank.updateMessage(profile.profileId, message.id, { status: "matched", transactionId: hold.transactionId });
+      await deps.bank.updateMessage(profile.profileId, hold.id, { kind: "payment" });
+      change.heldId = hold.id;
+      const what = hold.counterparty ? `the ${titleCase(hold.counterparty)} payment` : "the card payment";
+      return { ok: true, text: `Got it: ${money} was ${what} going through, so it's only counted once.`, changes: [change] };
+    }
     await deps.bank.updateMessage(profile.profileId, message.id, { status: "skipped" });
     return { ok: true, text: `Left ${money} out of your books.`, changes: [change] };
   }
@@ -495,6 +596,7 @@ export async function undoLabels(deps: IngestDeps, profile: UserProfile, changes
       await deps.ledger.updateTransaction(profile.profileId, id, { status: "deleted" }).catch(() => undefined);
     }
     if (change.loanId && deps.loans) await deps.loans.remove(profile.profileId, change.loanId);
+    if (change.heldId) await deps.bank.updateMessage(profile.profileId, change.heldId, { kind: "card_hold" });
     if (change.rule) {
       if (change.rule.previous) await deps.bank.saveRule(profile.profileId, change.rule.previous);
       else await deps.bank.deleteRule(profile.profileId, change.rule.payeeKey);
@@ -506,11 +608,36 @@ export async function undoLabels(deps: IngestDeps, profile: UserProfile, changes
 }
 
 /** The question Alfred asks about a held payment. */
-export function labelQuestion(message: BankMessage, timeZone: string, ownerName = "", debt?: { person: string; owed: string; owe: string } | null): string {
+export function labelQuestion(
+  message: BankMessage,
+  timeZone: string,
+  ownerName = "",
+  debt?: { person: string; owed: string; owe: string } | null,
+  hold?: BankMessage | null,
+): string {
   const money = formatAmount(message.amount, message.currency);
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone }).format(
     new Date(message.occurredAt),
   );
+  // A text from a bank Alfred has no rules for: say so, so a misreading gets caught.
+  const learning = message.readBy === "model" ? ` (I read this ${sourceName(message.source)} text myself. If I got it wrong, tap Skip.)` : "";
+  return `${baseQuestion(message, timeZone, ownerName, debt, hold, money, when)}${learning}`;
+}
+
+function baseQuestion(
+  message: BankMessage,
+  timeZone: string,
+  ownerName: string,
+  debt: { person: string; owed: string; owe: string } | null | undefined,
+  hold: BankMessage | null | undefined,
+  money: string,
+  when: string,
+): string {
+  if (message.kind === "hold_settle") {
+    const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone }).format(new Date(hold?.occurredAt ?? message.occurredAt));
+    const what = hold?.counterparty ? `the ${titleCase(hold.counterparty)} card payment from ${day}` : "a card payment";
+    return `${money} left your ${sourceName(message.source)} account · ${when}. It matches ${what} that was on hold, which I've already counted. Is this the same payment going through?`;
+  }
   if (debt && message.direction === "in" && Number(debt.owed) > 0) {
     return `${money} came in from ${titleCase(message.counterparty)} · ${when}. ${debt.person} owes you ${formatAmount(debt.owed, message.currency)}. Is this paying you back?`;
   }
@@ -531,10 +658,20 @@ export function labelQuestion(message: BankMessage, timeZone: string, ownerName 
       : `${money} came in from ${payee.channel} (${network}) · ${when}. Who sent it, and what was it?`;
   }
   if (message.direction === "out") {
-    const to = message.counterparty && !/^gcb/i.test(message.counterparty) ? ` to ${titleCase(message.counterparty)}` : " on your GCB card";
+    const to =
+      message.counterparty && !/^gcb/i.test(message.counterparty)
+        ? ` to ${titleCase(message.counterparty)}`
+        : message.source === "gcb"
+          ? " on your GCB card"
+          : ` from your ${sourceName(message.source)} account`;
     return `${money}${to} · ${when}${said(message)}. What was that for?`;
   }
-  const from = message.counterparty && !/^gcb/i.test(message.counterparty) ? ` from ${titleCase(message.counterparty)}` : " onto your GCB card";
+  const from =
+    message.counterparty && !/^gcb/i.test(message.counterparty)
+      ? ` from ${titleCase(message.counterparty)}`
+      : message.source === "gcb"
+        ? " onto your GCB card"
+        : ` into your ${sourceName(message.source)} account`;
   return `${money} came in${from} · ${when}${said(message)}. What was it?`;
 }
 

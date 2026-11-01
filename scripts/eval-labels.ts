@@ -118,6 +118,35 @@ const CASES: Case[] = [
     check: (action) => (action.type === "ignore_account" && action.account.endsWith("0543") ? null : `got ${action.type}${action.type === "ignore_account" ? ` ${action.account}` : ""}`),
   },
   {
+    name: "yes to a card hold going through counts it once",
+    request: {
+      text: "yeah that's the spotify one",
+      waiting: {
+        lines: [
+          "1. OUT GH₵33.00 to Absa account (no payee named) · Tue 13 Oct, 09:10 · account ending 4821 · may be the Spotify card payment that was on hold and is already counted; if the user says it's the same payment, use skip",
+          "2. OUT GH₵100.00 to Kofi Mensah Addo · Sun 11 Oct, 18:33 · account ending 4821",
+        ],
+        current: 1,
+      },
+      model: LABEL_MODEL,
+    },
+    check: (action) => labelled(action, "skip", [1]),
+  },
+  {
+    name: "no to a card hold files the debit as what it was",
+    request: {
+      text: "no that one was lunch",
+      waiting: {
+        lines: [
+          "1. OUT GH₵33.00 to Absa account (no payee named) · Tue 13 Oct, 09:10 · account ending 4821 · may be the Spotify card payment that was on hold and is already counted; if the user says it's the same payment, use skip",
+        ],
+        current: 1,
+      },
+      model: LABEL_MODEL,
+    },
+    check: (action) => labelled(action, "category", [1]),
+  },
+  {
     name: "what's left asks for the overview with balances",
     request: { text: "Okay what's left in my finances" },
     check: (action) => (action.type === "get_financial_overview" ? null : `got ${action.type}`),

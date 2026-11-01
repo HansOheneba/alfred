@@ -1,7 +1,8 @@
 import { applyLabel, titleCase, undoLabels, type IngestDeps, type Label } from "@/lib/bank/ingest";
 import { NATURAL_HINT, questionFor, reviewRow } from "@/lib/bank/notify";
-import { accountOf, payeeKey, purposeOf } from "@/lib/bank/parse";
+import { accountOf, payeeKey, purposeOf, sourceName } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
+import { holdFor } from "@/lib/bank/related";
 import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
@@ -46,21 +47,23 @@ export type WaitingPayments = {
 /** Works out which payments a message is about and what each was, e.g. from the main conversation's answer. */
 export type LabelResolver = (input: { text: string; waiting: WaitingPayments; profile: UserProfile }) => Promise<ResolvedLabel[]>;
 
-function listLine(message: BankMessage, index: number, profile: UserProfile, debts: Map<string, string>, filedAs?: string): string {
+function listLine(message: BankMessage, index: number, profile: UserProfile, debts: Map<string, string>, filedAs?: string, held?: string): string {
   const money = formatAmount(message.amount, message.currency);
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "numeric", minute: "2-digit", timeZone: profile.timezone }).format(
     new Date(message.occurredAt),
   );
   const payee = classifyPayee(message.counterparty);
-  const name = message.counterparty ? titleCase(message.counterparty) : message.source === "gcb" ? "GCB card" : "unknown";
+  const name = message.counterparty ? titleCase(message.counterparty) : message.source === "gcb" ? "GCB card" : `${sourceName(message.source)} account (no payee named)`;
   const who =
     payee.kind === "channel" ? `${name} (sent to ${payee.channel}; the recipient isn't named)` : name;
   const debt = debts.get(message.id);
   const purpose = purposeOf(message);
   const owing = debt ? (message.direction === "in" ? ` · this person owes the user ${debt}` : ` · the user owes this person ${debt}`) : "";
   const filed = filedAs ? ` · JUST FILED as ${filedAs}` : "";
+  // "Yes, it's the same one" for a possible card-hold debit is a skip: the hold already counted it.
+  const hold = held ? ` · may be ${held} that was on hold and is already counted; if the user says it's the same payment, use skip` : "";
   const account = accountOf(message.raw);
-  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${account ? ` · account ending ${account}` : ""}${purpose ? ` · marked "${purpose}"` : ""}${owing}${filed}`;
+  return `${index + 1}. ${message.direction === "out" ? "OUT" : "IN"} ${money} ${message.direction === "out" ? "to" : "from"} ${who} · ${when}${account ? ` · account ending ${account}` : ""}${purpose ? ` · marked "${purpose}"` : ""}${owing}${hold}${filed}`;
 }
 
 /** What a label filed a payment as, in a few words, e.g. "Transport · Okada" or "paying you back". */
@@ -93,11 +96,18 @@ export async function waitingPayments(deps: IngestDeps, profile: UserProfile): P
       if (debt) debts.set(message.id, formatAmount(message.direction === "in" ? debt.owed : debt.owe, debt.currency));
     }
   }
+  const holds = new Map<string, string>();
+  for (const message of listed.filter((item) => item.kind === "hold_settle" && item.status === "needs_label")) {
+    const hold = await holdFor(deps.bank, message);
+    holds.set(message.id, hold?.counterparty ? `the ${titleCase(hold.counterparty)} card payment` : "a card payment");
+  }
   return {
     all,
     recent,
     listed,
-    lines: listed.map((message, index) => listLine(message, index, profile, debts, recent.find((item) => item.message.id === message.id)?.change.filedAs)),
+    lines: listed.map((message, index) =>
+      listLine(message, index, profile, debts, recent.find((item) => item.message.id === message.id)?.change.filedAs, holds.get(message.id)),
+    ),
     current,
     currentNumber: current ? listed.findIndex((item) => item.id === current.id) + 1 : 0,
   };
@@ -253,7 +263,7 @@ async function withNext(deps: IngestDeps, profile: UserProfile, text: string, in
   const next = await askNext(deps, profile);
   if (!next) return { text, next: null };
   const remaining = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
-  const question = await questionFor(deps.loans, profile, next, deps.people);
+  const question = await questionFor(deps.loans, profile, next, deps.people, deps.bank);
   return { text: `${text}\n\n${intro(remaining)}${question.text}`, next, buttons: [...question.buttons, ...reviewRow(remaining)] };
 }
 

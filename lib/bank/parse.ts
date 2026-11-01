@@ -2,7 +2,15 @@ import { createHash } from "node:crypto";
 
 import { canonicalizeAmount } from "@/lib/finance/money";
 
-export type BankSource = "momo" | "gcb" | "other";
+/** Where a text came from: a known provider, or a short slug for a bank read by the model ("ecobank"). */
+export type BankSource = "momo" | "gcb" | "absa" | "other" | (string & {});
+
+const SOURCE_NAMES: Record<string, string> = { momo: "MoMo", gcb: "GCB card", absa: "Absa", other: "Bank" };
+
+/** How a source is named to the person: "MoMo", "Absa", "Ecobank". */
+export function sourceName(source: BankSource): string {
+  return SOURCE_NAMES[source] ?? source.replace(/[-_]+/g, " ").replace(/\b[a-z]/g, (letter) => letter.toUpperCase());
+}
 
 /** One money movement read from an SMS. Amounts are canonical "123.45" strings. */
 export type ParsedBankMessage = {
@@ -21,13 +29,20 @@ export type ParsedBankMessage = {
   /** Stable across an SMS and a screenshot of the same SMS, for de-duplication. */
   fingerprint: string;
   raw: string;
+  /** A card payment the bank has put on hold ("earmarked"); it counts now, and a later debit may be the same payment. */
+  hold?: boolean;
+};
+
+type Parsed = Omit<ParsedBankMessage, "occurredAt" | "dated" | "fingerprint"> & {
+  /** When the text itself says the payment happened, as wall-clock parts in the person's timezone. */
+  at?: { year: number; month: number; day: number; hour: number; minute: number };
 };
 
 const MONEY = "([\\d,]+(?:\\.\\d+)?)";
 
 /** Where one message ends and the next begins when several are pasted or read from one screenshot. */
 const MESSAGE_START =
-  /(?=Payment (?:made|received) for GHS|Dear [A-Z][A-Z .'-]+\.\s*Your Prepaid Card|Dear Customer|Hello, The requested link|Cash (?:In|Out) (?:made|received)|Your payment of GHS|You have (?:received|sent|bought|paid) GHS)/g;
+  /(?=Payment (?:made|received) for GHS|Dear [A-Z][A-Z .'-]+\.\s*Your Prepaid Card|Dear Customer|Hello, The requested link|Cash (?:In|Out) (?:made|received)|Your payment of GHS|You have (?:received|sent|bought|paid) GHS|Transaction of (?:[A-Z]{3}|GHS)\s*[\d,.]+|GHS\s*[\d,.]+ has been (?:debited|credited))/g;
 
 const MONTHS = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"];
 const WEEKDAYS = ["sunday", "monday", "tuesday", "wednesday", "thursday", "friday", "saturday"];
@@ -115,7 +130,110 @@ function zoneOffsetMinutes(date: Date, timeZone: string): number {
   return Math.round((asUtc - date.getTime()) / 60_000);
 }
 
-function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage, "occurredAt" | "dated" | "fingerprint"> | null {
+/** "11 Oct 2026 17:37" as wall-clock parts. */
+function namedDate(day: string, month: string, year: string, hour: string, minute: string): Parsed["at"] {
+  const index = MONTHS.indexOf(month.slice(0, 3).toLowerCase());
+  return index < 0 ? undefined : { year: Number(year), month: index, day: Number(day), hour: Number(hour), minute: Number(minute) };
+}
+
+/** "11/10/26 18:33" (day first) as wall-clock parts. */
+function slashDate(day: string, month: string, year: string, hour: string, minute: string): Parsed["at"] {
+  const full = year.length === 2 ? 2000 + Number(year) : Number(year);
+  return { year: full, month: Number(month) - 1, day: Number(day), hour: Number(hour), minute: Number(minute) };
+}
+
+/**
+ * A card merchant as a person would say it: "Spotify" from
+ * "Spotify_P47E4EAB37_STOCKHOLM_SE", "APPLE.COM/BILL" from "APPLE.COM/BILL_ITUNES.COM_IE".
+ */
+export function cardMerchant(value: string): string {
+  const tokens = value.replace(/[\s-]*\n[\s-]*/g, "").split(/[_*\s]+/).filter(Boolean);
+  // A reference code mixes letters and digits, like P47E4EAB37; the name is what comes before it.
+  const code = tokens.findIndex((token, index) => index > 0 && token.length >= 6 && /\d/.test(token) && /[a-z]/i.test(token));
+  let kept = code > 0 ? tokens.slice(0, code) : tokens;
+  // A trailing two-letter country code (SE, IE, US) isn't part of the name.
+  if (kept.length > 1 && /^[A-Z]{2}$/.test(kept[kept.length - 1])) kept = kept.slice(0, -1);
+  if (kept.length > 2) kept = kept.slice(0, 2);
+  return clean(kept.join(" ")).slice(0, 120);
+}
+
+const DATE_WORDS = "(\\d{1,2})\\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\\s+(\\d{4})\\s+(\\d{1,2}):(\\d{2})";
+
+/**
+ * Absa Ghana alerts. Returns undefined when the text isn't one, and null for
+ * Absa texts that move no money, like a declined card payment.
+ */
+function parseAbsa(text: string): Parsed | null | undefined {
+  if (/transaction has been declined|declined due to insufficient/i.test(text)) return null;
+
+  // "Transaction of [USD 5.99 equivalent to] GHS 75.56 earmarked on your account ending 9746 as of 07 Oct 2026 13:37 at APPLE.COM/BILL… Available balance is GHS 3321.31."
+  const hold = text.match(
+    new RegExp(`Transaction of (?:([A-Z]{3})\\s*${MONEY}\\s+equivalent to\\s+)?GHS\\s*${MONEY}\\s+earmarked on your account ending\\s*(\\d{3,})\\s+as of\\s+${DATE_WORDS}\\s+at\\s+(.+?)\\.\\s*Available balance is\\s*GHS\\s*${MONEY}`, "i"),
+  );
+  if (hold) {
+    const amount = amountOf(hold[3]);
+    if (!amount) return null;
+    return {
+      source: "absa",
+      externalId: null,
+      direction: "out",
+      amount,
+      fee: "0.00",
+      counterparty: cardMerchant(hold[10]),
+      reference: hold[1] ? `${hold[1].toUpperCase()} ${hold[2]}` : "",
+      balance: amountOf(hold[11], true),
+      raw: text,
+      hold: true,
+      at: namedDate(hold[5], hold[6], hold[7], hold[8], hold[9]),
+    };
+  }
+
+  // "GHS 100.00 has been debited to your account ending 9746 as of 11 Oct 2026 18:33. Your available balance is 1,947.22"
+  const moved = text.match(
+    new RegExp(`GHS\\s*${MONEY}\\s+has been (debited|credited) (?:to|from|on|into) your account ending\\s*(\\d{3,})\\s+as of\\s+${DATE_WORDS}\\.?\\s*Your available balance is\\s*(?:GHS\\s*)?${MONEY}`, "i"),
+  );
+  if (moved) {
+    const amount = amountOf(moved[1]);
+    if (!amount) return null;
+    return {
+      source: "absa",
+      externalId: null,
+      direction: moved[2].toLowerCase() === "debited" ? "out" : "in",
+      amount,
+      fee: "0.00",
+      counterparty: "",
+      reference: "",
+      balance: amountOf(moved[9], true),
+      raw: text,
+      at: namedDate(moved[4], moved[5], moved[6], moved[7], moved[8]),
+    };
+  }
+
+  // "Transfer of GHS100 from your account ending 9746 to 233598921110 MITCH IVAN ABAKAH on 11/10/26 18:33 was successful. WALLET TxnID 17917435530888"
+  const transfer = text.match(
+    new RegExp(`Transfer of GHS\\s*${MONEY}\\s+from your account ending\\s*(\\d{3,})\\s+to\\s+(?:(\\d{6,})\\s+)?(.+?)\\s+on\\s+(\\d{1,2})\\/(\\d{1,2})\\/(\\d{2,4})\\s+(\\d{1,2}):(\\d{2})\\s+was successful`, "i"),
+  );
+  if (transfer) {
+    const amount = amountOf(transfer[1]);
+    if (!amount) return null;
+    const number = transfer[3] ? transfer[3].replace(/^233/, "0") : "";
+    return {
+      source: "absa",
+      externalId: text.match(/TxnID\s*:?\s*(\d{6,})/i)?.[1] ?? null,
+      direction: "out",
+      amount,
+      fee: "0.00",
+      counterparty: clean(transfer[4]).slice(0, 120),
+      reference: number ? `to ${number}` : "",
+      balance: null,
+      raw: text,
+      at: slashDate(transfer[5], transfer[6], transfer[7], transfer[8], transfer[9]),
+    };
+  }
+  return undefined;
+}
+
+function parseOne(body: string, hint: BankSource | null, generic: boolean): Parsed | null {
   const text = clean(body);
   const externalId = text.match(/(?:Transaction ID|Financial Transaction Id|Trans(?:action)? Id)\s*:?\s*(\d{6,})/i)?.[1] ?? null;
   const momoBalance = amountOf(text.match(new RegExp(`(?:Current|new) balance:?\\s*GHS\\s*${MONEY}`, "i"))?.[1], true);
@@ -175,10 +293,14 @@ function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage
     return { source: "gcb", externalId, direction: "in", amount, fee: "0.00", counterparty: "GCB prepaid card top-up", reference: "", balance: amountOf(cardCredit[2], true), raw: text };
   }
 
+  const absa = parseAbsa(text);
+  if (absa !== undefined) return absa;
+
   // Other mobile money wordings: an amount plus a clear direction word.
-  const generic = text.match(new RegExp(`GHS\\s*${MONEY}`, "i"));
   if (!generic) return null;
-  const amount = amountOf(generic[1]);
+  const loose = text.match(new RegExp(`GHS\\s*${MONEY}`, "i"));
+  if (!loose) return null;
+  const amount = amountOf(loose[1]);
   if (!amount) return null;
   const out = /\b(sent|paid|payment made|payment of|debited|cash out|purchase|bought|withdraw|transferred)/i.test(text);
   const inbound = /\b(received|credited|cash in|deposit)/i.test(text);
@@ -198,7 +320,7 @@ function parseOne(body: string, hint: BankSource | null): Omit<ParsedBankMessage
   };
 }
 
-function fingerprint(message: Omit<ParsedBankMessage, "occurredAt" | "dated" | "fingerprint">): string {
+function fingerprint(message: Parsed): string {
   const key = message.externalId
     ? `${message.source}|id|${message.externalId}`
     : `${message.source}|${message.direction}|${message.amount}|${message.balance ?? ""}|${message.counterparty.toLowerCase()}`;
@@ -211,7 +333,7 @@ function fingerprint(message: Omit<ParsedBankMessage, "occurredAt" | "dated" | "
  */
 export function parseBankText(
   text: string,
-  options: { now: Date; timeZone: string; sender?: string | null },
+  options: { now: Date; timeZone: string; sender?: string | null; loose?: boolean },
 ): ParsedBankMessage[] {
   const hint: BankSource | null = options.sender
     ? /gcb/i.test(options.sender)
@@ -220,6 +342,8 @@ export function parseBankText(
         ? "momo"
         : null
     : null;
+  // The loose fallback is for MoMo and GCB wordings; other senders' texts are left to the model reader.
+  const generic = options.loose ?? (!options.sender?.trim() || hint !== null);
   const headers = findHeaders(text, options.now, options.timeZone);
   const starts = [...text.matchAll(MESSAGE_START)].map((match) => match.index ?? 0);
   const bounds = starts.length > 0 ? starts : [0];
@@ -230,16 +354,19 @@ export function parseBankText(
     const end = bounds[index + 1] ?? text.length;
     // Strip any date header that sits between this message and the next.
     const body = stripHeaders(text.slice(start, end));
-    const parsed = parseOne(body, hint);
-    if (!parsed) return;
+    const result = parseOne(body, hint, generic);
+    if (!result) return;
+    const { at, ...parsed } = result;
     const inline = INLINE_TIME.exec(body);
     const header = [...headers].reverse().find((item) => item.index <= start);
     // A message above the first readable heading arrived before it, so borrow that heading's date.
     const next = header ? null : headers.find((item) => item.index > start);
-    const occurredAt = inline
-      ? new Date(localTime(Number(inline[1]), Number(inline[2]) - 1, Number(inline[3]), Number(inline[4]), Number(inline[5]), options.now, options.timeZone)).toISOString()
-      : (header?.time ?? (next ? new Date(Date.parse(next.time) - 60_000).toISOString() : options.now.toISOString()));
-    results.push({ ...parsed, occurredAt, dated: Boolean(inline || header || next), fingerprint: fingerprint(parsed) });
+    const occurredAt = at
+      ? new Date(localTime(at.year, at.month, at.day, at.hour, at.minute, options.now, options.timeZone)).toISOString()
+      : inline
+        ? new Date(localTime(Number(inline[1]), Number(inline[2]) - 1, Number(inline[3]), Number(inline[4]), Number(inline[5]), options.now, options.timeZone)).toISOString()
+        : (header?.time ?? (next ? new Date(Date.parse(next.time) - 60_000).toISOString() : options.now.toISOString()));
+    results.push({ ...parsed, occurredAt, dated: Boolean(at || inline || header || next), fingerprint: fingerprint(result) });
   });
   return results;
 }
@@ -289,6 +416,6 @@ export function payeeKey(counterparty: string): string {
  * "Your A/C No:XXXX0543", or null when the text doesn't name one.
  */
 export function accountOf(text: string): string | null {
-  const match = text.match(/\b(?:A\/C|Acct|Account)(?:\s*(?:No\.?|Number))?\s*[:.#]?\s*[X*x•.\s-]*(\d{3,})\b/i);
+  const match = text.match(/\b(?:A\/C|Acct|Account)(?:\s*(?:No\.?|Number|ending(?: in)?))?\s*[:.#]?\s*[X*x•.\s-]*(\d{3,})\b/i);
   return match ? match[1].slice(-4) : null;
 }
