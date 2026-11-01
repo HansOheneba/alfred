@@ -1,6 +1,7 @@
 import { z } from "zod";
 
-import { loadAccountSettings, saveAccountSettings, type AccountSettings } from "@/lib/accounts/settings-store";
+import { loadAccountSettings, openAccount, saveAccountSettings, type AccountSettings } from "@/lib/accounts/settings-store";
+import { NOT_INVITED } from "@/lib/auth/invites";
 import { getStudioSettings } from "@/lib/env";
 import { logError } from "@/lib/log";
 import { getAuthUser } from "@/lib/supabase/session";
@@ -41,6 +42,9 @@ export async function POST(request: Request): Promise<Response> {
 
   const next: AccountSettings = parsed.data;
   try {
+    if ((await openAccount(getStudioSettings().supabase, user)) === "not_invited") {
+      return Response.json({ ok: false, text: NOT_INVITED }, { status: 403 });
+    }
     const saved = await saveAccountSettings(getStudioSettings().supabase, user.id, next);
     if (!saved.ok) return Response.json({ ok: false, text: saved.message }, { status: 400 });
     const settings = await loadAccountSettings(getStudioSettings().supabase, user.id);

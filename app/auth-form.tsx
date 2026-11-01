@@ -281,7 +281,14 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
             Sign in
           </Link>
         </p>
-      ) : null}
+      ) : (
+        <p className="mt-8 text-sm text-muted">
+          Been invited?{" "}
+          <Link href="/signup" className={textLinkClass}>
+            Create an account
+          </Link>
+        </p>
+      )}
     </AuthScreen>
   );
 }

@@ -1,7 +1,8 @@
-import { ensureAccount } from "@/lib/accounts/settings-store";
+import { openAccount } from "@/lib/accounts/settings-store";
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import type { StudioSettings, UserProfile } from "@/lib/config";
 import { getStudioSettings } from "@/lib/env";
+import { NOT_INVITED } from "@/lib/auth/invites";
 import { getAuthUser } from "@/lib/supabase/session";
 
 export function publicAuthConfigured(): boolean {
@@ -32,7 +33,7 @@ export async function signedInAccount(): Promise<SignedInAccount> {
   if (!user) return { kind: "signed-out" };
   try {
     const settings = getStudioSettings();
-    await ensureAccount(settings.supabase, user.id);
+    if ((await openAccount(settings.supabase, user)) === "not_invited") return { kind: "error", message: NOT_INVITED };
     const profile = await createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id);
     if (!profile) return { kind: "error", message: "Your profile is not ready yet." };
     return { kind: "ready", userId: user.id, profile, settings };
