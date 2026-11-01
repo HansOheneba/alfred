@@ -1,3 +1,4 @@
+import { sourceName } from "@/lib/bank/parse";
 import type { ChatChart } from "@/lib/accounts/messages";
 import type { UserProfile } from "@/lib/config";
 import { normalizeCategory } from "@/lib/finance/categories";
@@ -567,13 +568,11 @@ async function overview(
   return chart ? { kind: "text", text: lines.join("\n"), chart } : { kind: "text", text: lines.join("\n") };
 }
 
-const BALANCE_LABELS: Record<BankBalance["source"], string> = { momo: "MoMo", gcb: "GCB card", other: "Bank" };
-
 /** "• MoMo: GH₵976.98 (Fri 30 Oct, 17:58)" for each account a bank text reported a balance for. */
 async function bankBalanceLines(ctx: ActionContext): Promise<string[]> {
   const balances = ctx.bank ? await ctx.bank.balances().catch(() => []) : [];
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: ctx.profile.timezone });
-  return balances.map((item) => `• ${BALANCE_LABELS[item.source]}: ${formatMoneyAmount(item.balance, ctx.profile.currency)} (${when.format(new Date(item.at))})`);
+  return balances.map((item) => `• ${sourceName(item.source)}: ${formatMoneyAmount(item.balance, ctx.profile.currency)} (${when.format(new Date(item.at))})`);
 }
 
 async function insights(

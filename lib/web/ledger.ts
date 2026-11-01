@@ -8,6 +8,7 @@ import { createSupabaseLoanStore, loanBalances, type LoanBalance } from "@/lib/f
 import { createSupabaseBankStore } from "@/lib/bank/store";
 import { query } from "@/lib/supabase/connection";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
+import { sourceName, type BankSource } from "@/lib/bank/parse";
 
 export type LedgerBudget = {
   budgetId: string;
@@ -40,7 +41,7 @@ export type LedgerBankItem = {
   question: string;
 };
 
-export type LedgerBalance = { source: "momo" | "gcb" | "other"; label: string; balance: string; at: string };
+export type LedgerBalance = { source: BankSource; label: string; balance: string; at: string };
 
 export type LedgerBank = {
   /** Whether a forwarding key exists, and when it was last used. */
@@ -124,8 +125,6 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
   };
 }
 
-const BALANCE_LABELS = { momo: "MoMo", gcb: "GCB card", other: "Bank" } as const;
-
 async function loadBank(settings: StudioSettings, profile: UserProfile): Promise<LedgerBank> {
   const bank = createSupabaseBankStore(settings.supabase);
   const [held, token, names, balances] = await Promise.all([
@@ -137,7 +136,7 @@ async function loadBank(settings: StudioSettings, profile: UserProfile): Promise
       `select distinct on (source) source, balance::text, occurred_at
        from public.bank_messages
        where owner_id = $1::uuid and balance is not null
-       order by source, occurred_at desc`,
+       order by source, occurred_at desc, created_at desc`,
       [profile.profileId],
     ),
   ]);
@@ -157,7 +156,7 @@ async function loadBank(settings: StudioSettings, profile: UserProfile): Promise
     })),
     balances: balances.map((row) => ({
       source: row.source,
-      label: BALANCE_LABELS[row.source],
+      label: sourceName(row.source),
       balance: Number(row.balance).toFixed(2),
       at: row.occurred_at.toISOString(),
     })),

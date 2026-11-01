@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { isOwnName, parseBankText, payeeKey } from "@/lib/bank/parse";
+import { accountOf, cardMerchant, isOwnName, parseBankText, payeeKey, sourceName } from "@/lib/bank/parse";
 
 const now = new Date("2026-10-25T09:00:00.000Z");
 const options = { now, timeZone: "Africa/Accra" };
@@ -114,5 +114,80 @@ describe("bank message parser", () => {
       ["AMOS SEKYI SAM", "2026-10-24T11:36:00.000Z"],
       ["ABENA KYEI", "2026-10-22T09:05:00.000Z"],
     ]);
+  });
+
+  describe("Absa", () => {
+    // Real Absa Ghana wordings, with the names and numbers changed.
+    const HOLD =
+      "Transaction of GHS 33.00 earmarked on your account ending 4821 as of 11 Oct 2026 17:37 at Spotify_P47E4EAB37_STOCKHOLM_SE. Available balance is GHS 2048.22.";
+    const FOREIGN_HOLD =
+      "Transaction of USD 5.99 equivalent to GHS 75.56 earmarked on your account ending 4821 as of 07 Oct 2026 13:37 at APPLE.COM/BILL_ITUNES.COM_IE. Available balance is GHS 3321.31.";
+    const DEBIT =
+      "GHS 100.00 has been debited to your account ending 4821 as of 11 Oct 2026 18:33. Your available balance is 1,947.22 Credit transactions may not yet have cleared";
+    const FEE =
+      "GHS 1.00 has been debited to your account ending 4821 as of 11 Oct 2026 18:33. Your available balance is 1,946.22 Credit transactions may not yet have cleared";
+    const TRANSFER =
+      "Dear Customer, Transfer of GHS100 from your account ending 4821 to 233241234567 KOFI MENSAH ADDO on 11/10/26 18:33 was successful. WALLET TxnID 17917435599999";
+    const DECLINED = "Dear Customer, your last Credit Card transaction has been declined due to insufficient funds. Your available balance is 0.00";
+
+    it("reads a card hold as money out at the merchant, dated from the text", () => {
+      expect(parseBankText(HOLD, options)[0]).toMatchObject({
+        source: "absa",
+        direction: "out",
+        amount: "33.00",
+        counterparty: "Spotify",
+        balance: "2048.22",
+        hold: true,
+        occurredAt: "2026-10-11T17:37:00.000Z",
+        dated: true,
+      });
+    });
+
+    it("counts the cedi amount of a foreign card payment and keeps the original", () => {
+      expect(parseBankText(FOREIGN_HOLD, options)[0]).toMatchObject({ amount: "75.56", counterparty: "APPLE.COM/BILL ITUNES.COM", reference: "USD 5.99", hold: true });
+    });
+
+    it("reads a bare debit with its balance", () => {
+      expect(parseBankText(DEBIT, options)[0]).toMatchObject({ source: "absa", direction: "out", amount: "100.00", counterparty: "", balance: "1947.22", occurredAt: "2026-10-11T18:33:00.000Z" });
+    });
+
+    it("reads a transfer with the recipient's name, number and transaction id", () => {
+      expect(parseBankText(TRANSFER, options)[0]).toMatchObject({
+        source: "absa",
+        direction: "out",
+        amount: "100.00",
+        counterparty: "KOFI MENSAH ADDO",
+        reference: "to 0241234567",
+        externalId: "17917435599999",
+        occurredAt: "2026-10-11T18:33:00.000Z",
+      });
+    });
+
+    it("skips declined card payments", () => {
+      expect(parseBankText(DECLINED, options)).toHaveLength(0);
+    });
+
+    it("splits a run of Absa texts into separate messages", () => {
+      const run = [DECLINED, "Sun 11 Oct at 5:37 pm", HOLD, DEBIT, FEE, TRANSFER].join("\n");
+      expect(parseBankText(run, options).map((item) => [item.amount, item.counterparty])).toEqual([
+        ["33.00", "Spotify"],
+        ["100.00", ""],
+        ["1.00", ""],
+        ["100.00", "KOFI MENSAH ADDO"],
+      ]);
+    });
+
+    it("reads the account an Absa text is about", () => {
+      expect(accountOf(DEBIT)).toBe("4821");
+      expect(accountOf(TRANSFER)).toBe("4821");
+    });
+  });
+
+  it("names merchants and sources the way a person would", () => {
+    expect(cardMerchant("NETFLIX.COM_A1B2C3D4E5_LOS GATOS_US")).toBe("NETFLIX.COM");
+    expect(sourceName("absa")).toBe("Absa");
+    expect(sourceName("momo")).toBe("MoMo");
+    expect(sourceName("ecobank")).toBe("Ecobank");
+    expect(sourceName("stanbic_bank")).toBe("Stanbic Bank");
   });
 });

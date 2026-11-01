@@ -198,17 +198,17 @@ async function handleCallback(update: TelegramUpdate, deps: HandlerDeps): Promis
     const store = deps.store;
     const message = await bank.getMessage(profile.profileId, bankChoice.messageId);
     const label = message ? labelFromCode(message, bankChoice.code) : null;
-    const choice = label ? labelChoiceText(label) : "";
+    const choice = label ? (message?.kind === "hold_settle" && label.kind === "skip" ? "Yes, same payment" : labelChoiceText(label)) : "";
     return withClaim(update.update_id, actor, profile, deps, { userText: choice || "Label", channel: "telegram" }, async () => {
       if (!message || !label) return { kind: "text", text: "That button is no longer valid." };
       const ingest = { bank, ledger: store, now: deps.now(), createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people };
-      const asked = await questionFor(ingest.loans, profile, message, deps.people);
+      const asked = await questionFor(ingest.loans, profile, message, deps.people, bank);
       const result = await applyLabel(ingest, profile, message.id, label);
       if (result.ok) await bank.saveUndo(profile.profileId, result.changes);
       // Keep the conversation moving: ask about the next waiting payment, with its own buttons.
       const next = result.ok ? await askNext(ingest, profile) : null;
       if (next) {
-        const question = await questionFor(ingest.loans, profile, next, deps.people);
+        const question = await questionFor(ingest.loans, profile, next, deps.people, bank);
         const remaining = (await bank.listMessages(profile.profileId, "needs_label")).length;
         await deps.telegram.sendMessage(actor.chatId, question.text, [...question.buttons, ...reviewRow(remaining)]);
         await deps.messages
