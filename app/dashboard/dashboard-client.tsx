@@ -176,11 +176,18 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
           label="This week so far"
           value={formatMinor(pace.thisWeekMinor, currency)}
           hint={
-            pace.changePercent !== null
-              ? `${pace.changePercent > 0 ? "+" : ""}${pace.changePercent}% vs same days last week (${formatMinor(pace.lastWeekSameStretchMinor, currency)})`
-              : pace.lastWeekSameStretchMinor === 0
-                ? "Same days last week: none"
-                : `Same days last week: ${formatMinor(pace.lastWeekSameStretchMinor, currency)}`
+            pace.changePercent !== null ? (
+              <>
+                {pace.changePercent > 0 ? "+" : ""}
+                {pace.changePercent}% vs same days last week (<span className="amount">{formatMinor(pace.lastWeekSameStretchMinor, currency)}</span>)
+              </>
+            ) : pace.lastWeekSameStretchMinor === 0 ? (
+              "Same days last week: none"
+            ) : (
+              <>
+                Same days last week: <span className="amount">{formatMinor(pace.lastWeekSameStretchMinor, currency)}</span>
+              </>
+            )
           }
           tone={pace.changePercent !== null ? (pace.changePercent <= 0 ? "good" : "bad") : undefined}
         />
@@ -374,7 +381,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                     >
                       <div className={`h-full rounded-full ${over ? "bg-danger" : used >= 80 ? "bg-accent" : "bg-success"}`} style={{ width: `${over ? 100 : used}%` }} />
                     </div>
-                    <p className={`mt-1 text-xs ${over ? "text-danger" : "text-muted"}`}>
+                    <p className={`mt-1 text-xs tabular-nums ${over ? "text-danger" : "text-muted"}`}>
                       {over ? `${formatMinor(-budget.remainingMinor, budget.currency)} over` : `${formatMinor(budget.remainingMinor, budget.currency)} left`}
                     </p>
                   </li>

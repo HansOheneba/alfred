@@ -88,11 +88,18 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
             <BigMoney value={cash + portfolio.totalGhs} />
           </p>
           <p className="mt-3 text-sm text-muted">
-            {money(cash)} in your accounts · {money(portfolio.totalGhs)} invested
+            <span className="amount">{money(cash)}</span> in your accounts · <span className="amount">{money(portfolio.totalGhs)}</span> invested
           </p>
           {initial.cash.length > 0 ? (
             <p className="mt-1 text-xs text-faint">
-              Accounts: {initial.cash.map((item) => `${item.label} ${money(item.balance)}`).join(" · ")}, from your latest bank texts
+              Accounts:{" "}
+              {initial.cash.map((item, index) => (
+                <span key={item.label}>
+                  {index > 0 ? " · " : ""}
+                  {item.label} <span className="amount">{money(item.balance)}</span>
+                </span>
+              ))}
+              , from your latest bank texts
             </p>
           ) : null}
         </div>
@@ -298,7 +305,12 @@ function InvestmentCard({ item, onChange }: { item: InvestmentView; onChange: (p
       {item.maturity ? (
         <p className="mt-3 rounded-xl bg-surface-2 px-3 py-2 text-xs text-muted">
           {item.maturity.daysLeft >= 0 ? `Matures ${shortDate(item.maturity.date)}` : `Matured ${shortDate(item.maturity.date)}`}
-          {item.maturity.valueAtMaturity !== null ? ` · about ${money(item.maturity.valueAtMaturity, investment.currency)} then` : ""}
+          {item.maturity.valueAtMaturity !== null ? (
+            <>
+              {" · about "}
+              <span className="amount">{money(item.maturity.valueAtMaturity, investment.currency)}</span> then
+            </>
+          ) : null}
         </p>
       ) : null}
 

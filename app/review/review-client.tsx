@@ -170,8 +170,18 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                     <span className="block text-xs text-muted">
                       {group.items.length > 1 ? `${group.items.length} payments` : day.format(new Date(first.occurredAt))}
                       {first.payee === "channel" ? " · the text doesn't say who received it" : ""}
-                      {first.owed ? ` · owes you ${formatAmount(first.owed, first.currency)}` : ""}
-                      {first.owe ? ` · you owe them ${formatAmount(first.owe, first.currency)}` : ""}
+                      {first.owed ? (
+                        <>
+                          {" · owes you "}
+                          <span className="amount">{formatAmount(first.owed, first.currency)}</span>
+                        </>
+                      ) : null}
+                      {first.owe ? (
+                        <>
+                          {" · you owe them "}
+                          <span className="amount">{formatAmount(first.owe, first.currency)}</span>
+                        </>
+                      ) : null}
                       {group.items.length === 1 && first.purpose ? ` · “${first.purpose}”` : ""}
                     </span>
                   </span>

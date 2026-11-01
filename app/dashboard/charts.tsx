@@ -47,7 +47,7 @@ export function MonthlyChart({ data, currency }: { data: { label: string; spent:
         <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }} barGap={4}>
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" {...axis} />
-          <YAxis {...axis} width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
+          <YAxis {...axis} className="amount" width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
           <Tooltip cursor={{ fill: "var(--accent-soft)" }} content={(props) => <MoneyTooltip {...(props as TooltipArgs)} currency={currency} />} />
           <Bar dataKey="income" name="Income" fill="var(--income)" radius={[4, 4, 0, 0]} maxBarSize={28} />
           <Bar dataKey="spent" name="Spent" fill="var(--outgoing)" radius={[4, 4, 0, 0]} maxBarSize={28} />
@@ -79,7 +79,7 @@ export function DailyChart({
           </defs>
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" {...axis} minTickGap={24} />
-          <YAxis {...axis} width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
+          <YAxis {...axis} className="amount" width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
           <Tooltip content={(props) => <MoneyTooltip {...(props as TooltipArgs)} currency={currency} />} />
           <Area
             type={mode === "daily" ? "monotone" : "linear"}
@@ -160,7 +160,7 @@ export function SimpleBars({
         <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" {...axis} />
-          <YAxis {...axis} width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
+          <YAxis {...axis} className="amount" width={56} tickFormatter={(value: number) => compactMoney(value, currency)} />
           <Tooltip cursor={{ fill: "var(--accent-soft)" }} content={(props) => <MoneyTooltip {...(props as TooltipArgs)} currency={currency} />} />
           <Bar dataKey="spent" name={name} fill={color} radius={[4, 4, 0, 0]} maxBarSize={36} />
         </BarChart>

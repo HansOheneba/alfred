@@ -68,10 +68,12 @@ export async function query<T extends QueryResultRow>(
       return result.rows;
     } catch (error) {
       lastError = error;
-      if (preferred?.address === candidate.address && preferred.port === candidate.port) preferred = null;
-      await pool.end().catch(() => undefined);
-      pools.delete(`${candidate.address}:${candidate.port}`);
+      // A bad query is not a bad connection: other requests share this pool, so only drop it when unreachable.
       if (!unreachable(error)) throw failedQuery(error);
+      if (preferred?.address === candidate.address && preferred.port === candidate.port) preferred = null;
+      const key = `${candidate.address}:${candidate.port}`;
+      if (pools.get(key) === pool) pools.delete(key);
+      void pool.end().catch(() => undefined);
     }
   }
   throw failedQuery(lastError);

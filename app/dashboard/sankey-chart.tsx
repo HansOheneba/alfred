@@ -254,7 +254,7 @@ export function CashFlowSankey({ model, currency }: { model: SankeyFlowModel; cu
         </svg>
       </div>
       <div className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted">
-        <span>{caption}</span>
+        <span className={model.comparisonGapMinor > 0 ? "amount" : undefined}>{caption}</span>
         <span role="status" aria-live="polite" className="tabular-nums text-ink">
           {inspected
             ? `${inspected.label} · ${formatMinor(inspected.minor, currency)}${

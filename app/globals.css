@@ -14,11 +14,18 @@ body {
   }
 }
 
-/* Privacy mask: hides monetary figures across the dashboard when privacy mode is on. */
-html[data-privacy="masked"] .tabular-nums {
+/* Privacy mask: hides monetary figures across the app when privacy mode is on.
+   Figures are marked with `tabular-nums` or, inside sentences, `amount`. */
+html[data-privacy="masked"] :is(.tabular-nums, .amount, .recharts-tooltip-wrapper) {
   filter: blur(7px);
   user-select: none;
   transition: filter 120ms ease;
+}
+
+/* Safari ignores CSS blur on SVG elements, so chart labels are hidden instead. */
+html[data-privacy="masked"] svg :is(.tabular-nums, .amount) {
+  filter: none;
+  opacity: 0;
 }
 
 ::selection {

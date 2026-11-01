@@ -38,8 +38,8 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
         <p className="mt-1 text-xs text-muted">
           {income > 0 ? (
             <>
-              of {money(income)} income ·{" "}
-              <span className={income - spentMinor >= 0 ? "text-success" : "text-danger"}>
+              of <span className="amount">{money(income)}</span> income ·{" "}
+              <span className={`amount ${income - spentMinor >= 0 ? "text-success" : "text-danger"}`}>
                 {income - spentMinor >= 0 ? `${money(income - spentMinor)} left` : `${money(spentMinor - income)} over`}
               </span>
             </>
