@@ -19,7 +19,8 @@ export type UnknownTextReader = (text: string, options: { sender: string | null;
 
 /** Worth asking the model about: names cedis and has a figure. Any sender: the model tells alerts from people's messages. */
 export function looksLikeMoney(text: string): boolean {
-  return /\bGH(?:S|₵|¢)|\bcedis?\b/i.test(text) && /\d/.test(text) && text.length <= 1200;
+  // GHS, GHC (still common in bank texts), GH₵, GH¢, or cedis written out.
+  return /\bGH(?:S|C|₵|¢)|\bcedis?\b/i.test(text) && /\d/.test(text) && text.length <= 1200;
 }
 
 const PROMPT = `You read text messages for a person in Ghana and pick out the ones that record money moving in their own accounts.
@@ -31,7 +32,7 @@ A message a person wrote is never from_provider and never moves_money, even when
 Not money moving: declined or failed payments, one-time codes, balance-only notices, loan or product offers, promotions, reminders.
 A card payment the bank has put on hold ("earmarked", "reserved", "authorised", "pending") IS money moving: set on_hold to true.
 
-Copy figures exactly as written in the text. Use the Ghana cedi (GHS) figure; when a foreign amount has a cedi equivalent, use the cedi one.
+Copy figures exactly as written in the text. Use the Ghana cedi figure (written GHS, GHC, GH₵ or cedis); when a foreign amount has a cedi equivalent, use the cedi one.
 counterparty is who the money went to or came from, copied from the text, without account or phone numbers. Use null when the text doesn't say.
 transaction_id is the provider's reference number for the payment, copied from the text, or null.
 bank is the bank or provider's short name, like "Ecobank" or "Fidelity", or null. Mobile money alerts ("Cash In", "Cash Out", "MoMo", "Payment received for") are "MoMo" for MTN, "Telecel Cash" or "AirtelTigo Money".

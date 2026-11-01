@@ -187,7 +187,10 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
         ) : null}
       </Card>
 
-      <Card title="Set up the iPhone Shortcut">
+      <Card title="Set up your iPhone">
+        <p className="mb-4 text-sm leading-6 text-muted">
+          Everything runs on your iPhone with the Shortcuts app. No computer needed. Every text that mentions cedis is sent to Alfred, and he keeps only the bank, MoMo and merchant alerts that moved your money.
+        </p>
         <ol className="flex flex-col gap-3 text-sm text-muted">
           <Step n={1}>
             On your iPhone, open{" "}
@@ -208,13 +211,13 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
             <span className={em}>Shortcut Input</span>. This step matters most: without it the message never reaches Alfred.
           </Step>
           <Step n={4}>
-            Tap <span className={em}>Done</span>, then repeat steps 2–3 with{" "}
-            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">CEDIS</code>, for banks that write it out.
+            Tap <span className={em}>Done</span>, then make the same automation twice more, with <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">GHC</code> and with{" "}
+            <code className="rounded bg-surface-2 px-1.5 py-0.5 font-mono text-xs text-ink">CEDIS</code>. Banks write cedis different ways, and each automation watches for one.
           </Step>
           <Step n={5}>Test it: wait for a MoMo or bank text, or have someone send you money. Alfred will message you on Telegram, or it&apos;ll show under &ldquo;Needs a label&rdquo; below.</Step>
         </ol>
         <p className="mt-4 rounded-xl bg-surface-2 p-3 text-xs leading-5 text-muted">
-          Privacy: the Shortcut only sends texts containing GHS or CEDIS. Alfred keeps only alerts from banks, MoMo and merchants that moved your money; a friend&apos;s &ldquo;I&apos;ve sent you GHS 50&rdquo; is read and dropped, never stored. You can reset or turn off the key at any time.
+          Privacy: the Shortcut only sends texts containing GHS, GHC or CEDIS. Alfred keeps only alerts from banks, MoMo and merchants that moved your money; a friend&apos;s &ldquo;I&apos;ve sent you GHS 50&rdquo; is read and dropped, never stored. Texts that arrived before you set this up aren&apos;t sent, but you can send Alfred a screenshot of them on Telegram. You can reset or turn off the key at any time.
         </p>
       </Card>
 

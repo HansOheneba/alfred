@@ -25,7 +25,7 @@ let checkOnly = CommandLine.arguments.contains("--check")
 /// The only place texts are sent. Not configurable, so a changed config file can't redirect them.
 let endpoint = URL(string: "https://alfred.hansopoku.com/api/ingest/sms")!
 /// Only texts that mention money leave this Mac, the same filter as the iPhone automation.
-let moneyPattern = try! NSRegularExpression(pattern: "\\b(GHS|GH₵|GH¢|CEDIS)", options: [.caseInsensitive])
+let moneyPattern = try! NSRegularExpression(pattern: "\\b(GHS|GHC|GH₵|GH¢|CEDIS)", options: [.caseInsensitive])
 /// On the first run, catch up on the last week. Alfred skips anything it already has.
 let firstRunLookback: TimeInterval = 7 * 86_400
 

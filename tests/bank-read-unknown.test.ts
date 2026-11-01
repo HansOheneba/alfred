@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { applyLabel, ingestBankText, labelQuestion, TRUSTED_AFTER, type IngestDeps } from "@/lib/bank/ingest";
-import { checkAlert, createUnknownTextReader, sourceSlug, type ModelAlert, type UnknownTextReader } from "@/lib/bank/read-unknown";
+import { checkAlert, createUnknownTextReader, looksLikeMoney, sourceSlug, type ModelAlert, type UnknownTextReader } from "@/lib/bank/read-unknown";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { profile } from "./helpers";
@@ -53,6 +53,12 @@ describe("reading texts from banks without rules", () => {
     // A person's message about money never counts, even if the model thinks it moved money.
     expect(checkAlert(text, alert({ from_provider: false }), options)).toBeNull();
     expect(checkAlert(text, alert({ direction: null }), options)).toBeNull();
+  });
+
+  it("notices cedis however a bank writes them", () => {
+    expect(["GHS 50.00 debited", "GHS100 sent", "GHC 50.00 credited", "GH₵ 20 paid", "50 cedis received"].every(looksLikeMoney)).toBe(true);
+    expect(looksLikeMoney("See you at 5")).toBe(false);
+    expect(looksLikeMoney("GHS bonus this week")).toBe(false);
   });
 
   it("tidies a card merchant code the model copied", () => {

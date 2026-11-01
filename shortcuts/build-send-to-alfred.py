@@ -29,7 +29,7 @@ def output(action_uuid: str, name: str) -> dict:
 
 
 key_id, input_id, match_id, if_group, money_group = uid(), uid(), uid(), uid(), uid()
-MONEY_PATTERN = r"\b(GHS|GH₵|GH¢|CEDIS)"
+MONEY_PATTERN = r"\b(GHS|GHC|GH₵|GH¢|CEDIS)"
 
 
 def post(body: dict | None) -> dict:
