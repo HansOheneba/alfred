@@ -99,7 +99,8 @@ export async function interpretMessage(
     : messages;
   const second = await chatCompletion(turnSettings, retryMessages, {}, fetchImpl);
   const retry = parseModelOutput(second, { today });
-  if (!retry.success) throw new AiError("invalid", "DeepSeek returned an invalid finance action.");
+  // The schema issue (field paths and messages, never the user's words) is what the logs need to explain a fallback.
+  if (!retry.success) throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);
   return retry.data;
 }
 

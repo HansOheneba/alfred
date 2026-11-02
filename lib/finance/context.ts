@@ -9,6 +9,7 @@ import type { InterpretedAction } from "@/lib/finance/schemas";
 import { readReportingTransactions, type FinanceStore } from "@/lib/finance/store";
 import { zonedYmd } from "@/lib/finance/dates";
 import { formatMinor, toMinor } from "@/lib/finance/money";
+import { logError } from "@/lib/log";
 import type { TransactionRecord } from "@/lib/finance/types";
 import { conversationalFallback } from "@/lib/telegram/messages";
 
@@ -99,6 +100,7 @@ export async function interpretWithContext(input: {
     });
   } catch (error) {
     if (error instanceof AiError && error.code === "invalid") {
+      logError("interpret_unread", error);
       return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: true };
     }
     throw error;
