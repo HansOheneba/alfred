@@ -4,7 +4,6 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 
 import { AlfredMark } from "@/app/components/app-shell";
-import { NotebookIcon, NotebookPanel, useNotebookPanel } from "@/app/chat/notebook-panel";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import { buildAccountingView } from "@/lib/finance/accounting/view";
 import type { AccountingState } from "@/lib/finance/accounting/types";
@@ -14,7 +13,6 @@ import { usePreviewAccounting } from "@/ui-preview/accounting-store";
 import { previewLedger as basePreviewLedger, previewName, previewToday } from "@/ui-preview/fixture";
 
 import { PreviewChatTools, PreviewIcon } from "./preview-shell";
-import { ChatNotebookPreview } from "./chat-notebook";
 import "./chat-preview.css";
 
 type Fact = { label: string; value: string; tone?: "income" | "expense" };
@@ -118,7 +116,6 @@ export function ChatPreview() {
   const [draft, setDraft] = useState("");
   const [freshStart, setFreshStart] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
-  const notebookPanel = useNotebookPanel();
   const input = useRef<HTMLTextAreaElement>(null);
   const composer = useRef<HTMLFormElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
@@ -171,7 +168,6 @@ export function ChatPreview() {
           <div className="alfred-chat-composerHeader"><label htmlFor="alfred-chat-message">Ask Alfred</label>
             <div className="alfred-chat-headerTools" role="group" aria-label="Conversation actions">
               <button className="alfred-chat-contextToggle" type="button" aria-label={contextOpen ? "Hide context" : "Show context"} title={contextOpen ? "Hide context" : "Show context"} aria-expanded={contextOpen} aria-controls="alfred-chat-context" onClick={() => setContextOpen((open) => !open)}><PreviewIcon><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16M6 8h4m-4 4h4"/></PreviewIcon><span className="alfred-chat-actionLabel">{contextOpen ? "Hide context" : "Show context"}</span></button>
-              <button className="alfred-notebook-open" type="button" aria-label="Notebook" title="Notebook" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => notebookPanel.setOpen(true)}><NotebookIcon/><span className="alfred-chat-actionLabel">Notebook</span></button>
               <button className="alfred-chat-new" type="button" aria-label="New conversation" title="New conversation" onClick={() => { setMessages([]); setDraft(""); setFreshStart(true); input.current?.focus(); }}><PreviewIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z"/></PreviewIcon><span className="alfred-chat-actionLabel">New conversation</span></button>
             </div>
           </div>
@@ -190,6 +186,5 @@ export function ChatPreview() {
         <Link className="alfred-chat-reviewLink" href="/ui-preview/accounts?tab=needs-attention"><span><strong>{previewLedger.bank.needsLabel.length} {previewLedger.bank.needsLabel.length === 1 ? "payment needs" : "payments need"} a label</strong><small>Give your overview more context</small></span><span aria-hidden="true">↗</span></Link>
       </aside>
     </div>
-    <NotebookPanel open={notebookPanel.open} onClose={() => notebookPanel.setOpen(false)} demo><ChatNotebookPreview/></NotebookPanel>
   </div>;
 }

@@ -14,7 +14,6 @@ npm run dev -- --hostname 127.0.0.1 --port 3016
 - Accounts: http://127.0.0.1:3016/ui-preview/accounts
 - Subscriptions: http://127.0.0.1:3016/ui-preview/accounts?tab=subscriptions
 - Chat: http://127.0.0.1:3016/ui-preview/chat
-- Notebook: http://127.0.0.1:3016/ui-preview/chat?panel=notebook
 - Original dashboard comparison: http://127.0.0.1:3016/ui-preview/current
 
 Preview routes are available only in development and return 404 in a production
@@ -29,9 +28,9 @@ preview to another device. No tunnel or public deployment is configured here.
 ## UI behaviour
 
 The floating navigation links Chat, Overview, Accounts, Investments and Settings.
-Review's classification work is in Accounts → Needs attention. Notebook opens as
-a keyboard-accessible drawer within Chat. Legacy Review and Notebook routes
-redirect to their new locations.
+Review's classification work is in Accounts → Needs attention. Legacy Review
+links redirect there; retired Notebook and people-note bookmarks return to Chat.
+Stored notes remain available to Alfred's existing conversation behavior.
 
 The overview includes reported cash balances, red spending and green income,
 a weekly comparison, insight rows with an in-place Ask Alfred composer, charts,

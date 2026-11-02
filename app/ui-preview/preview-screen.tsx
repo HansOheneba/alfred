@@ -15,7 +15,7 @@ import { ConceptDashboardClient } from "./concept-dashboard";
 import { PreviewShell } from "./preview-shell";
 import { previewStyles as styles } from "./styles";
 
-const previewRoutes: Record<string, string> = { "/chat": "/ui-preview/chat", "/dashboard": "/ui-preview", "/investments": "/ui-preview/investments", "/accounts": "/ui-preview/accounts", "/review": "/ui-preview/accounts?tab=needs-attention", "/notebook": "/ui-preview/chat?panel=notebook", "/settings": "/ui-preview/settings", "/": "/ui-preview" };
+const previewRoutes: Record<string, string> = { "/chat": "/ui-preview/chat", "/dashboard": "/ui-preview", "/investments": "/ui-preview/investments", "/accounts": "/ui-preview/accounts", "/review": "/ui-preview/accounts?tab=needs-attention", "/notebook": "/ui-preview/chat", "/people": "/ui-preview/chat", "/settings": "/ui-preview/settings", "/": "/ui-preview" };
 
 export function PreviewFrame({ children, section = "dashboard", variant = "concept" }: { children: ReactNode; section?: Section; variant?: "current" | "concept" }) {
   const [appearance, setAppearance] = useAppearance();

@@ -40,7 +40,6 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
   const balanceNote = !accounting ? "Account balances are unavailable." : accounting.availability === "migration-required" ? "Account storage must be set up before saving accounts." : balances?.missingCount ? `${balances.missingCount} included account${balances.missingCount === 1 ? " needs" : "s need"} a reported balance before the total is available.` : !accountCount ? "Add an account and record its balance to see your total." : "Latest reported balances · Not live";
 
   if (getGettingStartedState(ledger).isEmpty) return <div className="alfred-production-chat-contextCards" data-first-use-context="true">
-    <div className="alfred-production-chat-contextHeading"><span>Getting started</span></div>
     <section className="alfred-production-chat-setupContext" aria-labelledby={`${fillId}-setup-title`}>
       <h2 id={`${fillId}-setup-title`}>Give Alfred a starting point</h2>
       <p>Your balances and spending will appear here as you add accounts and record activity.</p>

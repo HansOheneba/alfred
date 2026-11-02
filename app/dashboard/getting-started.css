@@ -1,6 +1,5 @@
 .alfred-getting-started { width:100%; max-width:1280px; margin:0 auto; padding:40px 32px 24px; font-size:14px; line-height:20px; }
 .alfred-getting-started-heading { display:flex; align-items:center; gap:16px; margin-bottom:32px; }
-.alfred-getting-started-heading > div > p:first-child { color:var(--accent); font-size:12px; line-height:16px; font-weight:600; margin-bottom:8px; }
 .alfred-getting-started-heading > div { min-width:0; }
 .alfred-getting-started-heading h1 { overflow-wrap:anywhere; font-size:32px; line-height:40px; font-weight:600; letter-spacing:-.04em; }
 .alfred-getting-started-heading > div > p:last-child { margin-top:8px; color:var(--muted); }
@@ -32,7 +31,6 @@
 .alfred-getting-started-ahead > p { color:var(--muted); margin-top:8px; }
 .alfred-getting-started-ahead ul { display:flex; flex-direction:column; gap:20px; margin-top:24px; }
 .alfred-getting-started-ahead li { display:flex; align-items:start; gap:12px; }
-.alfred-getting-started-ahead li > span { color:var(--accent); font-size:12px; line-height:20px; font-weight:600; }
 .alfred-getting-started-ahead li p { color:var(--muted); font-size:12px; line-height:20px; margin-top:4px; }
 .alfred-getting-started-ahead .alfred-getting-started-note { border-top:1px solid color-mix(in srgb,var(--accent) 16%,var(--line)); padding-top:20px; margin-top:24px; font-size:12px; line-height:20px; }
 .alfred-getting-started-footnote { max-width:640px; margin-top:24px; color:var(--muted); font-size:12px; line-height:20px; }

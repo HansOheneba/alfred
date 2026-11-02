@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 
 import { PreviewDestination, type PreviewDestinationSection } from "../preview-destinations";
 
-const SECTIONS = ["chat", "accounts", "investments", "review", "notebook", "settings"] as const;
+const SECTIONS = ["chat", "accounts", "investments", "review", "settings"] as const;
 
 export function generateStaticParams() {
   return SECTIONS.map((section) => ({ section }));
@@ -13,7 +13,7 @@ export default async function DestinationPage({ params }: { params: Promise<{ se
   if (process.env.NODE_ENV !== "development") notFound();
   const { section } = await params;
   if (section === "review") redirect("/ui-preview/accounts?tab=needs-attention");
-  if (section === "notebook") redirect("/ui-preview/chat?panel=notebook");
+  if (section === "notebook") redirect("/ui-preview/chat");
   if (!(SECTIONS as readonly string[]).includes(section)) notFound();
   return <PreviewDestination section={section as PreviewDestinationSection} />;
 }

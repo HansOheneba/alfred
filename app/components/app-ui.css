@@ -257,16 +257,10 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
   .alfred-chat-viewport[data-keyboard-open="true"] .alfred-ui-dock { visibility:hidden; pointer-events:none; }
   .alfred-app-chat[data-keyboard-open="true"] .alfred-ui-fill > .alfred-ui-main { padding-bottom:0; }
 }
-@media(max-width:600px) {
-  .alfred-chat-viewport .alfred-notebook-panel { top:var(--alfred-chat-offset-top,0px); bottom:auto; height:var(--alfred-chat-viewport-height,100dvh); max-height:var(--alfred-chat-viewport-height,100dvh); }
-}
 /* The development Chat preview uses the same viewport frame directly. */
 .alfred-ui-pageShell.alfred-chat-viewport { display:flex; flex-direction:column; min-height:0; height:var(--alfred-chat-viewport-height,100dvh); padding-bottom:0; }
 .alfred-ui-pageShell.alfred-chat-viewport > .alfred-ui-main { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; padding-top:env(safe-area-inset-top); padding-bottom:104px; }
 @media(max-width:760px) {
   .alfred-ui-pageShell.alfred-chat-viewport > .alfred-ui-main { padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
   .alfred-ui-pageShell.alfred-chat-viewport[data-keyboard-open="true"] > .alfred-ui-main { padding-bottom:0; }
-}
-@media(max-width:600px) {
-  .alfred-chat-viewport .alfred-notebook-panelHeader { padding-top:calc(16px + env(safe-area-inset-top)); }
 }

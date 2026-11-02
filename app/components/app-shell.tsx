@@ -7,7 +7,7 @@ import { useChatViewport } from "./chat-viewport";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 import "./app-ui.css";
 
-export type Section = "chat" | "dashboard" | "accounts" | "investments" | "review" | "notebook" | "settings";
+export type Section = "chat" | "dashboard" | "accounts" | "investments" | "review" | "settings";
 
 const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
   {

@@ -5,11 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { ReplyChart } from "@/app/chat/reply-chart";
-import { NotebookIcon, NotebookPanel, useNotebookPanel, type ChatNotebookData } from "@/app/chat/notebook-panel";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
 import { getGettingStartedState } from "@/app/components/getting-started-state";
-import { NotebookClient } from "@/app/notebook/notebook-client";
 import type { ChatChart } from "@/lib/accounts/messages";
 import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -78,14 +76,12 @@ export function ChatPanel({
   name,
   initialMessages,
   ledger,
-  notebook,
   initialQuestion = "",
 }: {
   ownerId: string;
   name: string;
   initialMessages: ThreadMessage[];
   ledger: Ledger;
-  notebook: ChatNotebookData;
   initialQuestion?: string;
 }) {
   const router = useRouter();
@@ -94,7 +90,6 @@ export function ChatPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [statsOpen, setStatsOpen] = useState(false);
-  const notebookPanel = useNotebookPanel();
   // The greeting depends on the viewer's clock, so the server renders a neutral one.
   const hello = useSyncExternalStore(noSubscribe, () => greeting(name), () => "");
   const threadRef = useRef<HTMLDivElement>(null);
@@ -417,7 +412,6 @@ export function ChatPanel({
               <label htmlFor="alfred-message">Message Alfred</label>
               <div className="alfred-production-chat-tools" role="group" aria-label="Conversation actions">
                 {!financialsEmpty ? <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span>Context</span></button> : null}
-                <button type="button" aria-label="Notebook" title="Notebook" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => { setStatsOpen(false); notebookPanel.setOpen(true); }}><NotebookIcon /><span>Notebook</span></button>
                 <button type="button" className="alfred-production-chat-new" aria-label="New message" title="New message — keep saved conversation" disabled={busy} onClick={() => { setText(""); inputRef.current?.focus(); }}><ChatIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z" /></ChatIcon><span>New message</span></button>
               </div>
             </div>
@@ -433,7 +427,6 @@ export function ChatPanel({
       </section>
 
       {!financialsEmpty ? <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}><StatsPanel ledger={ledger} /></ContextSheet> : null}
-      <NotebookPanel open={notebookPanel.open} onClose={() => notebookPanel.setOpen(false)}>{notebook.error ? <p className="text-sm leading-6 text-danger" role="alert">{notebook.error}</p> : <NotebookClient people={notebook.people} about={notebook.about} embedded />}</NotebookPanel>
     </div>
   );
 }
