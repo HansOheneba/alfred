@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
@@ -7,6 +8,7 @@ import { ReplyChart } from "@/app/chat/reply-chart";
 import { NotebookIcon, NotebookPanel, useNotebookPanel, type ChatNotebookData } from "@/app/chat/notebook-panel";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
+import { getGettingStartedState } from "@/app/components/getting-started-state";
 import { NotebookClient } from "@/app/notebook/notebook-client";
 import type { ChatChart } from "@/lib/accounts/messages";
 import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
@@ -32,6 +34,11 @@ const STARTERS: Suggestion[] = [
   { label: "How much this week?", text: "How much have I spent this week?" },
   { label: "Log an expense", text: "Spent ", fill: true },
   { label: "Set a budget", text: "Set a budget of ", fill: true },
+];
+
+const FIRST_USE_STARTERS: Suggestion[] = [
+  { label: "Record an expense", text: "Spent ", fill: true },
+  { label: "Record income", text: "Received ", fill: true },
 ];
 
 const FOLLOW_UPS: Suggestion[] = [
@@ -351,6 +358,8 @@ export function ChatPanel({
     return index === messages.length - 1 && !messages.slice(index + 1).some((item) => item.role === "assistant");
   }
 
+  const firstUse = messages.length === 0 && getGettingStartedState(ledger).isEmpty;
+  const starters = firstUse ? FIRST_USE_STARTERS : STARTERS;
   const last = messages.at(-1);
   const showFollowUps = !busy && last?.role === "assistant" && !(last.actionId && !last.settled) && text.length === 0;
 
@@ -371,11 +380,12 @@ export function ChatPanel({
 
         <div ref={threadRef} tabIndex={0} className="alfred-production-chat-scroll" aria-busy={busy} onScroll={onThreadScroll}>
           {messages.length === 0 ? (
-            <div className="alfred-production-chat-empty">
+            <div className="alfred-production-chat-empty" data-first-use={firstUse ? "true" : undefined}>
               <AlfredMark size="size-12 alfred-production-chat-emptyMark" />
-              <h2>{hello || "Hello."}</h2>
-              <p>Tell me what you spend or earn and I&apos;ll keep the books. Ask where your money goes and I&apos;ll tell you honestly. This is the same conversation as Telegram.</p>
-              <div className="alfred-production-chat-starters">{STARTERS.map((suggestion) => <button key={suggestion.label} type="button" disabled={busy} onClick={() => pickSuggestion(suggestion)}>{suggestion.label}<span aria-hidden="true">↗</span></button>)}</div>
+              <h2>{firstUse ? (name ? `Welcome, ${name}.` : "Welcome to Alfred.") : hello || "Hello."}</h2>
+              <p>{firstUse ? "Start with something you spent or earned. Tell me the amount and what it was for, and we’ll build your overview from there." : <>Tell me what you spend or earn and I&apos;ll keep the books. Ask where your money goes and I&apos;ll tell you honestly. This is the same conversation as Telegram.</>}</p>
+              <div className="alfred-production-chat-starters" role="group" aria-label={firstUse ? "Start recording your money" : "Conversation starters"}>{starters.map((suggestion) => <button key={suggestion.label} type="button" disabled={busy} onClick={() => pickSuggestion(suggestion)}>{suggestion.label}<span aria-hidden="true">↗</span></button>)}</div>
+              {firstUse ? <><p className="alfred-production-chat-draftHint">Choose a starting point, then add your details before sending.</p><Link className="alfred-production-chat-setupLink" href="/dashboard">View your setup checklist <span aria-hidden="true">↗</span></Link></> : null}
             </div>
           ) : (
             <div className="alfred-production-chat-thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">

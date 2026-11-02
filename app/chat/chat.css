@@ -147,3 +147,23 @@
 .alfred-production-chat-legacySnapshots[open] > summary svg { transform: rotate(180deg); }
 .alfred-production-chat-legacySnapshots > summary:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 8px; }
 .alfred-production-chat-legacySnapshots[open] { padding-bottom: 20px; }
+
+
+/* First-use guidance replaces repeated empty financial cards. */
+.alfred-production-chat-empty[data-first-use="true"] { max-width: 480px; }
+.alfred-production-chat-empty[data-first-use="true"] > p { max-width: 400px; }
+.alfred-production-chat-empty > .alfred-production-chat-draftHint { margin-top: 12px; font-size: 12px; line-height: 20px; }
+.alfred-production-chat-setupLink { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-radius: 12px; color: var(--accent); font-size: 12px; line-height: 20px; font-weight: 500; }
+.alfred-production-chat-setupLink:hover { background: var(--accent-soft); }
+.alfred-production-chat-empty > .alfred-production-chat-setupLink { margin-top: 8px; }
+.alfred-production-chat-contextCards > .alfred-production-chat-setupContext { padding: 24px; }
+.alfred-production-chat-setupContext > p { margin-top: 12px; color: var(--muted); font-size: 14px; line-height: 24px; }
+.alfred-production-chat-setupContext > a { display: flex; }
+.alfred-production-chat-setupPrimary { display: flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; margin-top: 24px; padding: 12px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-size: 12px; line-height: 20px; font-weight: 600; }
+.alfred-production-chat-setupPrimary:hover { background: var(--accent-strong); }
+.alfred-production-chat-setupContext > .alfred-production-chat-setupLink { margin-top: 8px; }
+@media (max-width: 600px) {
+  .alfred-production-chat-empty[data-first-use="true"] .alfred-production-chat-starters { grid-template-columns: repeat(2,minmax(0,1fr)); margin-top: 16px; }
+  .alfred-production-chat-empty[data-first-use="true"] .alfred-production-chat-starters button { padding: 12px; }
+  .alfred-production-chat-contextCards > .alfred-production-chat-setupContext { padding: 20px; }
+}
