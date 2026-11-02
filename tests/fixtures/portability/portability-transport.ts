@@ -74,7 +74,7 @@ export function createSyntheticPortabilityTransport(scenario: Scenario): Portabi
         expiresAt: new Date(Date.now() + 30 * 60 * 1000).toISOString(),
         ...(scenario === "conflict" ? { conflicts: ["Movement source:synthetic-payment already exists with different amounts. Existing records will not be overwritten."], canConfirm: false } : {}),
         ...(nativeMode ? {
-          native: { ...nativeFixture, ...(scenario === "nativeConflict" ? { conflicts: ["Bills: a different destination record already uses this name. Nothing will be overwritten."] } : {}), ...(scenario === "nativeSettingsConflict" ? { settings: { ...nativeFixture.settings, conflicts: ["profile.timezone: destination has a different non-default value; it will not be overwritten."] } } : {}) },
+          native: { ...nativeFixture, ...(scenario === "nativeConflict" ? { conflicts: ["Bills: a different destination record already uses this name. Nothing will be overwritten."] } : {}), ...(scenario === "nativeSettingsConflict" ? { settings: { ...nativeFixture.settings, conflicts: ["profile.timezone: invalid setting."] } } : {}) },
           unsupported: ["Account exclusion notes and account-name matching are retained as evidence without changing SMS collection."],
           warnings: ["Imported bills start paused; resume them in Bills when you want reminders.", "Investment financial records populate the portfolio with notices paused.", "This is a native Alfred archive. Cross-app feature coverage is determined separately by each adapter."],
           coverage: [...previewFixture.coverage.filter((item) => !item.dataset.startsWith("native.money-tracker")), ...nativeFixture.coverage],

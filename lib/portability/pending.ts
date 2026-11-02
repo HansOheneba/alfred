@@ -37,6 +37,12 @@ export async function validateStoredArchive(row:Pick<PendingReceiptRow,"archive"
   if(stored.archiveId!==row.archive_id||rebuilt.archiveId!==row.archive_id||canonicalStringify(stored.manifest)!==canonicalStringify(rebuilt.manifest)) throw new AccountingError("The saved source archive failed its integrity check. Its data has not been activated.","conflict");
   return rebuilt;
 }
+/** Listing reads many receipts; the full rebuild-and-hash check runs before any detail view,
+ * download or activation, so the list only confirms the stored shape and recorded identity. */
+function listedArchive(row:Pick<PendingReceiptRow,"archive"|"archive_id">):Archive {
+  if(!object(row.archive)||!object(row.archive.manifest)||!object(row.archive.datasets)||row.archive.archiveId!==row.archive_id) throw new AccountingError("The saved source archive is incomplete. Its data has not been activated.","conflict");
+  return row.archive as unknown as Archive;
+}
 function datasetPath(datasets:Record<string,unknown>,dataset:string):string[]|null {
   const root=Object.keys(datasets).sort((a,b)=>b.length-a.length).find((key)=>dataset===key||dataset.startsWith(`${key}.`));
   if(!root)return null;
@@ -151,7 +157,7 @@ export async function listPendingFinanceData(settings:SupabaseSettings,ownerId:s
   const rows=await query<PendingReceiptRow>(settings,`${RECEIPT_SELECT} where r.owner_id=$1::uuid and r.activation_of is null ${before?"and (r.imported_at,r.id)<($2::timestamptz,$3)":""} order by r.imported_at desc,r.id desc limit 10`,before?[ownerId,before.at,before.id]:[ownerId]);
   const [children,current]=await Promise.all([childReceipts(settings,ownerId,rows.map(row=>row.id)),currentIds(settings,ownerId)]);
   const items=[];
-  for(const row of rows)items.push(pendingItemFromReceipt(row,await validateStoredArchive(row),children.filter(child=>child.activation_of===row.id),current));
+  for(const row of rows)items.push(pendingItemFromReceipt(row,listedArchive(row),children.filter(child=>child.activation_of===row.id),current));
   const last=rows.at(-1);return {items,nextCursor:rows.length===10&&last?Buffer.from(JSON.stringify({at:iso(last.imported_at),id:last.id})).toString("base64url"):null};
 }
 export async function pendingFinanceDataDetails(settings:SupabaseSettings,ownerId:string,receiptId:string) {

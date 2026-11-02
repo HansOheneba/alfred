@@ -31,9 +31,11 @@ A new rule starts at confirmation time. Stale account identity or rule revisions
 
 Natural requests for future account categorisation receive command guidance rather than becoming an opaque Notebook note. Bot commands support exact merchants; broader scope and account bindings use Settings. Read-only bot lists show bounded previews and point to Settings for the complete list.
 
+Numeric account endings, merchant names and effective dates do not bypass that guidance. A clear leading expense or income clause with an amount, such as “add 20 from my momo wallet to the food category, I always buy lunch”, follows the usual transaction interpretation and confirmation flow. It does not create a standing rule. Explicit `/rule` commands are handled before this natural-language routing and can use numeric account IDs and quoted merchant names normally.
+
 ## Setup and behavior
 
-The account-rule migration must be available before writes. Missing or incompatible schema fails without creating a rule. Rules project categories when accounting history/reports load. They do not bypass the existing Bank messages review flow or replace older global payee-filing rules.
+The baseline accounting and account-rule migrations must be available before rule writes. Apply the reviewed forward `20261102190000_portability_review_fixes.sql` migration after the unchanged published `1700`/`1800` files for the combined portability release; do not install these fixes by modifying a previously applied migration. Missing or incompatible rule storage fails without creating a rule. A positive rule-readiness check is cached briefly per database identity and capability; negative checks are retried immediately so completed setup is visible on the next request. Rules project categories when accounting history/reports load. They do not bypass the existing Bank messages review flow or replace older global payee-filing rules.
 
 Imported rules activate only when account references map unambiguously. Their source order, direction and effective date remain intact. Unmapped conditions stay recoverable in Awaiting support.
 

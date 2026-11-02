@@ -1,6 +1,6 @@
 import type { Ledger } from "@/lib/web/ledger";
 
-/** UI readiness only. An empty period or unavailable storage is not a new account. */
+/** UI readiness only. Unknown storage or a quiet period does not prove an account is new. */
 export function getGettingStartedState(ledger: Ledger) {
   const hasAccount = (ledger.accounting?.balances.accounts.length ?? 0) > 0;
   const hasTransaction = ledger.rows.length > 0;
@@ -11,8 +11,10 @@ export function getGettingStartedState(ledger: Ledger) {
     (ledger.renewalSuggestions?.length ?? 0) > 0 || (ledger.accounting?.loans.length ?? 0) > 0 ||
     (ledger.accounting?.issues.length ?? 0) > 0;
   const canShowSetup = ledger.accounting?.availability === "ready" && !hasTransaction && !hasOtherRecords;
+  const showBlockedSetup = ledger.accounting?.availability === "migration-required" &&
+    !hasAccount && !hasBudget && !hasTransaction && !hasOtherRecords;
   return {
-    hasAccount, hasTransaction, hasBudget, canShowSetup,
+    hasAccount, hasTransaction, hasBudget, canShowSetup, showBlockedSetup,
     isEmpty: canShowSetup && !hasAccount && !hasBudget,
     completedCount: Number(hasAccount) + Number(hasTransaction) + Number(hasBudget),
   };

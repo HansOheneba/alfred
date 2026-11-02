@@ -3,7 +3,7 @@ import type { SupabaseSettings } from "@/lib/config";
 import type { FinancialAccount } from "@/lib/finance/accounting/types";
 import { stableJson } from "@/lib/finance/accounting/reducer";
 import { query } from "@/lib/supabase/connection";
-import { ACCOUNT_RULES_READY_SQL } from "@/lib/supabase/finance-capabilities";
+import { ACCOUNT_RULES_READY_SQL, schemaReady } from "@/lib/supabase/finance-capabilities";
 import { accountRuleCommandSchema } from "./schema";
 import { AccountRuleError, emptyAccountRuleState, normalizeRuleText, type AccountRuleCommand, type AccountRuleResult, type AccountRuleState } from "./types";
 
@@ -64,8 +64,7 @@ export function reduceAccountRuleCommand(state: AccountRuleState, command: Accou
 
 /** Never creates tables or changes existing finance settings when the migration is unavailable. */
 export async function loadAccountRules(settings: SupabaseSettings, ownerId: string): Promise<AccountRuleResult> {
-  const ready = await query<{ ready: boolean }>(settings, ACCOUNT_RULES_READY_SQL);
-  if (!ready[0]?.ready) return { state: emptyAccountRuleState(ownerId), availability: "migration-required" };
+  if (!await schemaReady(settings, ACCOUNT_RULES_READY_SQL)) return { state: emptyAccountRuleState(ownerId), availability: "migration-required" };
   const rows = await query<{ state: AccountRuleState }>(settings, "select state from public.account_rule_states where owner_id=$1::uuid", [ownerId]);
   const state = rows[0]?.state ?? emptyAccountRuleState(ownerId);
   if (state.ownerId !== ownerId) throw new AccountRuleError("Account rules belong to a different owner.", "ownership");

@@ -101,7 +101,8 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
     setSelected((current) => (current === category ? null : category));
   }
 
-  if (getGettingStartedState(ledger).canShowSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} />;
+  const setup = getGettingStartedState(ledger);
+  if (setup.canShowSetup || setup.showBlockedSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} />;
 
   return (
     <div className={styles.dashboard}>

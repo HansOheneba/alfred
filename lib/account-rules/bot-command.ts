@@ -43,13 +43,20 @@ export type AccountRuleBotDeps = {
 const snapshot = (account: FinancialAccount) => ({ id: account.id, label: account.label, provider: account.provider, currency: account.currency });
 const draftSchema = z.strictObject({ schema: z.literal(1), account: z.strictObject({ id: z.string().min(1).max(200), label: z.string().max(120), provider: z.string().max(120), currency: z.string().regex(/^[A-Z]{3}$/) }), command: accountRuleCommandSchema, review: z.string().min(1).max(3500) });
 export const isAccountRuleCommand = (text: string) => /^\/rule(?:@[\w_]+)?(?:\s|$)/i.test(text.trim());
+const transactionAmount = String.raw`(?:(?:GHS|USD|EUR|GBP|GH[₵¢]|[$€£₵])\s*)?\d+(?:,\d{3})*(?:\.\d{1,2})?(?=\s|$|[,;.!])`;
+const leadingTransaction = new RegExp(String.raw`^(?:please\s+)?(?:(?:today|yesterday)\s+)?(?:i\s+)?(?:(?:spent|paid|received|earned)\s+|(?:add|record|log)\s+(?:(?:an?\s+)?(?:expense|payment|purchase|income|receipt|earning|salary|transaction)(?:\s+of)?\s+)?)(?:${transactionAmount})`, "i");
 /** Detect a request for a scoped future rule, but never infer or create its contents. */
 export function isScopedAccountRuleIntent(text: string): boolean {
   if (text.length > 2000) return false;
-  return /\b(?:account|wallet|card|bank|momo|gcb|absa)\b/i.test(text)
-    && /\b(?:categorize|categorise|classify|set|create|add|save|remember|make|apply|file|treat)\b/i.test(text)
-    && /\b(?:category|categories|categorize|categorise|classification|categorisation|categorization|classify|rule|merchant)\b/i.test(text)
-    && /\b(?:always|every|each|all|future|automatically|rule|remember|from now on)\b/i.test(text);
+  // A clear leading spend/income clause follows the normal recording flow, even
+  // when its explanation says "always". Account suffixes, merchant digits and
+  // effective dates alone must not send a future rule request to interpretation.
+  const normalized = text.normalize("NFKC").trim();
+  if (leadingTransaction.test(normalized)) return false;
+  return /\b(?:account|wallet|card|bank|momo|gcb|absa)\b/i.test(normalized)
+    && /\b(?:categorize|categorise|classify|set|create|add|save|remember|make|apply|file|treat)\b/i.test(normalized)
+    && /\b(?:category|categories|categorize|categorise|classification|categorisation|categorization|classify|rule|merchant)\b/i.test(normalized)
+    && /\b(?:always|every|each|all|future|automatically|rule|remember|from now on)\b/i.test(normalized);
 }
 export const ACCOUNT_RULE_INTENT_GUIDANCE = `Use an account-specific rule for future categorization. A Notebook note does not activate a category rule, and no rule or memory note was saved from this request.\n\n${ACCOUNT_RULE_COMMAND_HELP}`;
 

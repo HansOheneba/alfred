@@ -11,7 +11,7 @@ import { handleProfileTurn, type StudioDeps } from "@/lib/studio/handle";
 import { harness as telegramHarness, NOW, profile, runUpdate, settings, textUpdate } from "./helpers";
 
 type Pending = Parameters<AccountRuleCommandPendingStore["put"]>[0];
-const OWNER = "42", CHAT = "100", ACCOUNT = "synthetic:wallet:stable";
+const OWNER = "42", CHAT = "100", ACCOUNT = "synthetic:wallet:1234";
 const ADD = `/rule add ${ACCOUNT} "Fictional Market" "Food"`;
 function botFixture() {
   let now = new Date(NOW), serial = 1;
@@ -49,6 +49,7 @@ describe("explicit deterministic account-rule commands", () => {
   it("parses only explicit commands, fixed quoted text and direction; never expands a wildcard", () => {
     expect(isAccountRuleCommand("Remember this merchant")).toBe(false); expect(parseAccountRuleBotCommand("Remember this merchant")).toBeNull();
     expect(parseAccountRuleBotCommand(ADD)).toEqual({ type: "add", accountId: ACCOUNT, merchant: "Fictional Market", category: "Food", direction: "out" });
+    expect(parseAccountRuleBotCommand(`/rule add ${ACCOUNT} "7 Eleven" "Food"`)).toMatchObject({ type: "add", accountId: ACCOUNT, merchant: "7 Eleven" });
     expect(parseAccountRuleBotCommand(`${ADD} any`)).toMatchObject({ direction: "any" });
     expect(parseAccountRuleBotCommand(`/rule@FictionalBot add ${ACCOUNT} "Merchant \\"Q\\"" "Food" in`.replace(/\\\\/g, "\\"))).toMatchObject({ direction: "in" });
     for (const text of [`/rule add all "merchant" "Food"`, `/rule add ${ACCOUNT} "*" "Food"`, `/rule add ${ACCOUNT} merchant Food`, `${ADD} inbound`, `${ADD} out extra`, `/rule add ${ACCOUNT} "escaped\\u0000" "Food"`, `/rule confirm short`, `/rule add ${ACCOUNT} "${"m".repeat(2001)}" "Food"`]) expect(() => parseAccountRuleBotCommand(text)).toThrow();
@@ -119,8 +120,58 @@ describe("explicit deterministic account-rule commands", () => {
 describe("account-rule routing before AI", () => {
   it("routes natural scoped rule requests to fixed guidance without saving memory or guessing scope", async () => {
     for (const text of ["Always categorise all future payments on this account as Food", "Create a merchant rule for my wallet", "Remember the category for every merchant on my bank account"]) expect(isScopedAccountRuleIntent(text)).toBe(true);
-    for (const text of ["How much did I spend from my bank account?", "Show all categories for my account", "Categorise yesterday's bank payment as Food", "I am paid on the 25th"]) expect(isScopedAccountRuleIntent(text)).toBe(false);
+    for (const text of ["How much did I spend from my bank account?", "Show all categories for my account", "Categorise yesterday's bank payment as Food", "I am paid on the 25th", "add 20 from my momo wallet to the food category, I always buy lunch"]) expect(isScopedAccountRuleIntent(text)).toBe(false);
     const h = telegramHarness(); await runUpdate(textUpdate(8990, 42, "Always categorise all future payments on this account as Food"), h.deps); expect(h.interpret.calls).toBe(0); expect(h.telegram.sent[0].text).toContain("Notebook note does not activate"); expect(await h.store.listPendingActions(OWNER)).toEqual([]);
+  });
+  it("keeps numeric account identifiers, merchants and effective dates on fixed guidance in both chats", async () => {
+    const requests = [
+      "Always categorise every merchant on my account ending 1234 as Food",
+      "Create a rule for all future 7-Eleven payments on my wallet in the Food category",
+      "From 2026-11-03, always categorise future payments on my card as Food",
+      "Add a merchant rule for account 1234 and put all 7-Eleven purchases in Food",
+      "Always classify each GHS 20 payment from my wallet in the Food category",
+    ];
+    for (const [index, text] of requests.entries()) {
+      expect(isScopedAccountRuleIntent(text)).toBe(true);
+      const telegram = telegramHarness();
+      await runUpdate(textUpdate(8900 + index, 42, text), telegram.deps);
+      expect(telegram.interpret.calls).toBe(0);
+      expect(telegram.telegram.sent[0].text).toContain("/rule accounts");
+      expect(await telegram.store.listTransactions(OWNER)).toEqual([]);
+      expect(await telegram.store.listPendingActions(OWNER)).toEqual([]);
+      const web = telegramHarness();
+      const interpret = vi.fn(async () => { throw new Error("A future rule request must not reach AI"); });
+      const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], deepseek: settings().deepseek! }, store: web.store, interpret, now: () => NOW, createId: web.deps.createId, createActionId: web.deps.createActionId };
+      const reply = await handleProfileTurn(profile(), { text, clientId: `numeric-rule-guidance-${index}` }, deps);
+      expect(reply.text).toContain("/rule accounts");
+      expect(interpret).not.toHaveBeenCalled();
+      expect(await web.store.listTransactions(OWNER)).toEqual([]);
+      expect(await web.store.listPendingActions(OWNER)).toEqual([]);
+    }
+  });
+  it("lets clear expense and income clauses use the normal recording flow in both chats", async () => {
+    const requests = [
+      { text: "add 20 from my momo wallet to the food category, I always buy lunch", amount: "20.00", kind: "expense", category: "Food" },
+      { text: "I spent GH₵20 from my wallet, remember the food category every lunch", amount: "20.00", kind: "expense", category: "Food" },
+      { text: "Record income of GHS 200 on my momo wallet, remember the salary category for every payday", amount: "200.00", kind: "income", category: "Salary" },
+    ] as const;
+    for (const [index, item] of requests.entries()) {
+      expect(isScopedAccountRuleIntent(item.text)).toBe(false);
+      const action = { type: "create_transaction" as const, explicit: true, transactions: [{ transaction_type: item.kind, amount: item.amount, currency: "GHS", category: item.category, description: "Synthetic routing record", date: null }] };
+      const telegramInterpret = vi.fn(async () => action);
+      const telegram = telegramHarness({ interpret: telegramInterpret });
+      await runUpdate(textUpdate(8950 + index, 42, item.text), telegram.deps);
+      expect(telegramInterpret).toHaveBeenCalledOnce();
+      expect((await telegram.store.listTransactions(OWNER)).map(row => ({ type: row.type, amount: row.amount }))).toEqual([{ type: item.kind, amount: item.amount }]);
+      expect(telegram.telegram.sent[0].text).not.toContain("/rule accounts");
+      const web = telegramHarness();
+      const webInterpret = vi.fn(async () => action);
+      const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], deepseek: settings().deepseek! }, store: web.store, interpret: webInterpret, now: () => NOW, createId: web.deps.createId, createActionId: web.deps.createActionId };
+      const reply = await handleProfileTurn(profile(), { text: item.text, clientId: `transaction-rule-routing-${index}` }, deps);
+      expect(webInterpret).toHaveBeenCalledOnce();
+      expect((await web.store.listTransactions(OWNER)).map(row => ({ type: row.type, amount: row.amount }))).toEqual([{ type: item.kind, amount: item.amount }]);
+      expect(reply.text).not.toContain("/rule accounts");
+    }
   });
   it("routes Telegram commands without an LLM configured, persists claims and rejects unlinked owners", async () => {
     const rules = botFixture(), h = telegramHarness({ accountRuleCommands: rules.deps, settings: settings({ deepseek: null }) });
