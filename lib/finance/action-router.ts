@@ -31,7 +31,7 @@ import {
   totalsByCategory,
   totalsByCurrency,
 } from "@/lib/finance/summaries";
-import type { FinanceStore } from "@/lib/finance/store";
+import { readReportingTransactions, type FinanceStore } from "@/lib/finance/store";
 import {
   describeCandidates,
   findCandidates,
@@ -323,7 +323,7 @@ async function monthSpendLine(ctx: ActionContext, today: string): Promise<string
     const year = Number(today.slice(0, 4));
     const month = Number(today.slice(5, 7));
     const range = monthRange(year, month);
-    const expenses = inRange(await ctx.store.listTransactions(ctx.profile.profileId), {
+    const expenses = inRange(await readReportingTransactions(ctx.store,ctx.profile.profileId), {
       userId: ctx.profile.profileId,
       range,
       type: "expense",
@@ -361,7 +361,7 @@ async function spendingSummary(
   if (!resolved.ok) return { kind: "text", text: resolved.message };
   const category = action.category ? normalizeCategory(action.category, "expense") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
-  const transactions = await ctx.store.listTransactions(ctx.profile.profileId);
+  const transactions = await readReportingTransactions(ctx.store,ctx.profile.profileId);
   const detail = action.detail ?? "total";
   if (detail === "comparison") {
     return remember(comparisonText(transactions, ctx, resolved.range, category), queryContext(resolved.range, category, "comparison", null));
@@ -401,7 +401,7 @@ function queryContext(
     category,
     detail,
     summaryKind,
-    transactionId,
+    transactionId:transactionId?.startsWith("accounting:") || transactionId?.startsWith("accounting-fee:") ? null : transactionId,
     pendingActionId: null,
   };
 }
@@ -449,7 +449,7 @@ async function spokenSpend(
   const money = formatMinor(minor, currency);
   const head = category ? `You've spent ${money} on ${category} ${period}.` : `You've spent ${money} ${period}.`;
   if (!category && period === "this month") {
-    const income = inRange(await ctx.store.listTransactions(ctx.profile.profileId), {
+    const income = inRange(await readReportingTransactions(ctx.store,ctx.profile.profileId), {
       userId: ctx.profile.profileId,
       range,
       type: "income",
@@ -514,7 +514,7 @@ async function incomeSummary(
   if (!resolved.ok) return { kind: "text", text: resolved.message };
   const category = action.category ? normalizeCategory(action.category, "income") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("income") };
-  const rows = inRange(await listOwn(ctx), {
+  const rows = inRange(await readReportingTransactions(ctx.store,ctx.profile.profileId), {
     userId: ctx.profile.profileId,
     range: resolved.range,
     type: "income",
@@ -542,7 +542,7 @@ async function overview(
   const resolved = resolveRange(action, today);
   if (!resolved.ok) return { kind: "text", text: resolved.message };
   const userId = ctx.profile.profileId;
-  const transactions = await listOwn(ctx);
+  const transactions = await readReportingTransactions(ctx.store,ctx.profile.profileId);
   const income = inRange(transactions, { userId, range: resolved.range, type: "income" });
   const expenses = inRange(transactions, { userId, range: resolved.range, type: "expense" });
   const incomeTotals = totalsByCurrency(income);
@@ -573,7 +573,7 @@ async function overview(
   }
   const balances = await bankBalanceLines(ctx);
   if (balances.length > 0) {
-    lines.push("", "Balances from your latest bank texts (what's actually in your accounts):", ...balances);
+    lines.push("", balances[0]?.startsWith("Latest provider message snapshots") ? "Balances from your latest bank texts:" : "Reported account balances:", ...balances);
     lines.push("", "The totals come from recorded transactions; the balances come from your bank texts.");
   } else lines.push("", BALANCE_DISCLAIMER);
   const chart = categoryChart(expenses, ctx.profile.currency);
@@ -582,9 +582,18 @@ async function overview(
 
 /** "• MoMo: GH₵976.98 (Fri 30 Oct, 17:58)" for each account a bank text reported a balance for. */
 async function bankBalanceLines(ctx: ActionContext): Promise<string[]> {
-  const balances = ctx.bank ? await ctx.bank.balances().catch(() => []) : [];
   const when = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: ctx.profile.timezone });
-  return balances.map((item) => `• ${sourceName(item.source)}: ${formatMoneyAmount(item.balance, ctx.profile.currency)} (${when.format(new Date(item.at))})`);
+  const accounts=ctx.store.getAccountBalances ? await ctx.store.getAccountBalances(ctx.profile.profileId,ctx.profile.currency) : null;
+  if(accounts) {
+    const lines=accounts.accounts.map(({account,snapshot,reconciliation}) => `• ${account.label}: ${snapshot ? `${formatMinor(snapshot.balanceMinor,account.currency)} (${when.format(new Date(snapshot.occurredAt))}; ${reconciliation.status})` : "No reported balance yet"}${account.includeInCash && account.currency===ctx.profile.currency ? "" : "; excluded from this currency's cash total"}`);
+    if(accounts.totalMinor!==null) lines.push(`Included cash balance: ${formatMinor(accounts.totalMinor,ctx.profile.currency)} from ${accounts.count} ${accounts.count===1 ? "account" : "accounts"}. Reported snapshots, not live balances or net worth.`);
+    else if(accounts.missingCount>0) lines.push(`Included cash balance is unknown: ${accounts.missingCount} of ${accounts.count} included accounts ${accounts.missingCount===1 ? "has" : "have"} no current reported balance. No balance has been estimated.`);
+    else lines.push("No accounts are included in this currency's cash total yet.");
+    return lines;
+  }
+  const balances = ctx.bank ? await ctx.bank.balances().catch(() => []) : [];
+  if(!balances.length) return [];
+  return ["Latest provider message snapshots; real accounts are not reconciled or combined here.",...balances.map((item) => `• ${sourceName(item.source)}: ${formatMoneyAmount(item.balance, ctx.profile.currency)} (${when.format(new Date(item.at))})`)];
 }
 
 async function insights(
@@ -595,7 +604,7 @@ async function insights(
   const resolved = resolveRange(action, today);
   if (!resolved.ok) return { kind: "text", text: resolved.message };
   const userId = ctx.profile.profileId;
-  const [transactions, budgets] = await Promise.all([listOwn(ctx), ctx.store.listBudgets(userId)]);
+  const [transactions, budgets] = await Promise.all([readReportingTransactions(ctx.store,userId), ctx.store.listBudgets(userId)]);
   const lines = buildInsights({
     userId,
     currency: ctx.profile.currency,
@@ -645,11 +654,13 @@ async function history(
 }
 
 async function loansOwed(action: Extract<FinanceAction, { type: "get_loans" }>, ctx: ActionContext): Promise<Delivery> {
-  if (!ctx.loans) return { kind: "text", text: "I can't see loans right now." };
-  const balances = loanBalances(await ctx.loans.list(ctx.profile.profileId));
+  const linked=ctx.store.listLinkedLoans ? await ctx.store.listLinkedLoans(ctx.profile.profileId) : [];
+  if (!ctx.loans && !linked.length) return { kind: "text", text: "I can't see loans right now." };
+  const balances = ctx.loans ? loanBalances(await ctx.loans.list(ctx.profile.profileId)) : [];
+  const linkedText=linked.length ? ["Linked loans, identified by their original payment descriptions:",...linked.map((loan) => `• ${loan.description}: ${formatMinor(loan.outstandingMinor,loan.currency)} outstanding; ${formatMinor(loan.returnedMinor,loan.currency)} principal returned of ${formatMinor(loan.principalMinor,loan.currency)}.`),"These links use exact payment records. Review or link repayments in Accounts."].join("\n") : "";
   if (action.person) {
     const match = findPerson(balances, action.person);
-    if (!match) return { kind: "text", text: `I don't have any loans with ${action.person} on record.` };
+    if (!match) return { kind: "text", text: linkedText ? `I couldn't match ${action.person} to a person-based loan. Linked loans are listed by original payment; I haven't guessed which person each description means.\n\n${linkedText}` : `I don't have any loans with ${action.person} on record.` };
     const lines: string[] = [];
     if (Number(match.lent) > 0) {
       const lent = formatMoneyAmount(match.lent, match.currency);
@@ -667,16 +678,18 @@ async function loansOwed(action: Extract<FinanceAction, { type: "get_loans" }>, 
         lines.push(`You owe ${match.person} ${formatMoneyAmount(match.owe, match.currency)}. They lent you ${borrowed} in total${paid}.`);
       }
     }
+    if(linked.length) lines.push("Separate linked loans are tracked by original payment in Accounts; no borrower identity has been inferred from those descriptions.");
     return { kind: "text", text: lines.join("\n") };
   }
   const owing = balances.filter((item) => Number(item.owed) > 0);
   const owe = balances.filter((item) => Number(item.owe) > 0).sort((left, right) => Number(right.owe) - Number(left.owe));
-  if (owing.length === 0 && owe.length === 0) return { kind: "text", text: "No one owes you anything, and you don't owe anyone." };
+  if (owing.length === 0 && owe.length === 0) return { kind: "text", text: linkedText || "No one owes you anything, and you don't owe anyone." };
   const parts: string[] = [];
   if (owing.length > 0) {
     parts.push([`${owing.length === 1 ? "One person owes" : `${owing.length} people owe`} you money:`, ...owing.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owed, item.currency)}`)].join("\n"));
   }
   if (owe.length > 0) parts.push(["You owe:", ...owe.map((item) => `• ${item.person}: ${formatMoneyAmount(item.owe, item.currency)}`)].join("\n"));
+  if(linkedText) parts.push(linkedText);
   return { kind: "text", text: parts.join("\n\n") };
 }
 
@@ -799,7 +812,7 @@ async function budgetStatus(
       : `There's no budget set for ${periodPhrase}.`;
     return { kind: "text", text: missing };
   }
-  const transactions = await listOwn(ctx);
+  const transactions = await readReportingTransactions(ctx.store,userId);
   if (budgets.length === 1) {
     const budget = budgets[0];
     const math = budgetMath(budget, transactions);

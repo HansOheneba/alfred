@@ -1,0 +1,27 @@
+.alfred-preview-review { padding-bottom: 24px; }
+.alfred-preview-review-demo { margin-top: 14px; margin-bottom: 8px; font-size: 10px; color: var(--muted); }
+.alfred-preview-review-actions { margin-top: 5px; }
+.alfred-preview-review-actions [role="group"] > button { max-width: 100%; min-height: 36px; height: auto; overflow-wrap: anywhere; }
+.alfred-preview-review-categoryCreate { padding-block: 12px; border-block: 1px solid var(--line); }
+.alfred-preview-review-addCategory { min-height: 44px; padding: 8px 12px; border: 1px dashed var(--line-strong); border-radius: 9px; font-size: 13px; color: var(--accent); font-weight: 600; }
+.alfred-preview-review-addCategory:hover { border-color: var(--accent); background: var(--accent-soft); }
+.alfred-preview-review-categoryFields { display: flex; flex-direction: column; gap: 10px; }
+.alfred-preview-review-categoryFields label { display: flex; flex-direction: column; gap: 7px; font-size: 12px; font-weight: 500; max-width: 400px; }
+.alfred-preview-review-categoryFields input { min-height: 44px; }
+.alfred-preview-review-categoryFields > div { display: flex; gap: 8px; align-items: center; }
+.alfred-preview-review-categoryFields > p { font-size: 11px; line-height: 1.7; }
+.alfred-preview-review-categoryFields > p:last-child { color: var(--muted); }
+.alfred-preview-review-applied h2 { font-size: 14px; font-weight: 600; }
+.alfred-preview-review-applied ul { display: flex; flex-direction: column; margin-top: 10px; }
+.alfred-preview-review-applied li { display: flex; align-items: center; gap: 12px; padding: 12px 0; flex-wrap: wrap; }
+.alfred-preview-review-applied li + li { border-top: 1px solid var(--line); }
+.alfred-preview-review-applied li > div { display: flex; flex-direction: column; gap: 4px; flex: 1; min-width: 170px; }
+.alfred-preview-review-applied strong { font-size: 13px; font-weight: 600; }
+.alfred-preview-review-applied li > div > span { color: var(--muted); font-size: 11px; }
+.alfred-preview-review-categoryTag { font-size: 11px; color: var(--accent); padding: 5px 8px; background: var(--accent-soft); border-radius: 6px; max-width: 100%; overflow-wrap: anywhere; }
+.alfred-preview-review-applied .tabular-nums { font-size: 12px; }
+.alfred-preview-review-applied > p { font-size: 10px; color: var(--muted); margin-top: 11px; line-height: 1.7; }
+.alfred-preview-billsWrapper { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.alfred-preview-billsCategoryLink { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 3px; color: var(--accent); font-size: 11px; line-height: 1.7; }
+.alfred-preview-billsCategoryLink:hover { text-decoration: underline; text-underline-offset: 3px; }
+@media (max-width: 600px) { .alfred-preview-review-categoryFields input { font-size: 16px; } .alfred-preview-review-applied li { gap: 8px; } }

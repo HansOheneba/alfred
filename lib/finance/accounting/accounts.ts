@@ -1,0 +1,311 @@
+import { isRealDate } from "../dates";
+import {
+  AccountingError,
+  type AccountingAction,
+  type AccountingState,
+  type BalanceSnapshot,
+  type CashMovement,
+  type FinancialAccount,
+  type MovementReference,
+} from "./types";
+
+const STATUSES = new Set(["confirmed", "review", "hold", "transfer", "duplicate", "excluded"]);
+const SOURCE_KINDS = new Set(["bank", "transaction", "manual"]);
+
+function requireText(value: unknown, name: string, max = 512): asserts value is string {
+  if (typeof value !== "string" || !value.trim() || value.length > max || /[\u0000-\u001f]/.test(value)) {
+    throw new AccountingError(`${name} must be nonempty text of at most ${max} characters.`);
+  }
+}
+function integer(value: number, name: string, minimum = Number.MIN_SAFE_INTEGER) {
+  if (!Number.isSafeInteger(value) || value < minimum) throw new AccountingError(`${name} must be a safe integer in minor units.`);
+}
+function instant(value: string, name: string) {
+  if (typeof value !== "string" || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/.test(value) || !isRealDate(value.slice(0, 10)) || !Number.isFinite(Date.parse(value))) {
+    throw new AccountingError(`${name} must be an ISO timestamp with a timezone.`);
+  }
+}
+function currency(value: string) {
+  if (typeof value !== "string" || !/^[A-Z]{3}$/.test(value)) throw new AccountingError("Currency must be a three-letter uppercase code.");
+}
+function uniqueIds(rows: { id: string }[], name: string) {
+  const ids = new Set<string>();
+  for (const row of rows) {
+    requireText(row.id, `${name} ID`);
+    if (ids.has(row.id)) throw new AccountingError(`Duplicate ${name} ID ${row.id}.`, "conflict");
+    ids.add(row.id);
+  }
+}
+function accountFor(state: AccountingState, id: string): FinancialAccount {
+  const account = state.accounts.find((row) => row.id === id);
+  if (!account) throw new AccountingError("Account was not found.", "not_found");
+  return account;
+}
+function currentMovement(state: AccountingState, reference: MovementReference): CashMovement {
+  requireText(reference.movementId, "Movement ID");
+  requireText(reference.sourceFingerprint, "Source fingerprint");
+  const movement = state.movements.find((row) => row.id === reference.movementId);
+  if (!movement) throw new AccountingError("Movement was not found.", "not_found");
+  if (movement.ownerId !== state.ownerId) throw new AccountingError("Movement belongs to another owner.", "ownership");
+  if (movement.sourceFingerprint !== reference.sourceFingerprint) throw new AccountingError("Source evidence changed. Reload before editing this movement.", "stale");
+  return movement;
+}
+function movementInUse(state: AccountingState, movementId: string) {
+  return state.transfers.some((row) => row.outgoing.movementId === movementId || row.incoming.movementId === movementId)
+    || state.settlements.some((row) => row.original.movementId === movementId || row.returns.some((item) => item.movementId === movementId));
+}
+function sameSource(a: CashMovement, b: CashMovement) {
+  return a.sourceKind === b.sourceKind && a.sourceId === b.sourceId;
+}
+function validateSnapshot(state: AccountingState, snapshot: BalanceSnapshot) {
+  requireText(snapshot.id, "Snapshot ID");
+  accountFor(state, snapshot.accountId);
+  integer(snapshot.balanceMinor, "Reported balance");
+  instant(snapshot.occurredAt, "Snapshot time");
+  requireText(snapshot.sourceId, "Snapshot source ID");
+  if (snapshot.sourceFingerprint !== undefined) requireText(snapshot.sourceFingerprint, "Snapshot source fingerprint");
+  if (snapshot.sourceMovementId !== null) {
+    const movement = state.movements.find((row) => row.id === snapshot.sourceMovementId);
+    if (!movement) throw new AccountingError("Snapshot source movement was not found.", "not_found");
+    if (movement.ownerId !== state.ownerId) throw new AccountingError("Snapshot source belongs to another owner.", "ownership");
+  }
+}
+function sameSnapshot(a: BalanceSnapshot, b: BalanceSnapshot) {
+  return a.id === b.id && a.accountId === b.accountId && a.balanceMinor === b.balanceMinor
+    && a.occurredAt === b.occurredAt && a.sourceId === b.sourceId && a.sourceMovementId === b.sourceMovementId
+    && a.sourceFingerprint === b.sourceFingerprint;
+}
+function appendSnapshot(state: AccountingState, snapshot: BalanceSnapshot): AccountingState {
+  validateSnapshot(state, snapshot);
+  const existing = state.snapshots.find((row) => row.id === snapshot.id);
+  if (existing) {
+    if (!sameSnapshot(existing, snapshot)) throw new AccountingError("Reported snapshots are immutable. Record new evidence instead.", "conflict");
+    return state;
+  }
+  if (snapshot.sourceMovementId !== null) {
+    const movement = state.movements.find((row) => row.id === snapshot.sourceMovementId)!;
+    if (movement.accountId !== snapshot.accountId || movement.sourceId !== snapshot.sourceId || movement.occurredAt !== snapshot.occurredAt) {
+      throw new AccountingError("Snapshot must match its source movement account, source and timestamp.", "conflict");
+    }
+    if (snapshot.sourceFingerprint !== undefined && snapshot.sourceFingerprint !== movement.sourceFingerprint) {
+      throw new AccountingError("Snapshot source evidence changed.", "stale");
+    }
+    if (movement.reportedBalanceMinor !== undefined && movement.reportedBalanceMinor !== null && movement.reportedBalanceMinor !== snapshot.balanceMinor) {
+      throw new AccountingError("Snapshot must preserve the balance reported by its source.", "conflict");
+    }
+  }
+  return { ...state, snapshots: [...state.snapshots, { ...snapshot }] };
+}
+
+/** Validate structural invariants without deleting stale evidence, which must remain auditable. */
+export function validateAccountData(state: AccountingState): void {
+  requireText(state.ownerId, "Owner ID");
+  uniqueIds(state.accounts, "account");
+  uniqueIds(state.movements, "movement");
+  uniqueIds(state.snapshots, "snapshot");
+  uniqueIds(state.transfers, "transfer");
+  uniqueIds(state.settlements, "settlement");
+  for (const account of state.accounts) {
+    requireText(account.label, "Account label", 160);
+    requireText(account.provider, "Account provider", 160);
+    currency(account.currency);
+    if (typeof account.includeInCash !== "boolean") throw new AccountingError("Account cash inclusion must be a boolean.");
+    instant(account.createdAt, "Account creation time");
+  }
+  for (const movement of state.movements) {
+    if (movement.ownerId !== state.ownerId) throw new AccountingError("Movement belongs to another owner.", "ownership");
+    currency(movement.currency);
+    integer(movement.amountMinor, "Movement principal", 1);
+    integer(movement.feeMinor, "Movement fee", 0);
+    integer(movement.amountMinor + movement.feeMinor, "Movement gross amount", 1);
+    if (!STATUSES.has(movement.status) || !["in", "out", "internal"].includes(movement.direction) || !SOURCE_KINDS.has(movement.sourceKind)) throw new AccountingError("Movement classification is invalid.");
+    if (!isRealDate(movement.date)) throw new AccountingError("Movement date is invalid.");
+    if (movement.occurredAt !== null) instant(movement.occurredAt, "Movement time");
+    requireText(movement.sourceId, "Source ID");
+    requireText(movement.sourceFingerprint, "Source fingerprint");
+    if (movement.accountId !== null && accountFor(state, movement.accountId).currency !== movement.currency) throw new AccountingError("Movement currency does not match its account.", "conflict");
+    for (const value of [movement.reportedBalanceMinor, movement.reportedBalanceBeforeMinor]) if (value !== undefined && value !== null) integer(value, "Source-reported balance");
+  }
+  for (const snapshot of state.snapshots) validateSnapshot(state, snapshot);
+  const linked = new Set<string>();
+  for (const transfer of state.transfers) {
+    instant(transfer.createdAt, "Transfer creation time");
+    for (const reference of [transfer.outgoing, transfer.incoming]) {
+      requireText(reference.sourceFingerprint, "Transfer source fingerprint");
+      if (!state.movements.some((row) => row.id === reference.movementId)) throw new AccountingError("Transfer movement was not found.", "not_found");
+      if (linked.has(reference.movementId)) throw new AccountingError("A movement cannot belong to multiple transfer links.", "conflict");
+      linked.add(reference.movementId);
+    }
+  }
+  for (const settlement of state.settlements) {
+    for (const reference of [settlement.original, ...settlement.returns]) {
+      if (linked.has(reference.movementId)) throw new AccountingError("A transfer movement cannot also belong to a settlement.", "conflict");
+    }
+  }
+}
+
+/** Actions change account metadata/classification only; raw source amounts and evidence stay intact. */
+export function applyAccountAction(state: AccountingState, action: AccountingAction, now: string): AccountingState {
+  instant(now, "Action time");
+  if (action.type === "create_account") {
+    if (state.accounts.some((row) => row.id === action.account.id)) throw new AccountingError("Account ID already exists.", "conflict");
+    const next = { ...state, accounts: [...state.accounts, { ...action.account, createdAt: now }] };
+    validateAccountData(next);
+    return next;
+  }
+  if (action.type === "update_account") {
+    accountFor(state, action.accountId);
+    // Runtime callers cannot mutate stable identity or currency by adding extra keys.
+    const changes = {
+      ...(action.changes.label === undefined ? {} : { label: action.changes.label }),
+      ...(action.changes.provider === undefined ? {} : { provider: action.changes.provider }),
+      ...(action.changes.includeInCash === undefined ? {} : { includeInCash: action.changes.includeInCash }),
+    };
+    const next = { ...state, accounts: state.accounts.map((row) => row.id === action.accountId ? { ...row, ...changes } : row) };
+    validateAccountData(next);
+    return next;
+  }
+  if (action.type === "assign_movement") {
+    const movement = currentMovement(state, action.movement);
+    const account = accountFor(state, action.accountId);
+    if (account.currency !== movement.currency) throw new AccountingError("Movement currency does not match the selected account.", "conflict");
+    if (movement.accountId !== account.id && movementInUse(state, movement.id)) throw new AccountingError("Remove the movement's transfer or settlement link before changing its account.", "conflict");
+    let next = { ...state, movements: state.movements.map((row) => row.id === movement.id ? { ...row, accountId: account.id } : row) };
+    if (movement.reportedBalanceMinor !== undefined && movement.reportedBalanceMinor !== null && movement.occurredAt !== null) {
+      next = appendSnapshot(next, {
+        id: `source-snapshot:${movement.id}:${movement.sourceFingerprint}:${account.id}`,
+        accountId: account.id, balanceMinor: movement.reportedBalanceMinor, occurredAt: movement.occurredAt,
+        sourceId: movement.sourceId, sourceMovementId: movement.id, sourceFingerprint: movement.sourceFingerprint,
+      });
+    }
+    validateAccountData(next);
+    return next;
+  }
+  if (action.type === "classify_movement") {
+    const movement = currentMovement(state, action.movement);
+    if (movementInUse(state, movement.id)) throw new AccountingError("Remove the movement's transfer or settlement link before reclassifying it.", "conflict");
+    if (movement.legacyClassification) throw new AccountingError("Legacy refund or loan classification must be resolved before reclassifying this movement.", "conflict");
+    if (action.category !== undefined) requireText(action.category, "Category", 160);
+    const next = { ...state, movements: state.movements.map((row) => row.id === movement.id ? { ...row, status: action.status, ...(action.category === undefined ? {} : { category: action.category.trim() }) } : row) };
+    validateAccountData(next);
+    return next;
+  }
+  if (action.type === "record_snapshot") return appendSnapshot(state, action.snapshot);
+  if (action.type === "pair_transfer") {
+    requireText(action.id, "Transfer ID");
+    const outgoing = currentMovement(state, action.outgoing);
+    const incoming = currentMovement(state, action.incoming);
+    const existing = state.transfers.find((row) => row.id === action.id);
+    if (existing) {
+      if (existing.outgoing.movementId === outgoing.id && existing.incoming.movementId === incoming.id && existing.outgoing.sourceFingerprint === action.outgoing.sourceFingerprint && existing.incoming.sourceFingerprint === action.incoming.sourceFingerprint) return state;
+      throw new AccountingError("Transfer ID already exists.", "conflict");
+    }
+    if (outgoing.direction !== "out" || incoming.direction !== "in" || outgoing.status !== "confirmed" || incoming.status !== "confirmed") throw new AccountingError("A transfer needs one confirmed outgoing and one confirmed incoming movement.", "conflict");
+    if (!outgoing.accountId || !incoming.accountId || outgoing.accountId === incoming.accountId) throw new AccountingError("A transfer needs two different assigned accounts.", "conflict");
+    if (outgoing.currency !== incoming.currency || outgoing.amountMinor !== incoming.amountMinor) throw new AccountingError("Transfer principal and currency must match exactly.", "conflict");
+    if (movementInUse(state, outgoing.id) || movementInUse(state, incoming.id)) throw new AccountingError("A movement is already linked to a transfer or settlement.", "conflict");
+    if (outgoing.legacyClassification || incoming.legacyClassification) throw new AccountingError("Legacy refund or loan movements cannot be paired as transfers.", "conflict");
+    for (const movement of [outgoing, incoming]) {
+      if (state.movements.some((row) => row.id !== movement.id && row.status !== "duplicate" && sameSource(row, movement))) {
+        throw new AccountingError("Transfer source evidence has multiple active movement records. Resolve the duplicate first.", "conflict");
+      }
+    }
+    const next = {
+      ...state,
+      movements: state.movements.map((row) => row.id === outgoing.id || row.id === incoming.id ? { ...row, status: "transfer" as const } : row),
+      transfers: [...state.transfers, { id: action.id, outgoing: { ...action.outgoing }, incoming: { ...action.incoming }, createdAt: now }],
+    };
+    validateAccountData(next);
+    return next;
+  }
+  if (action.type === "unpair_transfer") {
+    const transfer = state.transfers.find((row) => row.id === action.transferId);
+    if (!transfer) throw new AccountingError("Transfer was not found.", "not_found");
+    // Removing stale metadata is allowed. Changed evidence returns to its own
+    // ingestion status, never the confirmation attached to the old transfer.
+    const references = new Map([transfer.outgoing, transfer.incoming].map((row) => [row.movementId, row]));
+    return {
+      ...state,
+      transfers: state.transfers.filter((row) => row.id !== transfer.id),
+      movements: state.movements.map((row) => {
+        const reference = references.get(row.id);
+        if (!reference) return row;
+        if (row.ownerId !== state.ownerId) throw new AccountingError("Transfer movement belongs to another owner.", "ownership");
+        const status = reference.sourceFingerprint === row.sourceFingerprint ? "confirmed" : row.sourceStatus === "transfer" ? "review" : row.sourceStatus ?? "review";
+        return { ...row, status };
+      }),
+    };
+  }
+  throw new AccountingError("Unsupported account action.");
+}
+
+export type AccountReconciliation = { status: "unavailable" | "incomplete" | "matched" | "mismatch"; expectedMinor: number | null; differenceMinor: number | null; reason: string };
+export type AccountBalanceRow = { account: FinancialAccount; snapshot: BalanceSnapshot | null; reconciliation: AccountReconciliation };
+
+function sourceSnapshotCurrent(state: AccountingState, snapshot: BalanceSnapshot) {
+  if (snapshot.sourceMovementId === null) return true;
+  const movement = state.movements.find((row) => row.id === snapshot.sourceMovementId);
+  return movement !== undefined && movement.accountId === snapshot.accountId && movement.sourceId === snapshot.sourceId
+    && movement.occurredAt === snapshot.occurredAt && (snapshot.sourceFingerprint === undefined || snapshot.sourceFingerprint === movement.sourceFingerprint)
+    && (movement.reportedBalanceMinor === undefined || movement.reportedBalanceMinor === null || movement.reportedBalanceMinor === snapshot.balanceMinor);
+}
+
+function reconcile(state: AccountingState, account: FinancialAccount, snapshots: BalanceSnapshot[]): AccountReconciliation {
+  const latest = snapshots.at(-1);
+  if (!latest) return { status: "unavailable", expectedMinor: null, differenceMinor: null, reason: "No current reported balance snapshot is available." };
+  const previous = snapshots.findLast((row) => Date.parse(row.occurredAt) < Date.parse(latest.occurredAt));
+  if (!previous) return { status: "incomplete", expectedMinor: null, differenceMinor: null, reason: "A previous reported balance is needed to reconcile this account." };
+  const start = Date.parse(previous.occurredAt), end = Date.parse(latest.occurredAt);
+  let expected = previous.balanceMinor;
+  const issues = new Set<string>();
+  const evidence = new Set<string>();
+  for (const movement of state.movements) {
+    if (movement.currency !== account.currency || (movement.accountId !== null && movement.accountId !== account.id) || movement.status === "duplicate") continue;
+    if (movement.occurredAt === null) {
+      if (movement.date >= previous.occurredAt.slice(0, 10) && movement.date <= latest.occurredAt.slice(0, 10)) issues.add("Some movements have no exact occurrence time.");
+      continue;
+    }
+    const time = Date.parse(movement.occurredAt);
+    if (time <= start || time > end) continue;
+    if (movement.accountId === null) { issues.add("Some movements have not been assigned to an account."); continue; }
+    const evidenceId = JSON.stringify([movement.sourceKind, movement.sourceId]);
+    if (evidence.has(evidenceId)) { issues.add("Multiple active movements share the same source evidence."); continue; }
+    evidence.add(evidenceId);
+    if (movement.status === "review") issues.add("Some source movements still need review.");
+    if (movement.status === "hold") issues.add("Recorded holds do not establish final account settlement.");
+    if (movement.direction === "internal") issues.add("Some movements have no explicit incoming or outgoing cash direction.");
+    if (movement.status === "transfer" && !state.transfers.some((row) => row.outgoing.movementId === movement.id || row.incoming.movementId === movement.id)) issues.add("Some transfer movements have no confirmed linked counterpart.");
+    for (const transfer of state.transfers) {
+      const reference = [transfer.outgoing, transfer.incoming].find((row) => row.movementId === movement.id);
+      if (reference && reference.sourceFingerprint !== movement.sourceFingerprint) issues.add("Some transfer links refer to changed source evidence.");
+    }
+    if (movement.direction === "out") expected -= movement.amountMinor + movement.feeMinor;
+    else if (movement.direction === "in") expected += movement.amountMinor - movement.feeMinor;
+    else if (movement.feeMinor > 0) expected -= movement.feeMinor;
+    if (!Number.isSafeInteger(expected)) throw new AccountingError("Reconciliation exceeds safe integer precision.");
+  }
+  const difference = latest.balanceMinor - expected;
+  if (!Number.isSafeInteger(difference)) throw new AccountingError("Reconciliation difference exceeds safe integer precision.");
+  if (issues.size) return { status: "incomplete", expectedMinor: expected, differenceMinor: difference, reason: [...issues].join(" ") };
+  return difference === 0
+    ? { status: "matched", expectedMinor: expected, differenceMinor: 0, reason: "Recorded cash movements match the two reported balance snapshots; unrecorded activity may still be absent." }
+    : { status: "mismatch", expectedMinor: expected, differenceMinor: difference, reason: "The latest reported balance differs from the prior snapshot plus recorded cash movements." };
+}
+
+/** Reported cash total, not income minus spending and not net worth. Missing snapshots stay unknown. */
+export function accountBalances(state: AccountingState, requestedCurrency: string): { accounts: AccountBalanceRow[]; totalMinor: number | null; knownSubtotalMinor: number | null; count: number; missingCount: number; excludedCount: number } {
+  currency(requestedCurrency);
+  validateAccountData(state);
+  const accounts = state.accounts.map((account) => {
+    // Stable sort preserves append order for multiple actual observations at the same instant.
+    const snapshots = state.snapshots.filter((row) => row.accountId === account.id && sourceSnapshotCurrent(state, row)).sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
+    return { account, snapshot: snapshots.at(-1) ?? null, reconciliation: reconcile(state, account, snapshots) };
+  });
+  const included = accounts.filter((row) => row.account.includeInCash && row.account.currency === requestedCurrency);
+  const known = included.filter((row) => row.snapshot !== null);
+  const missingCount = included.length - known.length;
+  const knownSubtotalMinor = known.length ? known.reduce((sum, row) => sum + row.snapshot!.balanceMinor, 0) : null;
+  if (knownSubtotalMinor !== null) integer(knownSubtotalMinor, "Known account subtotal");
+  const totalMinor = included.length > 0 && missingCount === 0 ? knownSubtotalMinor : null;
+  return { accounts, totalMinor, knownSubtotalMinor, count: included.length, missingCount, excludedCount: accounts.length - included.length };
+}

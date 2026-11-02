@@ -1,5 +1,6 @@
 import { logError } from "@/lib/log";
 import { fail, requireOwner } from "@/lib/web/api";
+import { readReportingTransactions } from "@/lib/finance/store";
 
 const COLUMNS = ["date", "type", "amount", "currency", "category", "description", "payment_method", "notes"] as const;
 
@@ -13,7 +14,7 @@ export async function GET(): Promise<Response> {
   const owner = await requireOwner();
   if (owner instanceof Response) return owner;
   try {
-    const rows = (await owner.store.listTransactions(owner.profile.profileId))
+    const rows = (await readReportingTransactions(owner.store,owner.profile.profileId))
       .filter((item) => item.status === "active")
       .sort((left, right) => left.transactionDate.localeCompare(right.transactionDate));
     const lines = [

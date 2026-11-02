@@ -6,7 +6,7 @@ import { LIMITS } from "@/lib/config";
 import { AiError } from "@/lib/errors";
 import { applyFollowUp, readConversation, type ConversationContext } from "@/lib/finance/conversation";
 import type { InterpretedAction } from "@/lib/finance/schemas";
-import type { FinanceStore } from "@/lib/finance/store";
+import { readReportingTransactions, type FinanceStore } from "@/lib/finance/store";
 import { zonedYmd } from "@/lib/finance/dates";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import type { TransactionRecord } from "@/lib/finance/types";
@@ -58,7 +58,7 @@ export async function interpretWithContext(input: {
   const cue: ChatCue = {
     offTopicTurn: offTopicStreak(ownHistory) + 1,
     history: ownHistory.slice(-8).map((item) => ({ role: item.role, body: item.body.slice(0, 400) })),
-    snapshot: snapshotLine(transactions, input.profile, input.now),
+    snapshot: snapshotLine(await readReportingTransactions(input.store,ownerId), input.profile, input.now),
   };
   let interpreted: InterpretedAction;
   try {

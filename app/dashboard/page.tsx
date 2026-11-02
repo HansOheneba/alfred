@@ -33,8 +33,8 @@ function DashboardSkeleton() {
         </div>
         <Skeleton className="h-9 w-56 rounded-full" />
       </div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {["spent", "income", "kept", "daily"].map((key) => (
+      <div className="grid grid-cols-2 gap-3">
+        {["spent", "income"].map((key) => (
           <div key={key} className="rounded-2xl border border-line bg-surface p-4">
             <Skeleton className="h-3 w-16" />
             <Skeleton className="mt-3 h-7 w-24" />

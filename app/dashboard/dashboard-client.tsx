@@ -1,6 +1,8 @@
 "use client";
 
 import Link from "next/link";
+import { WeeklyComparison } from "@/app/dashboard/weekly-comparison";
+import { DashboardAccountBalance } from "@/app/dashboard/account-balance";
 import { useMemo, useState } from "react";
 
 import { Card, EmptyState, Stat, categoryColor } from "@/app/components/ui";
@@ -25,7 +27,7 @@ import {
   weeklyPace,
   type RangePreset,
 } from "@/lib/finance/analytics";
-import { formatDisplayDate, inclusiveDays } from "@/lib/finance/dates";
+import { formatDisplayDate } from "@/lib/finance/dates";
 import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
 
@@ -55,14 +57,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
   const earned = sumMinor(income);
   const prevSpent = sumMinor(inRows(rows, previous, currency, "expense"));
   const prevEarned = sumMinor(inRows(rows, previous, currency, "income"));
-  const net = earned - spent;
-  const prevNet = prevEarned - prevSpent;
-
-  // Average over days elapsed, so a month in progress isn't divided by 31.
   const elapsedEnd = today < range.end ? today : range.end;
-  const days = elapsedEnd >= range.start ? inclusiveDays({ start: range.start, end: elapsedEnd }) : 1;
-  const daily = Math.round(spent / days);
-  const prevDaily = Math.round(prevSpent / inclusiveDays(previous));
 
   const categories = useMemo(() => categoryTotals(expenses), [expenses]);
   const accounts = useMemo(() => accountTotals(expenses), [expenses]);
@@ -142,7 +137,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
             </span>
           ))}
           {ledger.bank.needsLabel.length > 0 ? (
-            <Link href="/review" className="inline-flex items-center rounded-full bg-accent-soft px-3 py-1 text-xs text-accent hover:underline">
+            <Link href="/accounts?tab=needs-attention" className="inline-flex items-center rounded-full bg-accent-soft px-3 py-1 text-xs text-accent hover:underline">
               {ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label
             </Link>
           ) : null}
@@ -162,36 +157,14 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         </p>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-3 lg:grid-cols-5" aria-label="Summary">
+      <div className={ledger.accounting ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]" : ""}>
+      {ledger.accounting ? <DashboardAccountBalance accounting={ledger.accounting} currency={currency} /> : null}
+      <section className="grid content-start grid-cols-2 gap-3" aria-label="Summary">
         <Stat label="Spent" value={formatMinor(spent, currency)} hint={delta(spent, prevSpent, false).text} tone={delta(spent, prevSpent, false).tone} />
         <Stat label="Income" value={formatMinor(earned, currency)} hint={delta(earned, prevEarned, true).text} tone={delta(earned, prevEarned, true).tone} />
-        <Stat
-          label={net >= 0 ? "Kept" : "Overspent"}
-          value={formatMinor(Math.abs(net), currency)}
-          hint={earned > 0 ? `${percent(Math.max(net, 0), earned)} of income kept` : delta(net, prevNet, true).text}
-          tone={net >= 0 ? "good" : "bad"}
-        />
-        <Stat label="Daily average" value={formatMinor(daily, currency)} hint={delta(daily, prevDaily, false).text} tone={delta(daily, prevDaily, false).tone} />
-        <Stat
-          label="This week so far"
-          value={formatMinor(pace.thisWeekMinor, currency)}
-          hint={
-            pace.changePercent !== null ? (
-              <>
-                {pace.changePercent > 0 ? "+" : ""}
-                {pace.changePercent}% vs same days last week (<span className="amount">{formatMinor(pace.lastWeekSameStretchMinor, currency)}</span>)
-              </>
-            ) : pace.lastWeekSameStretchMinor === 0 ? (
-              "Same days last week: none"
-            ) : (
-              <>
-                Same days last week: <span className="amount">{formatMinor(pace.lastWeekSameStretchMinor, currency)}</span>
-              </>
-            )
-          }
-          tone={pace.changePercent !== null ? (pace.changePercent <= 0 ? "good" : "bad") : undefined}
-        />
+        <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
       </section>
+      </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
         <Card title="Spending vs income, last 12 months">
