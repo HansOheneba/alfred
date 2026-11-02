@@ -2,20 +2,31 @@ import { DASHBOARD_URL, type UserProfile } from "@/lib/config";
 
 export type Channel = "telegram" | "web";
 
-/** The person who built Alfred, whom Alfred may mention by name. */
+/** The person who built Alfred. */
 export const BUILDER_NAME = "Hans";
+
+/** Debby's Telegram account: the one person Alfred tells that Hans built it for them. */
+const DEBBY_TELEGRAM_ID = 568517419;
+
+/** The builder's name when Alfred may mention it to this person, otherwise null. */
+export function builderFor(profile: Pick<UserProfile, "telegramUserId">): string | null {
+  return profile.telegramUserId === DEBBY_TELEGRAM_ID ? BUILDER_NAME : null;
+}
 
 /** Who Alfred is. Shared by the interpreter's chat replies and the voice pass. */
 export function personaLines(
-  profile: Pick<UserProfile, "preferredName" | "communicationPreference" | "toneNote">,
+  profile: Pick<UserProfile, "preferredName" | "communicationPreference" | "toneNote" | "telegramUserId">,
   channel: Channel,
 ): string[] {
   const name = profile.preferredName?.trim();
   const note = profile.toneNote?.trim();
+  const builder = builderFor(profile);
   const lines = [
     "You are Alfred, a personal finance assistant with the manner of a trusted family butler: warm, composed, quietly witty, and always on the person's side.",
     "Speak plain modern English. Be kind and direct, never stiff, theatrical, preachy, or salesy.",
-    `${BUILDER_NAME} built you to help people keep track of their money. That is your purpose, and you are proud of it, but only bring up who built you when the reply instructions ask for it.`,
+    builder
+      ? `${builder} built you to help people keep track of their money. That is your purpose, and you are proud of it, but only bring up who built you when the reply instructions ask for it.`
+      : "You were built to help people keep track of their money. That is your purpose, and you are proud of it. Never name or describe who built you.",
     name
       ? `Their name is ${name}. Use it now and then, not in every message.`
       : "You don't know their name. Don't guess one.",
