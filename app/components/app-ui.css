@@ -241,3 +241,32 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
 }
 
 @media (max-width: 360px) { .alfred-ui-dock a { font-size: 11px; } .alfred-ui-metric { padding: 12px; } }
+
+/* Chat owns the app viewport; only its message thread scrolls. */
+.alfred-chat-viewport { position:fixed; top:var(--alfred-chat-offset-top,0px); left:0; width:100%; height:var(--alfred-chat-viewport-height,100dvh); min-height:0; overflow:hidden; background:var(--surface); }
+.alfred-app-chat .alfred-ui-fill { height:100%; min-height:0; }
+.alfred-app-chat .alfred-ui-fill > .alfred-ui-main { padding-top:env(safe-area-inset-top); padding-bottom:104px; }
+.alfred-app-chat .alfred-ui-main > :not(.alfred-production-chat) { min-height:0; overflow-y:auto; }
+@media(max-width:760px) {
+  .alfred-ui-dock { left:0; bottom:0; transform:none; width:100%; max-width:none; min-height:calc(64px + env(safe-area-inset-bottom)); padding:4px 4px calc(4px + env(safe-area-inset-bottom)); gap:0; border-radius:0; border:0; box-shadow:0 -1px 0 var(--line); }
+  .alfred-ui-dock a { min-height:56px; border-radius:8px; }
+  .alfred-ui-dock a[aria-current="page"] { background:transparent; position:relative; color:var(--accent); }
+  .alfred-ui-dock a[aria-current="page"]::before { content:""; position:absolute; top:0; left:calc(50% - 12px); width:24px; height:4px; border-radius:0 0 4px 4px; background:var(--accent); }
+  .alfred-ui-pageShell { padding-bottom:calc(88px + env(safe-area-inset-bottom)); }
+  .alfred-app-chat .alfred-ui-fill > .alfred-ui-main { padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
+  .alfred-chat-viewport[data-keyboard-open="true"] .alfred-ui-dock { visibility:hidden; pointer-events:none; }
+  .alfred-app-chat[data-keyboard-open="true"] .alfred-ui-fill > .alfred-ui-main { padding-bottom:0; }
+}
+@media(max-width:600px) {
+  .alfred-chat-viewport .alfred-notebook-panel { top:var(--alfred-chat-offset-top,0px); bottom:auto; height:var(--alfred-chat-viewport-height,100dvh); max-height:var(--alfred-chat-viewport-height,100dvh); }
+}
+/* The development Chat preview uses the same viewport frame directly. */
+.alfred-ui-pageShell.alfred-chat-viewport { display:flex; flex-direction:column; min-height:0; height:var(--alfred-chat-viewport-height,100dvh); padding-bottom:0; }
+.alfred-ui-pageShell.alfred-chat-viewport > .alfred-ui-main { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; padding-top:env(safe-area-inset-top); padding-bottom:104px; }
+@media(max-width:760px) {
+  .alfred-ui-pageShell.alfred-chat-viewport > .alfred-ui-main { padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
+  .alfred-ui-pageShell.alfred-chat-viewport[data-keyboard-open="true"] > .alfred-ui-main { padding-bottom:0; }
+}
+@media(max-width:600px) {
+  .alfred-chat-viewport .alfred-notebook-panelHeader { padding-top:calc(16px + env(safe-area-inset-top)); }
+}

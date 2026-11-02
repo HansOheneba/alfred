@@ -7,7 +7,7 @@ import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } fro
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { NotebookIcon, NotebookPanel, useNotebookPanel, type ChatNotebookData } from "@/app/chat/notebook-panel";
 import { StatsPanel } from "@/app/chat/stats-panel";
-import { AlfredMark } from "@/app/components/app-shell";
+import { AlfredMark, PrivacyToggle } from "@/app/components/app-shell";
 import { getGettingStartedState } from "@/app/components/getting-started-state";
 import { NotebookClient } from "@/app/notebook/notebook-client";
 import type { ChatChart } from "@/lib/accounts/messages";
@@ -120,8 +120,14 @@ export function ChatPanel({
 
   useEffect(() => {
     const node = threadRef.current;
-    if (!node || !stickToBottom.current) return;
-    node.scrollTop = messages.length > 0 || busy ? node.scrollHeight : 0;
+    if (!node) return;
+    const alignThread = () => {
+      if (stickToBottom.current) node.scrollTop = messages.length > 0 || busy ? node.scrollHeight : 0;
+    };
+    alignThread();
+    const observer = new ResizeObserver(alignThread);
+    observer.observe(node);
+    return () => observer.disconnect();
   }, [messages, busy]);
 
   useEffect(() => {
@@ -366,17 +372,7 @@ export function ChatPanel({
   return (
     <div className="alfred-production-chat">
       <section className="alfred-production-chat-conversation" aria-label="Chat with Alfred">
-        <header className="alfred-production-chat-header">
-          <div className="alfred-production-chat-identity">
-            <AlfredMark size="size-8 alfred-production-chat-mark" />
-            <div><h1>Alfred</h1><p><span className="alfred-production-chat-desktopLabel">Your money, in context</span><span className="alfred-production-chat-mobileLabel">Assistant</span></p></div>
-          </div>
-          <div className="alfred-production-chat-tools" role="group" aria-label="Conversation actions">
-            <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span>Context</span></button>
-            <button type="button" aria-label="Notebook" title="Notebook" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => { setStatsOpen(false); notebookPanel.setOpen(true); }}><NotebookIcon /><span>Notebook</span></button>
-            <button type="button" className="alfred-production-chat-new" aria-label="New message" title="New message — keep saved conversation" disabled={busy} onClick={() => { setText(""); inputRef.current?.focus(); }}><ChatIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z" /></ChatIcon><span>New message</span></button>
-          </div>
-        </header>
+        <h1 className="sr-only">Chat</h1>
 
         <div ref={threadRef} tabIndex={0} className="alfred-production-chat-scroll" aria-busy={busy} onScroll={onThreadScroll}>
           {messages.length === 0 ? (
@@ -415,10 +411,17 @@ export function ChatPanel({
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
           {showFollowUps ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{FOLLOW_UPS.map((suggestion) => <button key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form className="alfred-production-chat-composer" onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
-            <label htmlFor="alfred-message">Message Alfred</label>
+            <div className="alfred-production-chat-composerHeader">
+              <label htmlFor="alfred-message">Message Alfred</label>
+              <div className="alfred-production-chat-tools" role="group" aria-label="Conversation actions">
+                <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span>Context</span></button>
+                <button type="button" aria-label="Notebook" title="Notebook" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => { setStatsOpen(false); notebookPanel.setOpen(true); }}><NotebookIcon /><span>Notebook</span></button>
+                <button type="button" className="alfred-production-chat-new" aria-label="New message" title="New message — keep saved conversation" disabled={busy} onClick={() => { setText(""); inputRef.current?.focus(); }}><ChatIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z" /></ChatIcon><span>New message</span></button>
+              </div>
+            </div>
             <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={2} placeholder="Ask about your spending, budget or accounts…" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
             <div className="alfred-production-chat-composerFooter">
-              <div><button type="button" disabled={busy} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button><span>Enter to send · Shift + Enter for a new line</span></div>
+              <div><button type="button" disabled={busy} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button><PrivacyToggle /><span>Enter to send · Shift + Enter for a new line</span></div>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadImage(file); }} />
               <button type="submit" disabled={busy || text.trim().length === 0} aria-label="Send" className="alfred-production-chat-send"><span>Send</span><ChatIcon><path d="M12 19V5m-6 6 6-6 6 6" /></ChatIcon></button>
             </div>

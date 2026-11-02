@@ -237,3 +237,16 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
   .alfred-ui-dock a span { letter-spacing: -.04em; }
 }
 .alfred-ui-study .alfred-ui-dashboard .alfred-ui-insightAskButton { min-height: 56px; }
+
+/* Mobile destinations are app navigation fixed to the screen edge. */
+@media (max-width: 760px) {
+  .alfred-ui-study .alfred-ui-dock { left:0; right:0; bottom:0; width:100%; max-width:none; transform:none; min-height:calc(64px + env(safe-area-inset-bottom)); padding:4px 4px calc(4px + env(safe-area-inset-bottom)); border-radius:0; border:0; box-shadow:0 -1px 0 var(--line); }
+  .alfred-ui-study .alfred-ui-dock a { border-radius:8px; }
+  .alfred-ui-study .alfred-ui-pageShell:not(.alfred-chat-viewport) { padding-bottom:calc(88px + env(safe-area-inset-bottom)); }
+}
+.alfred-ui-study .alfred-ui-pageShell.alfred-chat-viewport { min-height:0; padding-bottom:0; }
+.alfred-ui-study .alfred-chat-viewport > .alfred-ui-main { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; }
+@media (max-width:760px) {
+  .alfred-ui-study .alfred-ui-dock a[aria-current="page"] { position:relative; color:var(--accent); background:transparent; }
+  .alfred-ui-study .alfred-ui-dock a[aria-current="page"]::before { content:""; position:absolute; top:0; left:calc(50% - 12px); width:24px; height:4px; border-radius:0 0 4px 4px; background:var(--accent); }
+}
