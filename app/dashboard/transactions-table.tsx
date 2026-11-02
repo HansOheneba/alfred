@@ -11,6 +11,8 @@ import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories"
 import { formatDisplayDate } from "@/lib/finance/dates";
 import { formatMinor } from "@/lib/finance/money";
 
+import "./transactions-table.css";
+
 const PAGE = 15;
 
 type Sort = "date-desc" | "date-asc" | "amount-desc" | "amount-asc";
@@ -73,56 +75,72 @@ export function TransactionsTable({
 
   return (
     <Card
+      className="alfred-transactions"
       title={
         <span>
           Transactions <span className="font-normal text-muted">· {rangeLabel}</span>
         </span>
       }
     >
-      <div className="grid gap-2 sm:grid-cols-[1fr_auto_auto_auto]">
-        <label className="sr-only" htmlFor="tx-search">
-          Search transactions
+      <div className="alfred-transaction-filters">
+        <label className="alfred-transaction-field" htmlFor="tx-search">
+          <span>Search transactions</span>
+          <input
+            id="tx-search"
+            className={inputClass}
+            placeholder="Search description or category"
+            value={search}
+            onChange={(event) => {
+              setSearch(event.target.value);
+              setShown(PAGE);
+            }}
+          />
         </label>
-        <input
-          id="tx-search"
-          className={inputClass}
-          placeholder="Search description or category"
-          value={search}
-          onChange={(event) => {
-            setSearch(event.target.value);
-            setShown(PAGE);
-          }}
-        />
-        <select aria-label="Type" className={inputClass} value={type} onChange={(event) => setType(event.target.value as typeof type)}>
-          <option value="all">All types</option>
-          <option value="expense">Expenses</option>
-          <option value="income">Income</option>
-        </select>
-        <select
-          aria-label="Category"
-          className={inputClass}
-          value={category ?? categoryFilter}
-          disabled={Boolean(category)}
-          onChange={(event) => setCategoryFilter(event.target.value)}
-        >
-          <option value="all">All categories</option>
-          {categories.map((item) => (
-            <option key={item} value={item}>
-              {item}
-            </option>
-          ))}
-        </select>
-        <select aria-label="Sort" className={inputClass} value={sort} onChange={(event) => setSort(event.target.value as Sort)}>
-          <option value="date-desc">Newest first</option>
-          <option value="date-asc">Oldest first</option>
-          <option value="amount-desc">Largest first</option>
-          <option value="amount-asc">Smallest first</option>
-        </select>
+        <label className="alfred-transaction-field" htmlFor="tx-type">
+          <span>Type</span>
+          <span className="alfred-transaction-select">
+            <select id="tx-type" aria-label="Type" className={inputClass} value={type} onChange={(event) => setType(event.target.value as typeof type)}>
+              <option value="all">All types</option>
+              <option value="expense">Expenses</option>
+              <option value="income">Income</option>
+            </select>
+            <SelectChevron />
+          </span>
+        </label>
+        <label className="alfred-transaction-field" htmlFor="tx-category">
+          <span>Category</span>
+          <span className="alfred-transaction-select">
+            <select
+              id="tx-category"
+              aria-label="Category"
+              className={inputClass}
+              value={category ?? categoryFilter}
+              disabled={Boolean(category)}
+              onChange={(event) => setCategoryFilter(event.target.value)}
+            >
+              <option value="all">All categories</option>
+              {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+            </select>
+            <SelectChevron />
+          </span>
+        </label>
+        <label className="alfred-transaction-field" htmlFor="tx-sort">
+          <span>Sort</span>
+          <span className="alfred-transaction-select">
+            <select id="tx-sort" aria-label="Sort" className={inputClass} value={sort} onChange={(event) => setSort(event.target.value as Sort)}>
+              <option value="date-desc">Newest first</option>
+              <option value="date-asc">Oldest first</option>
+              <option value="amount-desc">Largest first</option>
+              <option value="amount-asc">Smallest first</option>
+            </select>
+            <SelectChevron />
+          </span>
+        </label>
       </div>
 
       {category ? (
         <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-          Showing <span className="rounded-full bg-accent-soft px-2 py-0.5 text-accent">{category}</span>
+          Showing <span className="rounded-full bg-accent-soft px-2 py-1 text-accent">{category}</span>
           <button type="button" className="underline-offset-2 hover:text-ink hover:underline" onClick={onClearCategory}>
             Clear
           </button>
@@ -155,14 +173,19 @@ export function TransactionsTable({
               <tbody>
                 {filtered.slice(0, shown).map((row) => (
                   <tr key={row.id} className="border-b border-line last:border-0">
-                    <td className="whitespace-nowrap py-2.5 pr-3 text-muted">{formatDisplayDate(row.date)}</td>
-                    <td className="py-2.5 pr-3">{row.description}</td>
-                    <td className="py-2.5 pr-3 text-muted">{row.category}</td>
-                    <td className={`whitespace-nowrap py-2.5 pr-3 text-right tabular-nums ${row.type === "income" ? "text-income" : ""}`}>
+                    <td className="whitespace-nowrap py-3 pr-3 text-muted">
+                      <time dateTime={row.date} title="Only the transaction date was recorded">
+                        <span className="alfred-transaction-date">{formatDisplayDate(row.date)}</span>
+                        <span className="alfred-transaction-time">Time not recorded</span>
+                      </time>
+                    </td>
+                    <td className="py-3 pr-3">{row.description}</td>
+                    <td className="py-3 pr-3 text-muted">{row.category}</td>
+                    <td className={`whitespace-nowrap py-3 pr-3 text-right tabular-nums ${row.type === "income" ? "text-income" : ""}`}>
                       {row.type === "income" ? "+" : ""}
                       {formatMinor(row.minor, row.currency)}
                     </td>
-                    <td className="whitespace-nowrap py-2.5 text-right">
+                    <td className="whitespace-nowrap py-3 text-right">
                       {isAccountingRow(row.id) ? <AccountingRowAction /> : <>
                       <Button size="sm" variant="ghost" onClick={() => setEditing(row)} aria-label={`Edit ${row.description}`}>
                         Edit
@@ -183,8 +206,9 @@ export function TransactionsTable({
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <p className="truncate text-sm">{row.description}</p>
-                      <p className="mt-0.5 text-xs text-muted">
+                      <p className="mt-1 text-xs text-muted">
                         {row.category} · {formatDisplayDate(row.date)}
+                        <time className="alfred-transaction-time" dateTime={row.date} title="Only the transaction date was recorded">Time not recorded</time>
                       </p>
                     </div>
                     <p className={`shrink-0 text-sm tabular-nums ${row.type === "income" ? "text-income" : ""}`}>
@@ -250,6 +274,10 @@ export function TransactionsTable({
       />
     </Card>
   );
+}
+
+function SelectChevron() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>;
 }
 
 function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => void; onSaved: () => void }) {

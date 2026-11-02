@@ -25,27 +25,19 @@ export default function DashboardPage() {
 
 function DashboardSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6" aria-busy="true">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div>
-          <Skeleton className="h-3 w-24" />
-          <Skeleton className="mt-2 h-8 w-48" />
+    <div className="alfred-ui-dashboard" aria-busy="true" aria-label="Loading your financial overview">
+      <div className="alfred-ui-heading">
+        <div><Skeleton className="h-4 w-24" /><Skeleton className="mt-2 h-8 w-48" /></div>
+        <Skeleton className="h-12 w-64 rounded-xl" />
+      </div>
+      <div className="alfred-ui-overviewGrid">
+        <div className="alfred-ui-totalBalance"><Skeleton className="h-4 w-40" /><Skeleton className="mt-4 h-12 w-52" /><Skeleton className="mt-4 h-4 w-32" /><Skeleton className="mt-6 h-20 w-full" /></div>
+        <div className="alfred-ui-summary">
+          {["spent", "income"].map((key) => <div key={key} className="alfred-ui-metric"><Skeleton className="h-4 w-16" /><Skeleton className="mt-4 h-8 w-28" /><Skeleton className="mt-2 h-4 w-32" /></div>)}
+          <Skeleton className="col-span-full h-24 rounded-xl" />
         </div>
-        <Skeleton className="h-9 w-56 rounded-full" />
       </div>
-      <div className="grid grid-cols-2 gap-3">
-        {["spent", "income"].map((key) => (
-          <div key={key} className="rounded-2xl border border-line bg-surface p-4">
-            <Skeleton className="h-3 w-16" />
-            <Skeleton className="mt-3 h-7 w-24" />
-            <Skeleton className="mt-2 h-3 w-20" />
-          </div>
-        ))}
-      </div>
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Skeleton className="h-64 rounded-2xl" />
-        <Skeleton className="h-64 rounded-2xl" />
-      </div>
+      <div className="alfred-ui-insightsAndTrends">{["insights", "monthly", "daily"].map((key) => <Skeleton key={key} className="h-72 rounded-2xl" />)}</div>
       <Skeleton className="h-72 rounded-2xl" />
     </div>
   );
@@ -57,7 +49,7 @@ async function DashboardScreen() {
   if (account.kind === "error") {
     return (
       <AppShell current="dashboard" name="">
-        <p className="mx-auto w-full max-w-6xl px-4 py-8 text-sm text-danger" role="alert">
+        <p className="alfred-ui-dashboard text-sm text-danger" role="alert">
           {account.message}
         </p>
       </AppShell>
@@ -71,7 +63,7 @@ async function DashboardScreen() {
   } catch (error) {
     return (
       <AppShell current="dashboard" name={name}>
-        <p className="mx-auto w-full max-w-6xl px-4 py-8 text-sm text-danger" role="alert">
+        <p className="alfred-ui-dashboard text-sm text-danger" role="alert">
           {error instanceof Error ? error.message : "Alfred could not load your finances."}
         </p>
       </AppShell>
@@ -80,7 +72,7 @@ async function DashboardScreen() {
 
   return (
     <AppShell current="dashboard" name={name}>
-      <DashboardClient ledger={ledger} name={name} />
+      <DashboardClient ledger={ledger} name={name} timeZone={account.profile.timezone} />
     </AppShell>
   );
 }

@@ -2,10 +2,19 @@
 
 import Link from "next/link";
 import { WeeklyComparison } from "@/app/dashboard/weekly-comparison";
+
 import { DashboardAccountBalance } from "@/app/dashboard/account-balance";
+import { MonthlyInsights, SummaryMetric as Stat } from "@/app/dashboard/overview-cards";
+
+const styles = {
+  dashboard: "alfred-ui-dashboard", heading: "alfred-ui-heading", controls: "alfred-ui-controls",
+  ranges: "alfred-ui-ranges", talk: "alfred-ui-talk", summary: "alfred-ui-summary",
+  trends: "alfred-ui-trends", legend: "alfred-ui-legend", categories: "alfred-ui-categories",
+  transactions: "alfred-ui-transactions",
+} as const;
 import { useMemo, useState } from "react";
 
-import { Card, EmptyState, Stat, categoryColor } from "@/app/components/ui";
+import { Card, EmptyState, categoryColor } from "@/app/components/ui";
 import { BillsCard } from "@/app/dashboard/bills-card";
 import { CategoryDonut, DailyChart, MonthlyChart, SimpleBars } from "@/app/dashboard/charts";
 import { compactMoney, delta, percent } from "@/app/dashboard/helpers";
@@ -40,7 +49,7 @@ function lastTwelveMonths(today: string) {
   return { start, end };
 }
 
-export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string }) {
+export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { ledger: Ledger; name: string; timeZone?: string }) {
   const { currency, today } = ledger;
   const [preset, setPreset] = useState<RangePreset>("this_month");
   const [selected, setSelected] = useState<string | null>(null);
@@ -90,14 +99,14 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-5 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
+    <div className={styles.dashboard}>
+      <div className={styles.heading}>
         <div>
           <p className="text-xs text-muted">{formatDisplayDate(today)}</p>
           <h1 className="mt-1 font-display text-2xl font-medium leading-tight tracking-tight">{name ? `${name}'s finances` : "Your finances"}</h1>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
-          <div className="flex flex-wrap gap-1 rounded-full border border-line bg-surface p-1" role="group" aria-label="Date range">
+        <div className={styles.controls}>
+          <div className={styles.ranges} role="group" aria-label="Date range">
             {PRESETS.map((item) => (
               <button
                 key={item}
@@ -107,7 +116,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                   setSelected(null);
                 }}
                 aria-pressed={preset === item}
-                className={`rounded-full px-3 py-1.5 text-xs transition focus-visible:outline-2 focus-visible:outline-accent ${
+                className={`rounded-full px-3 py-2 text-xs transition focus-visible:outline-2 focus-visible:outline-accent ${
                   preset === item ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"
                 }`}
               >
@@ -117,31 +126,29 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
           </div>
           <Link
             href="/chat"
-            className="inline-flex h-9 items-center rounded-full border border-line-strong px-4 text-sm text-ink transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
+            className={styles.talk}
           >
             Talk to Alfred
           </Link>
         </div>
       </div>
 
+      {ledger.bank.needsLabel.length > 0 ? <div className="alfred-ui-reviewPrompt"><span>Make your overview more complete.</span><Link href="/accounts?tab=needs-attention">{ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label <span aria-hidden="true">↗</span></Link></div> : null}
+
       {ledger.bank.balances.length > 0 ? (
-        <div className="-mt-1 flex flex-wrap items-center gap-2" aria-label="Latest balances from bank messages">
-          {ledger.bank.balances.map((item) => (
-            <span
-              key={item.source}
-              title={`As of ${new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone: "Africa/Accra" }).format(new Date(item.at))}, from your bank's last message. Not live.`}
-              className="inline-flex items-center gap-1.5 rounded-full border border-line bg-surface px-3 py-1 text-xs text-muted"
-            >
-              {item.label}
-              <span className="tabular-nums text-ink">{formatAmount(item.balance, currency)}</span>
-            </span>
-          ))}
-          {ledger.bank.needsLabel.length > 0 ? (
-            <Link href="/accounts?tab=needs-attention" className="inline-flex items-center rounded-full bg-accent-soft px-3 py-1 text-xs text-accent hover:underline">
-              {ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label
-            </Link>
-          ) : null}
-        </div>
+        <details className="rounded-xl border border-line bg-surface px-4 py-3 text-xs">
+          <summary className="cursor-pointer font-medium text-muted">Latest balances from bank messages</summary>
+          <p className="mt-2 text-muted">Provider reports are shown separately from your included account total.</p>
+          <ul className="mt-3 flex flex-wrap gap-3">
+            {ledger.bank.balances.map((item) => (
+              <li key={item.source} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
+                <span>{item.label}</span>
+                <span className="tabular-nums font-medium">{formatAmount(item.balance, currency)}</span>
+                <time dateTime={item.at} className="text-muted">{new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(item.at))} · Not live</time>
+              </li>
+            ))}
+          </ul>
+        </details>
       ) : null}
 
       {!hasAny ? (
@@ -157,17 +164,20 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         </p>
       ) : null}
 
-      <div className={ledger.accounting ? "grid gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]" : ""}>
-      {ledger.accounting ? <DashboardAccountBalance accounting={ledger.accounting} currency={currency} /> : null}
-      <section className="grid content-start grid-cols-2 gap-3" aria-label="Summary">
+      <div className="alfred-ui-overviewGrid">
+      <DashboardAccountBalance accounting={ledger.accounting} currency={currency} timeZone={timeZone} />
+      <section className={styles.summary} aria-label="Summary">
         <Stat label="Spent" value={formatMinor(spent, currency)} hint={delta(spent, prevSpent, false).text} tone={delta(spent, prevSpent, false).tone} />
         <Stat label="Income" value={formatMinor(earned, currency)} hint={delta(earned, prevEarned, true).text} tone={delta(earned, prevEarned, true).tone} />
         <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
       </section>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Spending vs income, last 12 months">
+      <div className="alfred-ui-insightsAndTrends">
+      <MonthlyInsights insights={ledger.insights} />
+
+      <div className={styles.trends}>
+        <Card title="Spending vs income, last 12 months" action={<div className={styles.legend}><span><i className="bg-income" />Income</span><span><i className="bg-outgoing" />Spent</span></div>}>
           <MonthlyChart data={monthly} currency={currency} />
           <p className="sr-only">
             {monthly.map((item) => `${item.label}: spent ${formatMinor(item.spent, currency)}, income ${formatMinor(item.income, currency)}`).join("; ")}
@@ -176,14 +186,14 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         <Card
           title={`Spending by day · ${rangeLabel}`}
           action={
-            <div className="flex rounded-full border border-line p-0.5 text-xs" role="group" aria-label="Chart mode">
+            <div className="flex rounded-full border border-line p-1 text-xs" role="group" aria-label="Chart mode">
               {(["daily", "cumulative"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   aria-pressed={dailyMode === mode}
                   onClick={() => setDailyMode(mode)}
-                  className={`rounded-full px-2.5 py-1 focus-visible:outline-2 focus-visible:outline-accent ${dailyMode === mode ? "bg-surface-2 text-ink" : "text-muted"}`}
+                  className={`rounded-full px-3 py-1 focus-visible:outline-2 focus-visible:outline-accent ${dailyMode === mode ? "bg-surface-2 text-ink" : "text-muted"}`}
                 >
                   {mode === "daily" ? "Daily" : "Running total"}
                 </button>
@@ -194,8 +204,10 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
           {spent === 0 ? <EmptyState>No spending in this range.</EmptyState> : <DailyChart data={dailyData} currency={currency} mode={dailyMode} />}
         </Card>
       </div>
+      </div>
 
       <Card
+        className={styles.categories}
         title={`Where the money went · ${rangeLabel}`}
         action={
           selected ? (
@@ -208,9 +220,12 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         {categories.length === 0 ? (
           <EmptyState>No spending in this range.</EmptyState>
         ) : (
-          <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.2fr)]">
-            <div>
-              <CategoryDonut data={categories} currency={currency} selected={selected} onSelect={toggle} />
+          <div className="alfred-ui-categoryLayout">
+            <div className="alfred-ui-categoryOverview">
+              <div className="alfred-ui-donutTotal">
+                <CategoryDonut data={categories} currency={currency} selected={selected} onSelect={toggle} />
+                <div className="alfred-ui-donutCenter" aria-hidden="true"><span>Total spent</span><strong className="tabular-nums">{formatMinor(spent, currency)}</strong></div>
+              </div>
               <ul className="mt-3 flex flex-col gap-1" aria-label="Categories">
                 {categories.map((item, index) => (
                   <li key={item.category}>
@@ -231,8 +246,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                 ))}
               </ul>
             </div>
-            <div className="rounded-xl border border-line bg-bg p-4">
-              {selected ? (
+            {selected ? <div className="alfred-ui-categoryDetails rounded-xl border border-line bg-bg p-4">
                 <>
                   <p className="text-xs text-muted">{selected}</p>
                   <p className="mt-1 text-2xl font-medium tabular-nums">{formatMinor(sumMinor(selectedRows), currency)}</p>
@@ -254,13 +268,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                   <h3 className="mt-5 text-xs font-medium text-muted">Last 6 months</h3>
                   <SimpleBars data={selectedTrend} currency={currency} height="h-36" />
                 </>
-              ) : (
-                <div className="flex h-full min-h-48 flex-col items-center justify-center gap-2 text-center">
-                  <p className="text-sm text-ink">Pick a category</p>
-                  <p className="max-w-xs text-xs text-muted">Click a slice or a row to see its biggest items, its trend, and its transactions below.</p>
-                </div>
-              )}
-            </div>
+            </div> : null}
           </div>
         )}
       </Card>
@@ -269,21 +277,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         <CashFlowSankey model={sankey} currency={currency} />
       </Card>
 
-      <div className="grid gap-4 lg:grid-cols-3">
-        <Card title="Alfred's insights · this month">
-          {ledger.insights.length === 0 ? (
-            <EmptyState>Insights appear once a few expenses are logged.</EmptyState>
-          ) : (
-            <ul className="flex flex-col gap-2.5">
-              {ledger.insights.map((line) => (
-                <li key={line} className="flex gap-3 text-sm leading-6">
-                  <span className="mt-2 size-1.5 shrink-0 rounded-full bg-accent" aria-hidden="true" />
-                  <span>{line}</span>
-                </li>
-              ))}
-            </ul>
-          )}
-        </Card>
+      <div className="grid gap-4 lg:grid-cols-2">
         <Card title={`Spending by account · ${rangeLabel}`}>
           {accounts.length === 0 ? (
             <EmptyState>No spending in this range.</EmptyState>
@@ -295,9 +289,9 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
                 selected={null}
                 onSelect={() => undefined}
               />
-              <ul className="mt-3 flex flex-col gap-1.5" aria-label="Spending by account">
+              <ul className="mt-3 flex flex-col gap-2" aria-label="Spending by account">
                 {accounts.map((item, index) => (
-                  <li key={item.account} className="flex items-center gap-2.5 text-sm">
+                  <li key={item.account} className="flex items-center gap-3 text-sm">
                     <span className="size-2.5 shrink-0 rounded-full" style={{ background: categoryColor(index) }} aria-hidden="true" />
                     <span className="min-w-0 flex-1 truncate">{item.account}</span>
                     <span className="text-xs text-muted">{percent(item.minor, spent)}</span>
@@ -322,6 +316,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
 
       <div className="grid gap-4 lg:grid-cols-2">
         <BillsCard
+          showCategoryLink
           bills={ledger.bills ?? []}
           upcoming={ledger.upcomingBills ?? []}
           suggestions={ledger.renewalSuggestions ?? []}
@@ -408,7 +403,7 @@ export function DashboardClient({ ledger, name }: { ledger: Ledger; name: string
         <OwedCard owed={ledger.owed} owe={ledger.owe} />
       </div>
 
-      {hasAny ? <TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} /> : null}
+      {hasAny ? <div className={styles.transactions}><TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} /></div> : null}
     </div>
   );
 }

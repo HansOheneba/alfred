@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
-import { ChatPanel, StatsButton } from "@/app/chat/chat-panel";
+import { ChatPanel } from "@/app/chat/chat-panel";
 import type { ChatNotebookData } from "@/app/chat/notebook-panel";
 import { AlfredMark, AppShell } from "@/app/components/app-shell";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
@@ -11,25 +11,28 @@ import { createSupabaseNotebookStore } from "@/lib/notebook/store";
 import { loadLedger } from "@/lib/web/ledger";
 import { loadPeople } from "@/lib/web/people";
 
-export default function ChatPage() {
+type ChatSearchParams = Promise<{ question?: string | string[] }>;
+
+export default function ChatPage({ searchParams }: { searchParams: ChatSearchParams }) {
   if (!publicAuthConfigured()) return <MissingAuthConfig />;
 
   return (
     <Suspense fallback={<ChatLoading />}>
-      <SignedInHome />
+      <SignedInHome searchParams={searchParams} />
     </Suspense>
   );
 }
 
 function ChatLoading() {
   return (
-    <div className="grid h-dvh place-items-center bg-bg">
+    <div className="grid h-dvh place-items-center bg-bg" role="status" aria-label="Loading conversation" aria-busy="true">
       <AlfredMark size="size-10" />
+      <p className="sr-only">Loading conversation…</p>
     </div>
   );
 }
 
-async function SignedInHome() {
+async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }) {
   const account = await signedInAccount();
   if (account.kind === "signed-out") redirect("/");
   if (account.kind === "error") {
@@ -42,6 +45,8 @@ async function SignedInHome() {
     );
   }
 
+  const params = await searchParams;
+  const question = typeof params.question === "string" ? params.question.trim().slice(0, 2000) : "";
   const name = account.profile.preferredName.trim();
   let history;
   let ledger;
@@ -66,8 +71,8 @@ async function SignedInHome() {
   }
 
   return (
-    <AppShell current="chat" name={name} fill headerAction={<StatsButton />}>
-      <ChatPanel ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} ledger={ledger} notebook={notebook} />
+    <AppShell current="chat" name={name} fill>
+      <ChatPanel key={question || "conversation"} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} ledger={ledger} notebook={notebook} />
     </AppShell>
   );
 }
