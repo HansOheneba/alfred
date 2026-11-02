@@ -374,10 +374,10 @@ export function ChatPanel({
                   {canRetry(message, index) ? <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-production-chat-retry" })} onClick={() => submitText(message.text, message.clientId ?? undefined)}>Not sent · Retry</button> : null}
                 </article>
               ))}
+              {busy ? <div className="alfred-production-chat-thinking" role="status" aria-label="Alfred is thinking"><AlfredMark size="size-6" /><span aria-hidden="true"><i className="alfred-dot" /><i className="alfred-dot" /><i className="alfred-dot" /></span></div> : null}
             </div>
           ) : null}
           {financialsEmpty && messages.length > 0 ? <ChatGettingStarted /> : null}
-          {busy ? <div className="alfred-production-chat-thinking" role="status" aria-label="Alfred is thinking"><AlfredMark size="size-7" /><span aria-hidden="true"><i className="alfred-dot" /><i className="alfred-dot" /><i className="alfred-dot" /></span></div> : null}
           {error && !empty ? <p className="alfred-production-chat-error" role="alert">{error}</p> : null}
         </div>
 
