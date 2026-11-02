@@ -135,7 +135,7 @@ export function planNativeRestoration(current: AlfredNativeExport, sources: Nati
         if(!parsed.success) {summary.settings.conflicts.push(`profile.${field}: invalid setting.`);continue;}
         const value=parsed.data;const currentValue=plan.profileChanges[field] ?? current.settings.profile?.[field as keyof typeof PROFILE_DEFAULTS] ?? defaultValue;
         if(value===currentValue) continue;
-        if(currentValue!==defaultValue) {summary.settings.conflicts.push(`profile.${field}: destination has a different non-default value; it will not be overwritten.`);continue;}
+        if(currentValue!==defaultValue) {summary.settings.preserved.push(`profile.${field}: your current choice is kept; the imported value is not applied.`);continue;}
         plan.profileChanges[field]=value;summary.settings.applied.push(`profile.${field}`);
       }
       if(incomingProfile.account_names) summary.settings.preserved.push("profile.account_names: account-name matching affects future bank classification and is preserved without changing destination collection rules.");
@@ -147,7 +147,7 @@ export function planNativeRestoration(current: AlfredNativeExport, sources: Nati
         const value=reminders[field];const currentValue=plan.reminderChanges[field] ?? current.settings.reminderPreferences?.[field] ?? defaultValue;
         if(!Number.isInteger(value) || Number(value)<0 || Number(value)>1439) {summary.settings.conflicts.push(`reminders.${field}: invalid time.`);continue;}
         if(value===currentValue) continue;
-        if(currentValue!==defaultValue) {summary.settings.conflicts.push(`reminders.${field}: destination has a different non-default value.`);continue;}
+        if(currentValue!==defaultValue) {summary.settings.preserved.push(`reminders.${field}: your current choice is kept; the imported value is not applied.`);continue;}
         plan.reminderChanges[field]=value;summary.settings.applied.push(`reminders.${field}`);
       }
       summary.settings.preserved.push("Reminder enable flags and delivery markers are retained as evidence. Import never enables notifications.");
@@ -160,6 +160,7 @@ export function planNativeRestoration(current: AlfredNativeExport, sources: Nati
   if(rules.plan)plan.accountRules=rules.plan;
   Object.assign(summary.counts,rules.counts);Object.assign(summary.additions,rules.additions);Object.assign(summary.duplicateCounts,rules.duplicates);summary.duplicates+=rules.duplicates.account_rules+rules.duplicates.account_bindings;
   summary.conflicts.push(...rules.conflicts);summary.coverage.push(...rules.coverage);warnings.push(...rules.warnings);
+  // Only invalid settings block an import. A differing destination choice is simply kept.
   summary.conflicts.push(...summary.settings.conflicts);
   if(summary.settings.applied.length) summary.coverage.push({dataset:"alfred.native.settings.safe-defaults",status:"supported",count:summary.settings.applied.length,reason:"Only safe default destination fields receive imported values; non-default destination settings are never overwritten."});
   if(summary.settings.preserved.length) summary.coverage.push({dataset:"alfred.native.settings.notification-and-source-controls",status:"preserved",count:summary.settings.preserved.length,reason:summary.settings.preserved.join(" ")});

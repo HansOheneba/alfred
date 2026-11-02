@@ -45,7 +45,8 @@ const draftSchema = z.strictObject({ schema: z.literal(1), account: z.strictObje
 export const isAccountRuleCommand = (text: string) => /^\/rule(?:@[\w_]+)?(?:\s|$)/i.test(text.trim());
 /** Detect a request for a scoped future rule, but never infer or create its contents. */
 export function isScopedAccountRuleIntent(text: string): boolean {
-  if (text.length > 2000) return false;
+  // A message carrying an amount is a spend or income to record, not a rule request.
+  if (text.length > 2000 || /\d/.test(text)) return false;
   return /\b(?:account|wallet|card|bank|momo|gcb|absa)\b/i.test(text)
     && /\b(?:categorize|categorise|classify|set|create|add|save|remember|make|apply|file|treat)\b/i.test(text)
     && /\b(?:category|categories|categorize|categorise|classification|categorisation|categorization|classify|rule|merchant)\b/i.test(text)

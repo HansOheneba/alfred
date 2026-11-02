@@ -10,3 +10,8 @@ for (const key of [
 ]) {
   delete process.env[key];
 }
+
+// Schema readiness is cached per process; each test controls its own database mock.
+import { beforeEach } from "vitest";
+import { resetSchemaReadyCache } from "@/lib/supabase/finance-capabilities";
+beforeEach(() => resetSchemaReadyCache());

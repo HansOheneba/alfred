@@ -60,11 +60,11 @@ describe("owner-scoped portability HTTP boundary",()=>{
    const body=await response.json();expect(response.status).toBe(500);expect(body.text).toContain("result could not be confirmed");expect(body.text).toContain("Check Previous imports");expect(body.text).not.toContain("No financial records were changed");expect(body.text).not.toContain("Connection interrupted");
   }
  });
- it("stages native existing-feature additions and conflicts before confirmation",async()=>{
+ it("stages native existing-feature additions and keeps a differing current setting without blocking",async()=>{
   const at="2026-11-02T12:00:00.000Z";const zip=await createArchive({sourceApp:"alfred",namespace:"alfred:source",exportedAt:at,timezone:"Africa/Accra",currency:"GHS",coverage:[],datasets:{accounts:[],movements:[],snapshots:[],transfers:[],settlements:[],"alfred.native":{schema:1,tables:{budgets:[{budget_id:"sourcebudget",period:"2026-11",category:"Food",amount:"100.00",currency:"GHS",created_at:at,updated_at:at}]},settings:{profile:{preferred_name:"Imported name"}}}}});
   mocks.exportNative.mockResolvedValue({datasets:{"alfred.native":{schema:1,tables:{},settings:{profile:{preferred_name:"Current name",currency:"GHS",timezone:"Africa/Accra",communication_preference:"concise",financial_goals:""},reminderPreferences:{}},retainedArchives:[]}}});
-  const preview=await previewFinanceImport({} as never,OWNER,zip);expect(preview.native.additions.budgets).toBe(1);expect(preview.native.settings.conflicts[0]).toContain("non-default");expect(preview.canConfirm).toBe(false);
-  const staged=mocks.query.mock.calls.find(entry=>entry[1].includes("insert into public.finance_import_previews"))!;expect(JSON.parse(staged[2][10]).canConfirm).toBe(false);expect(JSON.parse(staged[2][13]).tables.budgets).toHaveLength(1);expect(JSON.parse(staged[2][13]).profileChanges).toEqual({});
+  const preview=await previewFinanceImport({} as never,OWNER,zip);expect(preview.native.additions.budgets).toBe(1);expect(preview.native.settings.conflicts).toEqual([]);expect(preview.native.settings.preserved.join(" ")).toContain("profile.preferred_name: your current choice is kept");expect(preview.canConfirm).toBe(true);
+  const staged=mocks.query.mock.calls.find(entry=>entry[1].includes("insert into public.finance_import_previews"))!;expect(JSON.parse(staged[2][10]).canConfirm).toBe(true);expect(JSON.parse(staged[2][13]).tables.budgets).toHaveLength(1);expect(JSON.parse(staged[2][13]).profileChanges).toEqual({});
  });
  it("reports the bounded pending-preview quota without committing finance records",async()=>{
   const zip=await createArchive({sourceApp:"alfred",namespace:"alfred:quota",exportedAt:"2026-11-02T12:00:00.000Z",timezone:"Africa/Accra",currency:"GHS",coverage:[],datasets:{accounts:[],movements:[],snapshots:[],transfers:[],settlements:[]}});

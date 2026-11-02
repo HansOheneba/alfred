@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { resetSchemaReadyCache } from "@/lib/supabase/finance-capabilities";
 import { applyAccountRules, bindMovementAccount, matchAccountRule } from "@/lib/account-rules/matcher";
 import { accountRuleCommandSchema } from "@/lib/account-rules/schema";
 import { loadAccountRules, reduceAccountRuleCommand, saveAccountRuleCommand } from "@/lib/account-rules/store";
@@ -147,10 +148,10 @@ describe("account rule commands and durable store", () => {
     expect(write[2][0]).toBe(OWNER);
     expect(write[2][3]).toMatch(/^[a-f0-9]{64}$/);
     const fingerprint = write[2][3];
-    mocks.query.mockReset().mockResolvedValueOnce([{ ready: true }]).mockResolvedValueOnce([{ state: saved.state }]).mockResolvedValueOnce([{ action_fingerprint: fingerprint }]);
+    resetSchemaReadyCache(); mocks.query.mockReset().mockResolvedValueOnce([{ ready: true }]).mockResolvedValueOnce([{ state: saved.state }]).mockResolvedValueOnce([{ action_fingerprint: fingerprint }]);
     expect((await saveAccountRuleCommand({} as SupabaseSettings, OWNER, command)).state).toEqual(saved.state);
     expect(mocks.query).toHaveBeenCalledTimes(3);
-    mocks.query.mockReset().mockResolvedValueOnce([{ ready: true }]).mockResolvedValueOnce([{ state: saved.state }]).mockResolvedValueOnce([{ action_fingerprint: "different" }]);
+    resetSchemaReadyCache(); mocks.query.mockReset().mockResolvedValueOnce([{ ready: true }]).mockResolvedValueOnce([{ state: saved.state }]).mockResolvedValueOnce([{ action_fingerprint: "different" }]);
     await expect(saveAccountRuleCommand({} as SupabaseSettings, OWNER, command)).rejects.toThrow("request ID");
   });
 });

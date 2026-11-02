@@ -44,6 +44,8 @@ try {
   const migrationDir=new URL('../supabase/migrations/',import.meta.url);
   for(const name of (await readdir(migrationDir)).filter(name=>name.endsWith('.sql')).sort()) await db.exec(await readFile(new URL(name,migrationDir),'utf8'));
   await rows('insert into auth.users(id) values($1::uuid),($2::uuid)',[owner,stranger]);
+  for(const name of (await readdir(migrationDir)).filter(name=>name.endsWith('.sql')&&name>='20261102170000').sort()) await db.exec(await readFile(new URL(name,migrationDir),'utf8'));
+  assertions++; // account-rules and portability migrations re-apply cleanly
   const first=await stage();
   check((await receipt(first.id,stranger)).status,'missing','foreign owner cannot find or confirm preview');
   check(await count('accounting_states'),0,'foreign owner attempt made no writes');
@@ -161,6 +163,14 @@ try {
   const nativePreviewStale=await stage({nativePlan:fixtureNativePlan()});
   await rows("update public.profiles set preferred_name='Synthetic later setting' where id=$1::uuid",[owner]);
   check((await receipt(nativePreviewStale.id)).status,'native_changed','native edit since preview blocks atomic confirm');
+  const chat=()=>rows("insert into public.messages(owner_id,conversation_id,channel,role,body) select owner_id,id,'web','user','Synthetic later chat' from public.conversations where owner_id=$1::uuid",[owner]);
+  const reminderStamp=()=>rows("update public.bills set reminded_for=current_date,updated_at=now() where owner_id=$1::uuid",[owner]);
+  const chatty=await stage({nativePlan:fixtureNativePlan()});
+  await chat(); await reminderStamp();
+  check((await receipt(chatty.id)).status,'saved','ordinary chat and reminder delivery after preview do not block confirm');
+  await chat(); await reminderStamp();
+  check((await undo(chatty.id)).status,'saved','ordinary chat and reminder delivery after import do not block undo');
+  check(await scalar("select count(*)::int as value from public.messages where owner_id=$1::uuid and body='Synthetic later chat'",[owner]),2,'undo keeps later chat messages');
   const resumedNative=await stage({nativePlan:fixtureNativePlan()});
   check((await receipt(resumedNative.id)).status,'saved','fresh native preview confirms after setting change');
   const resume=(id,who=owner)=>scalar('select public.alfred_resume_import_investment_notifications($1::uuid,$2) as value',[who,id]);

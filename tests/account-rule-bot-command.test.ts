@@ -119,7 +119,7 @@ describe("explicit deterministic account-rule commands", () => {
 describe("account-rule routing before AI", () => {
   it("routes natural scoped rule requests to fixed guidance without saving memory or guessing scope", async () => {
     for (const text of ["Always categorise all future payments on this account as Food", "Create a merchant rule for my wallet", "Remember the category for every merchant on my bank account"]) expect(isScopedAccountRuleIntent(text)).toBe(true);
-    for (const text of ["How much did I spend from my bank account?", "Show all categories for my account", "Categorise yesterday's bank payment as Food", "I am paid on the 25th"]) expect(isScopedAccountRuleIntent(text)).toBe(false);
+    for (const text of ["How much did I spend from my bank account?", "Show all categories for my account", "Categorise yesterday's bank payment as Food", "I am paid on the 25th", "add 20 from my momo wallet to the food category, I always buy lunch"]) expect(isScopedAccountRuleIntent(text)).toBe(false);
     const h = telegramHarness(); await runUpdate(textUpdate(8990, 42, "Always categorise all future payments on this account as Food"), h.deps); expect(h.interpret.calls).toBe(0); expect(h.telegram.sent[0].text).toContain("Notebook note does not activate"); expect(await h.store.listPendingActions(OWNER)).toEqual([]);
   });
   it("routes Telegram commands without an LLM configured, persists claims and rejects unlinked owners", async () => {

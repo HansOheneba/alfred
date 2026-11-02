@@ -39,9 +39,9 @@ describe("native existing-feature restoration",()=>{
   const hop=planNativeRestoration(restored,[nextSource],"alfred:destination",NOW);expect(hop.summary.duplicates).toBe(12);expect(hop.summary.conflicts).toEqual([]);
   const other=planNativeRestoration(destination(),[fixture()],"alfred:other-owner",NOW);expect(other.plan.tables.investments[0].id).not.toBe(first.plan.tables.investments[0].id);expect(other.plan.tables.budgets[0].budget_id).not.toBe(first.plan.tables.budgets[0].budget_id);expect(other.plan.tables.payee_rules[0].payee_key).toBe("funding");
  });
- it("detects natural feature conflicts and non-default settings before confirmation",()=>{
+ it("detects natural feature conflicts and keeps differing non-default settings without blocking",()=>{
   const current=destination();current.tables.budgets=[{...fixture().native.tables.budgets[0],budget_id:"existing"}];current.settings.profile!.preferred_name="Existing person";current.settings.reminderPreferences!.morning_minute=600;
-  const result=planNativeRestoration(current,[fixture()],"alfred:destination",NOW);expect(result.summary.conflicts.join(" ")).toContain("unique name or category");expect(result.summary.conflicts.join(" ")).toContain("non-default");expect(result.plan.profileChanges.preferred_name).toBeUndefined();expect(result.plan.reminderChanges.morning_minute).toBeUndefined();
+  const result=planNativeRestoration(current,[fixture()],"alfred:destination",NOW);expect(result.summary.conflicts.join(" ")).toContain("unique name or category");expect(result.summary.conflicts.join(" ")).not.toContain("profile.");expect(result.summary.settings.preserved.join(" ")).toContain("profile.preferred_name: your current choice is kept");expect(result.summary.settings.preserved.join(" ")).toContain("reminders.morning_minute: your current choice is kept");expect(result.plan.profileChanges.preferred_name).toBeUndefined();expect(result.plan.reminderChanges.morning_minute).toBeUndefined();
  });
  it("preserves account filtering and operational records without activating them",()=>{
   const source=fixture();source.native.tables.aboutMe.push({id:id(9),note:"Managed account",account:"1234",created_at:NOW});

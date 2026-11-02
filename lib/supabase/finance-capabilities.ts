@@ -1,3 +1,5 @@
+import type { SupabaseSettings } from "@/lib/config";
+
 /** Catalog-only checks: absent or earlier draft schemas must disable writes before loading data.
  * Version markers are stamped last by the reviewed migrations, after their permission revokes.
  * A future incompatible ABI must use a new marker name and token, rather than reuse this version.
@@ -38,7 +40,7 @@ const portabilityChecks = [
   fn("alfred_undo_finance_import",["uuid","text"],"jsonb"),
   fn("alfred_resume_import_investment_notifications",["uuid","text"],"jsonb"),
   fn("alfred_portability_native_version",["uuid"],"text"),
-  fn("alfred_portability_lock_native",[],"void"),
+  fn("alfred_portability_lock_native",["uuid"],"void"),
   fn("alfred_apply_import_native",["uuid","jsonb","text"],"jsonb"),
   fn("alfred_undo_import_native",["uuid","public.finance_import_receipts"],"bool"),
   fn("alfred_finance_import_receipt",["public.finance_import_receipts"],"jsonb"),
@@ -48,3 +50,20 @@ const portabilityChecks = [
   `exists(select 1 from pg_trigger t where t.tgrelid=to_regclass('public.finance_import_previews') and t.tgname='finance_import_previews_bound_before_insert' and not t.tgisinternal and t.tgenabled in ('O','A') and t.tgfoid=to_regprocedure('public.alfred_bound_finance_import_previews()') and (t.tgtype::int & 7)=7)`,
 ];
 export const PORTABILITY_READY_SQL = `select to_regclass('public.finance_import_previews') is not null and ${all(portabilityChecks)} as ready`;
+
+// Readiness only changes when a migration is applied, so a positive result is reused briefly
+// instead of re-running these catalog checks on every dashboard and chat load. A negative
+// result is never cached, so a newly applied migration is picked up on the next request.
+const READY_TTL_MS = 5 * 60 * 1000;
+const readyUntil = new Map<string, number>();
+export async function schemaReady(settings: SupabaseSettings, sql: string, now = Date.now()): Promise<boolean> {
+  const key = `${settings.host}:${settings.projectRef}:${sql}`;
+  if ((readyUntil.get(key) ?? 0) > now) return true;
+  // Loaded on use so this catalog module stays free of a database client at import time.
+  const { query } = await import("@/lib/supabase/connection");
+  const rows = await query<{ ready: boolean }>(settings, sql);
+  const ready = rows[0]?.ready === true;
+  if (ready) readyUntil.set(key, now + READY_TTL_MS); else readyUntil.delete(key);
+  return ready;
+}
+export function resetSchemaReadyCache() { readyUntil.clear(); }
