@@ -5,6 +5,7 @@ import { intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import type { IngestDeps } from "@/lib/bank/ingest";
 import {
   applyResolved,
+  askAgain,
   askNextReply,
   LABEL_MODEL,
   labelShortcut,
@@ -73,7 +74,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   const waiting = ingest ? await waitingPayments(ingest, ctx.profile) : null;
   const pending = await latestOpenPending(ctx.store, ctx.profile.profileId, ctx.now);
   let open: string[] = [];
-  const { action, context, cue } = await interpretWithContext({
+  const { action, context, cue, unread } = await interpretWithContext({
     text,
     profile: ctx.profile,
     store: ctx.store,
@@ -90,6 +91,12 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     open: (history) => (open = openThread({ history, waiting, pending, now: ctx.now })),
   });
   logInfo("interpreted", { userId: ctx.profile.profileId, action: action.type === "several" ? action.actions.map((item) => item.type).join("+") : action.type });
+
+  // A reply that couldn't be read most likely answers the payment just asked about, so that question stays open.
+  if (unread && ingest && waiting?.current) {
+    const again = await askAgain(ingest, ctx.profile, waiting.current);
+    return { kind: "text", text: again.text, intent: "bank:label", buttons: again.buttons };
+  }
 
   const parts: TurnReply[] = [];
   for (const item of actionsOf(action)) {

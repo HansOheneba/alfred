@@ -284,6 +284,13 @@ async function withNext(deps: IngestDeps, profile: UserProfile, text: string, in
 
 const nextIntro = (remaining: number) => (remaining > 1 ? `Next (${remaining - 1} more after this): ` : "Last one: ");
 
+/** Asks about the same payment again, when the person's answer to it couldn't be read. */
+export async function askAgain(deps: IngestDeps, profile: UserProfile, message: BankMessage): Promise<LabelReply> {
+  const remaining = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
+  const question = await questionFor(deps.loans, profile, message, deps.people, deps.bank);
+  return { text: `Sorry, I didn't quite catch that.\n\n${question.text}`, next: message, buttons: [...question.buttons, ...reviewRow(remaining)] };
+}
+
 /** The next waiting payment's question with its buttons, or null when nothing is waiting. */
 export async function askNextReply(deps: IngestDeps, profile: UserProfile): Promise<LabelReply | null> {
   const count = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;

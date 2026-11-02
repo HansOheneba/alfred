@@ -32,7 +32,7 @@ export async function interpretWithContext(input: {
   model?: string;
   /** Works out what's open in the conversation from its recent messages. */
   open?: (history: ChatMessageRecord[]) => string[];
-}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue }> {
+}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** True when the model's reply couldn't be read, so `action` is a stock fallback. */ unread?: boolean }> {
   const ownerId = input.profile.profileId;
   const transactions = await input.store.listTransactions(ownerId);
   const recent = transactions
@@ -99,7 +99,7 @@ export async function interpretWithContext(input: {
     });
   } catch (error) {
     if (error instanceof AiError && error.code === "invalid") {
-      return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue };
+      return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: true };
     }
     throw error;
   }

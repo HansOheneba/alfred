@@ -5,6 +5,7 @@ import { conversationTurns } from "@/lib/ai/deepseek";
 import { buildSystemPrompt } from "@/lib/ai/prompts";
 import type { VoiceRequest } from "@/lib/ai/voice";
 import { ingestBankText } from "@/lib/bank/ingest";
+import { askNext } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { openThread } from "@/lib/conversation/thread";
 import { converse, type TurnDeps } from "@/lib/conversation/turn";
@@ -14,6 +15,7 @@ import { MemoryLoanStore } from "@/lib/finance/loans";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { parseModelOutput, type InterpretedAction } from "@/lib/finance/schemas";
 import { MemoryNotebookStore } from "@/lib/notebook/store";
+import { AiError } from "@/lib/errors";
 import { profile } from "./helpers";
 
 const ELLEN =
@@ -108,6 +110,18 @@ describe("a turn", () => {
     expect(reply.text).toContain("First: GH₵22.50 to Ellen Ohenewa Obeng-Darko");
     expect(reply.buttons?.length).toBeGreaterThan(0);
     expect(requests[0].open?.some((line) => line.includes("use ask_next"))).toBe(true);
+  });
+
+  it("asks the same payment again when the answer to it can't be read", async () => {
+    const { deps, ctx, owner, now } = setup(() => {
+      throw new AiError("invalid", "DeepSeek returned empty JSON.");
+    });
+    const ingest = { bank: deps.bank!, ledger: ctx.store, now, createId: deps.createId };
+    await ingestBankText(ingest, owner, ELLEN, { channel: "mac" });
+    await askNext(ingest, owner);
+    const reply = await converse("that was the suit", ctx, deps, { channel: "telegram" });
+    expect(reply.text).toMatch(/^Sorry, I didn't quite catch that\.\n\nGH₵22\.50 to Ellen Ohenewa Obeng-Darko/);
+    expect(reply.buttons?.length).toBeGreaterThan(0);
   });
 
   it("settles an open confirmation from a reply in any words", async () => {
