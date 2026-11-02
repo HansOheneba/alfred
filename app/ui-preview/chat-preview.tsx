@@ -119,12 +119,13 @@ export function ChatPreview() {
   const composer = useRef<HTMLFormElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const stayAtBottom = useRef(true);
-  const question = handoff || "How is my month looking?";
-  const initial: Message[] = [
+  const question = handoff;
+  const initial: Message[] = question ? [
     { id: "initial-user", role: "user", text: question },
     { id: "initial-alfred", role: "assistant", reply: demoReply(question, finance), question },
-  ];
+  ] : [];
   const thread = [...initial, ...messages];
+  const empty = thread.length === 0;
 
   useEffect(() => {
     if (stayAtBottom.current && scroll.current) scroll.current.scrollTop = scroll.current.scrollHeight;
@@ -137,6 +138,19 @@ export function ChatPreview() {
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
+
+  useEffect(() => {
+    const node = input.current;
+    if (!node) return;
+    const fit = () => {
+      node.style.height = "0px";
+      const limit = Number.parseFloat(getComputedStyle(node).maxHeight) || 160;
+      node.style.height = `${Math.max(40, Math.min(limit, node.scrollHeight))}px`;
+    };
+    fit();
+    window.visualViewport?.addEventListener("resize", fit);
+    return () => window.visualViewport?.removeEventListener("resize", fit);
+  }, [draft]);
 
   function ask(value: string) {
     const clean = value.trim().slice(0, 1000);
@@ -154,7 +168,7 @@ export function ChatPreview() {
   return <div className="alfred-chat-workspace">
     <h1 className="sr-only">Chat</h1>
     <div className="alfred-chat-layout">
-      <section className="alfred-chat-conversation" aria-label="Chat with Alfred">
+      <section className="alfred-chat-conversation" data-empty={empty} aria-label="Chat with Alfred">
 
         <div ref={scroll} className="alfred-chat-thread" tabIndex={0} onScroll={(event) => { const node = event.currentTarget; stayAtBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48; }} role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
         {handoff ? <div className="alfred-chat-handoff"><PreviewIcon><path d="m4 12 4 4 12-12M4 20h16"/></PreviewIcon>Question from your dashboard insights</div> : null}
@@ -162,22 +176,25 @@ export function ChatPreview() {
           {thread.map((message) => message.role === "user" ? <div className="alfred-chat-userTurn" key={message.id}><div><p>{message.text}</p></div><span className="alfred-chat-userAvatar" aria-hidden="true">A</span></div> : <article className="alfred-chat-assistantTurn" key={message.id}><div className="alfred-chat-messageIdentity"><AlfredMark size="size-6"/><span>Alfred</span><span>Demo response</span></div><AssistantReply reply={message.question ? demoReply(message.question, finance) : message.reply}/></article>)}
         </div>
         <div className="alfred-chat-composeArea">
-        <div className="alfred-chat-suggestions" aria-label="Suggested questions">{SUGGESTIONS.map((suggestion) => <button type="button" key={suggestion.title} onClick={() => ask(suggestion.question)}><PreviewIcon>{suggestion.icon}</PreviewIcon>{suggestion.title}<span aria-hidden="true">↗</span></button>)}</div>
-        <form ref={composer} className="alfred-chat-composer" onSubmit={submit} data-preview-local-form="true">
-          <div className="alfred-chat-composerHeader"><label htmlFor="alfred-chat-message">Ask Alfred</label>
+        {empty ? <h2 className="alfred-chat-emptyHeading">What’s on your mind?</h2> : null}
+
+        <form key="alfred-preview-composer" ref={composer} className="alfred-chat-composer" onSubmit={submit} data-preview-local-form="true">
+          <label className="sr-only" htmlFor="alfred-chat-message">Ask Alfred</label>
             <div className="alfred-chat-headerTools" role="group" aria-label="Conversation actions">
               <button className="alfred-chat-contextToggle" type="button" aria-label={contextOpen ? "Hide context" : "Show context"} title={contextOpen ? "Hide context" : "Show context"} aria-expanded={contextOpen} aria-controls="alfred-chat-context" onClick={() => setContextOpen((open) => !open)}><PreviewIcon><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16M6 8h4m-4 4h4"/></PreviewIcon><span className="alfred-chat-actionLabel">{contextOpen ? "Hide context" : "Show context"}</span></button>
             </div>
-          </div>
-          <textarea ref={input} id="alfred-chat-message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={enter} placeholder="Ask about your spending, budget or accounts…" maxLength={1000} rows={2}/>
-          <div className="alfred-chat-composerFooter"><div className="alfred-chat-footerUtilities"><p><span className="alfred-chat-demoBadge">Local demo</span><span className="alfred-chat-enterHint">Enter to ask · Shift + Enter for a new line</span></p></div><button type="submit" disabled={!draft.trim()} aria-label="Ask Alfred"><span>Ask Alfred</span><PreviewIcon><path d="M12 19V5m-5 5 5-5 5 5"/></PreviewIcon></button></div>
+          <textarea ref={input} id="alfred-chat-message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={enter} placeholder="Ask Alfred…" maxLength={1000} rows={1} aria-describedby="alfred-chat-keyboard-hint"/>
+          <button className="alfred-chat-send" type="submit" disabled={!draft.trim()} aria-label="Ask Alfred"><span className="sr-only">Ask Alfred</span><PreviewIcon><path d="M12 19V5m-5 5 5-5 5 5"/></PreviewIcon></button>
+          <p id="alfred-chat-keyboard-hint" className="sr-only">Enter to ask · Shift + Enter for a new line</p>
         </form>
-        <p className="alfred-chat-demoNote">Demo answers use synthetic records in this browser. No live AI or account changes.</p>
+        <div className="alfred-chat-suggestions" aria-label="Suggested questions">{SUGGESTIONS.map((suggestion) => <button type="button" key={suggestion.title} onClick={() => ask(suggestion.question)}><PreviewIcon>{suggestion.icon}</PreviewIcon>{suggestion.title}</button>)}</div>
+        <p className="alfred-chat-demoNote"><span className="alfred-chat-demoBadge">Local demo · </span>Demo answers use synthetic records in this browser. No live AI or account changes.</p>
         </div>
       </section>
       <aside id="alfred-chat-context" className="alfred-chat-context" data-open={contextOpen} aria-label="Conversation context">
         <div className="alfred-chat-contextTitle"><span>Conversation context</span><span>October</span></div>
         <details className="alfred-chat-previewUtilities"><summary>Preview options</summary><p>October overview</p><PreviewChatTools/></details>
+        {!empty ? <div className="alfred-chat-suggestions alfred-chat-contextSuggestions" aria-label="Suggested questions">{SUGGESTIONS.map((suggestion) => <button type="button" key={suggestion.title} onClick={() => ask(suggestion.question)}><PreviewIcon>{suggestion.icon}</PreviewIcon>{suggestion.title}</button>)}</div> : null}
         <section className="alfred-chat-snapshot"><h2>Your month at a glance</h2><dl><div><dt>Spent</dt><dd className="tabular-nums alfred-chat-expense">{money(spentMinor)}</dd></div><div><dt>Income</dt><dd className="tabular-nums alfred-chat-income">{money(incomeMinor)}</dd></div><div><dt>Kept</dt><dd className="tabular-nums">{money(incomeMinor - spentMinor)}</dd></div></dl><Link href="/ui-preview">Open Overview <span aria-hidden="true">↗</span></Link></section>
         <section className="alfred-chat-budgetContext"><div><PreviewIcon><circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/></PreviewIcon><h2>Food budget</h2></div><p><strong>{foodBudget ? Math.round(foodBudget.spentMinor / foodBudget.budgetMinor * 100) : 0}%</strong> used this month</p><div className="alfred-chat-budgetTrack" role="progressbar" aria-label="Food budget used" aria-valuemin={0} aria-valuemax={100} aria-valuenow={foodBudget ? Math.round(foodBudget.spentMinor / foodBudget.budgetMinor * 100) : 0}><span style={{width:`${foodBudget ? Math.min(100, foodBudget.spentMinor / foodBudget.budgetMinor * 100) : 0}%`}}/></div><p className="alfred-chat-budgetRemaining"><span className="amount">{money(foodBudget?.remainingMinor ?? 0)}</span> left in the saved budget</p></section>
         <section className="alfred-chat-accounts"><h2>Included account balances</h2><ul>{balanceAccounts.map((account) => <li key={account.id}><span>{account.label}</span><strong className="tabular-nums">{money(toMinor(account.balance))}</strong></li>)}</ul><p>{balanceCount} included {balanceCount === 1 ? "account" : "accounts"} · Reported snapshots · Not live</p></section>
