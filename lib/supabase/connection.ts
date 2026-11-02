@@ -36,6 +36,12 @@ function unreachable(error: unknown): boolean {
   return code === "ENETUNREACH" || code === "EHOSTUNREACH" || code === "ETIMEDOUT" || code === "ECONNREFUSED";
 }
 
+/** The pooler has no room for another client right now; the other port may. */
+function full(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : "";
+  return /EMAXCONN|max clients reached|too many clients|remaining connection slots/i.test(message);
+}
+
 function failedQuery(error: unknown): DatabaseError {
   const detail = error instanceof Error ? error.message : "unknown";
   if (/password|SUPABASE_DB/i.test(detail)) return new DatabaseError("The ledger query failed.");
@@ -53,7 +59,10 @@ export async function query<T extends QueryResultRow>(
   const addresses = await resolve4(settings.host);
   const candidates: { address: string; port: number }[] = [];
   if (preferred && addresses.includes(preferred.address)) candidates.push(preferred);
-  for (const port of [5432, 6543]) {
+  // Transaction mode (6543) shares server connections between clients; session mode (5432) caps
+  // clients at the pool size. Queries here are single statements or single-call functions with
+  // transaction-scoped locks, so transaction mode is safe.
+  for (const port of [6543, 5432]) {
     for (const address of addresses) {
       if (preferred?.address === address && preferred.port === port) continue;
       candidates.push({ address, port });
@@ -69,6 +78,7 @@ export async function query<T extends QueryResultRow>(
     } catch (error) {
       lastError = error;
       // A bad query is not a bad connection: other requests share this pool, so only drop it when unreachable.
+      if (full(error)) continue;
       if (!unreachable(error)) throw failedQuery(error);
       if (preferred?.address === candidate.address && preferred.port === candidate.port) preferred = null;
       const key = `${candidate.address}:${candidate.port}`;
