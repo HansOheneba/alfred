@@ -1,10 +1,10 @@
-.alfred-production-chat { display: grid; grid-template-columns: minmax(0,1fr) 296px; gap: 0; min-height: 0; min-width: 0; width: 100%; max-width: none; flex: 1; margin: 0; padding: 0; overflow: hidden; color: var(--ink); font-size: 14px; line-height: 24px; }
+.alfred-production-chat { display: grid; grid-template-columns: minmax(0,1fr); gap: 0; min-height: 0; min-width: 0; width: 100%; max-width: none; flex: 1; margin: 0; padding: 0; overflow: hidden; color: var(--ink); font-size: 14px; line-height: 24px; }
 .alfred-production-chat-conversation { display: flex; flex-direction: column; min-height: 0; min-width: 0; overflow: hidden; border: 0; border-radius: 0; background: var(--surface); }
 .alfred-production-chat-tools { display: flex; align-items: center; flex-shrink: 0; gap: 8px; }
 .alfred-production-chat-tools button,.alfred-production-chat-decisions button,.alfred-production-chat-starters button,.alfred-production-chat-followUps button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; min-width: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 20px; font-weight: 500; }
 .alfred-production-chat-tools svg,.alfred-production-chat-composerFooter svg,.alfred-production-chat-contextSheet > header svg { width: 20px; height: 20px; flex-shrink: 0; }
 .alfred-production-chat-tools button:hover,.alfred-production-chat-tools button[aria-expanded="true"],.alfred-production-chat-starters button:hover,.alfred-production-chat-followUps button:hover { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
-.alfred-production-chat-tools .alfred-production-chat-contextToggle { display: none; }
+.alfred-production-chat-tools .alfred-production-chat-contextToggle { display: inline-flex; }
 .alfred-production-chat-tools .alfred-production-chat-new { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .alfred-production-chat button:focus-visible,.alfred-production-chat a:focus-visible,.alfred-production-chat-contextSheet :is(button,a):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .alfred-production-chat button:disabled { opacity: .45; cursor: default; }
@@ -52,7 +52,6 @@
 .alfred-production-chat-composerFooter button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; padding: 8px 12px; border-radius: 12px; color: var(--muted); }
 .alfred-production-chat-composerFooter .alfred-production-chat-send { background: var(--accent); color: var(--accent-ink); }
 .alfred-production-chat-disclaimer { margin-top: 8px; text-align: center; color: var(--muted); font-size: 12px; line-height: 20px; }
-.alfred-production-chat-context { min-height: 0; min-width: 0; overflow-y: auto; overscroll-behavior: contain; padding: 24px; border-left: 1px solid var(--line); background: var(--bg); }
 .alfred-production-chat-contextSheet { position: fixed; inset: 16px; width: min(480px,calc(100% - 32px)); max-width: none; height: calc(100dvh - 32px); max-height: none; margin: 0 0 0 auto; padding: 0; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); color: var(--ink); overflow: hidden; }
 .alfred-production-chat-contextSheet[open] { display: flex; flex-direction: column; }
 .alfred-production-chat-contextSheet::backdrop { background: #081b2138; backdrop-filter: blur(4px); }
@@ -67,7 +66,6 @@
 .alfred-production-chat-telegram svg { width: 12px; height: 12px; }
 @media (max-width: 1100px) {
   .alfred-production-chat { grid-template-columns: minmax(0,1fr); padding: 0; }
-  .alfred-production-chat-context { display: none; }
   .alfred-production-chat-tools .alfred-production-chat-contextToggle { display: inline-flex; }
   .alfred-production-chat-tools button { width: 44px; height: 44px; padding: 0; }
   .alfred-production-chat-tools button > span { display: none; }
@@ -162,7 +160,6 @@
 .alfred-production-chat-composerHeader > label { min-width:0; }
 .alfred-production-chat-composerHeader .alfred-production-chat-tools { margin-left:auto; }
 .alfred-production-chat-composerHeader .alfred-production-chat-tools button { border-color:transparent; }
-.alfred-production-chat-composerFooter .alfred-ui-privacy { flex-shrink:0; }
 .alfred-chat-viewport[data-keyboard-open="true"] .alfred-production-chat :is(.alfred-production-chat-followUps,.alfred-production-chat-disclaimer,.alfred-production-chat-handoff) { display:none; }
 @media(max-width:600px) {
   .alfred-production-chat-composeArea { padding-bottom:8px; }
@@ -178,3 +175,13 @@
   .alfred-chat-viewport .alfred-production-chat-contextSheet > header { flex-shrink:0; padding-top:calc(16px + env(safe-area-inset-top)); }
   .alfred-chat-viewport .alfred-production-chat-contextSheet > footer { padding-bottom:max(12px,env(safe-area-inset-bottom)); }
 }
+
+/* Setup belongs to the conversation; financial context is available on demand. */
+.alfred-production-chat-gettingStarted { width:100%; margin-top:16px; }
+.alfred-production-chat-gettingStarted > p { color:var(--muted); font-size:14px; line-height:24px; }
+.alfred-production-chat-gettingStartedActions { display:flex; flex-direction:column; gap:8px; margin-top:16px; }
+.alfred-production-chat-gettingStartedActions .alfred-production-chat-setupPrimary { justify-content:center; margin-top:0; }
+.alfred-production-chat-gettingStarted.is-inline { max-width:800px; margin:24px auto 0; padding-top:24px; border-top:1px solid var(--line); }
+.alfred-production-chat-gettingStarted.is-inline h2 { margin-bottom:8px; font-size:16px; line-height:24px; font-weight:600; }
+.alfred-production-chat-gettingStarted.is-inline .alfred-production-chat-gettingStartedActions { flex-direction:row; flex-wrap:wrap; }
+@media(max-width:600px) { .alfred-production-chat-gettingStarted.is-inline .alfred-production-chat-gettingStartedActions { flex-direction:column; } }

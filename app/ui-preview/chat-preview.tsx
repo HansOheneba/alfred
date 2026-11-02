@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type KeyboardEvent } from "react";
 
-import { AlfredMark, PrivacyToggle } from "@/app/components/app-shell";
+import { AlfredMark } from "@/app/components/app-shell";
 import { NotebookIcon, NotebookPanel, useNotebookPanel } from "@/app/chat/notebook-panel";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import { buildAccountingView } from "@/lib/finance/accounting/view";
@@ -176,7 +176,7 @@ export function ChatPreview() {
             </div>
           </div>
           <textarea ref={input} id="alfred-chat-message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={enter} placeholder="Ask about your spending, budget or accounts…" maxLength={1000} rows={2}/>
-          <div className="alfred-chat-composerFooter"><div className="alfred-chat-footerUtilities"><PrivacyToggle/><p><span className="alfred-chat-demoBadge">Local demo</span><span className="alfred-chat-enterHint">Enter to ask · Shift + Enter for a new line</span></p></div><button type="submit" disabled={!draft.trim()} aria-label="Ask Alfred"><span>Ask Alfred</span><PreviewIcon><path d="M12 19V5m-5 5 5-5 5 5"/></PreviewIcon></button></div>
+          <div className="alfred-chat-composerFooter"><div className="alfred-chat-footerUtilities"><p><span className="alfred-chat-demoBadge">Local demo</span><span className="alfred-chat-enterHint">Enter to ask · Shift + Enter for a new line</span></p></div><button type="submit" disabled={!draft.trim()} aria-label="Ask Alfred"><span>Ask Alfred</span><PreviewIcon><path d="M12 19V5m-5 5 5-5 5 5"/></PreviewIcon></button></div>
         </form>
         <p className="alfred-chat-demoNote">Demo answers use synthetic records in this browser. No live AI or account changes.</p>
         </div>
