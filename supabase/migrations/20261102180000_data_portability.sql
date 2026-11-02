@@ -37,7 +37,6 @@ begin
   end if;
   return new;
 end $$;
-drop trigger if exists finance_import_previews_bound_before_insert on public.finance_import_previews;
 create trigger finance_import_previews_bound_before_insert before insert on public.finance_import_previews
   for each row execute function public.alfred_bound_finance_import_previews();
 revoke all on function public.alfred_bound_finance_import_previews() from public,anon,authenticated;
@@ -90,11 +89,8 @@ alter table public.finance_import_receipts enable row level security;
 alter table public.imported_finance_sources enable row level security;
 revoke all on public.finance_import_previews, public.finance_import_receipts, public.imported_finance_sources from public, anon, authenticated;
 grant select on public.finance_import_previews, public.finance_import_receipts, public.imported_finance_sources to authenticated;
-drop policy if exists finance_import_previews_select_own on public.finance_import_previews;
 create policy finance_import_previews_select_own on public.finance_import_previews for select to authenticated using(owner_id=auth.uid());
-drop policy if exists finance_import_receipts_select_own on public.finance_import_receipts;
 create policy finance_import_receipts_select_own on public.finance_import_receipts for select to authenticated using(owner_id=auth.uid());
-drop policy if exists imported_finance_sources_select_own on public.imported_finance_sources;
 create policy imported_finance_sources_select_own on public.imported_finance_sources for select to authenticated using(owner_id=auth.uid());
 
 -- Native records reuse Alfred's existing feature tables. Connection identities and source ledger
@@ -114,55 +110,34 @@ create table if not exists public.finance_import_native_origins (
 alter table public.finance_import_native_origins enable row level security;
 revoke all on public.finance_import_native_origins from public,anon,authenticated;
 grant select on public.finance_import_native_origins to authenticated;
-drop policy if exists finance_import_native_origins_select_own on public.finance_import_native_origins;
 create policy finance_import_native_origins_select_own on public.finance_import_native_origins for select to authenticated using(owner_id=auth.uid());
 
--- Row locks on this owner's records only. FOR UPDATE blocks concurrent edits and deletes, and
--- child inserts (their foreign-key KEY SHARE lock waits), without stalling other users' writes.
--- A concurrent insert that collides with an imported identity fails on its unique key instead.
-create or replace function public.alfred_portability_lock_native(owner uuid)
+create or replace function public.alfred_portability_lock_native()
 returns void language plpgsql set search_path=public as $$
 begin
-  perform 1 from public.profiles where id=owner for update;
-  perform 1 from public.reminder_preferences where owner_id=owner for update;
-  perform 1 from public.conversations where owner_id=owner for update;
-  perform 1 from public.investments where owner_id=owner for update;
-  perform 1 from public.investment_holdings where owner_id=owner for update;
-  perform 1 from public.investment_values where owner_id=owner for update;
-  perform 1 from public.investment_contributions where owner_id=owner for update;
-  perform 1 from public.budgets where owner_id=owner for update;
-  perform 1 from public.savings_goals where owner_id=owner for update;
-  perform 1 from public.bills where owner_id=owner for update;
-  perform 1 from public.people where owner_id=owner for update;
-  perform 1 from public.payee_rules where owner_id=owner for update;
-  perform 1 from public.about_me where owner_id=owner for update;
-  perform 1 from public.loans where owner_id=owner for update;
-  perform 1 from public.account_rule_states where owner_id=owner for update;
-  perform 1 from public.finance_import_native_origins where owner_id=owner for update;
+  lock table public.profiles,public.reminder_preferences,public.conversations,public.investments,
+    public.investment_holdings,public.investment_values,public.investment_contributions,
+    public.budgets,public.savings_goals,public.bills,public.people,public.payee_rules,
+    public.about_me,public.messages,public.loans,public.account_rule_states,public.account_rule_events,public.finance_import_native_origins in share row exclusive mode;
 end $$;
 
 create or replace function public.alfred_portability_native_version(owner uuid)
 returns text language sql stable set search_path=public as $$
 select md5(jsonb_build_object(
-  -- Only fields an import can write or undo restore. Bank ingest's account_names and bookkeeping
-  -- timestamps change during ordinary use and must not invalidate a preview or block undo.
   'profile',(select jsonb_build_object('preferred_name',preferred_name,'currency',currency,'timezone',timezone,
-    'communication_preference',communication_preference,'financial_goals',financial_goals) from public.profiles where id=owner),
-  'reminders',(select to_jsonb(r) - 'updated_at' from public.reminder_preferences r where owner_id=owner),
+    'communication_preference',communication_preference,'financial_goals',financial_goals,'account_names',account_names,'updated_at',updated_at) from public.profiles where id=owner),
+  'reminders',(select to_jsonb(r) from public.reminder_preferences r where owner_id=owner),
   'budgets',(select coalesce(jsonb_agg(to_jsonb(t) order by budget_id),'[]'::jsonb) from public.budgets t where owner_id=owner),
   'savings_goals',(select coalesce(jsonb_agg(to_jsonb(t) order by goal_id),'[]'::jsonb) from public.savings_goals t where owner_id=owner),
-  -- The reminder job stamps reminded_for/reminded_at and updated_at; those are delivery markers, not edits.
-  'bills',(select coalesce(jsonb_agg(to_jsonb(t) - 'reminded_for' - 'updated_at' order by id),'[]'::jsonb) from public.bills t where owner_id=owner),
-  'investments',(select coalesce(jsonb_agg(to_jsonb(t) - 'reminded_at' - 'updated_at' order by id),'[]'::jsonb) from public.investments t where owner_id=owner),
+  'bills',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.bills t where owner_id=owner),
+  'investments',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.investments t where owner_id=owner),
   'investment_holdings',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.investment_holdings t where owner_id=owner),
   'investment_values',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.investment_values t where owner_id=owner),
   'investment_contributions',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.investment_contributions t where owner_id=owner),
   'people',(select coalesce(jsonb_agg(to_jsonb(t) order by person_key),'[]'::jsonb) from public.people t where owner_id=owner),
   'payee_rules',(select coalesce(jsonb_agg(to_jsonb(t) order by payee_key),'[]'::jsonb) from public.payee_rules t where owner_id=owner),
   'about_me',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.about_me t where owner_id=owner),
-  -- New chat messages are appended with fresh IDs and never collide with or alter imported ones.
-  -- Only imported message rows are tracked, so chatting does not invalidate a preview or block undo.
-  'messages',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.messages t where owner_id=owner and exists(select 1 from public.finance_import_native_origins o where o.owner_id=owner and o.table_name='messages' and o.record_key=t.id::text)),
+  'messages',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.messages t where owner_id=owner),
   'loans',(select coalesce(jsonb_agg(to_jsonb(t) order by id),'[]'::jsonb) from public.loans t where owner_id=owner),
   'accountRules',(select to_jsonb(t) from public.account_rule_states t where owner_id=owner),
   'origins',(select coalesce(jsonb_agg(to_jsonb(t) order by table_name,record_key),'[]'::jsonb) from public.finance_import_native_origins t where owner_id=owner)
@@ -281,9 +256,15 @@ begin
   return true;
 end $$;
 
--- Imported historical evidence joins public.alfred_accounting_source_version automatically once
--- imported_finance_sources exists (defined in the account-rules migration). Neither a load nor a
--- normal classification rewrites this evidence.
+-- Imported historical evidence is a durable source, with the same optimistic consistency semantics
+-- as bank_messages and transactions. Neither a load nor a normal classification rewrites this evidence.
+create or replace function public.alfred_accounting_source_version(owner uuid)
+returns text language sql stable set search_path = public as $$
+  select md5(coalesce((select jsonb_agg(to_jsonb(t) order by t.id)::text from public.transactions t where t.owner_id=owner),'[]') || ':' ||
+    coalesce((select jsonb_agg(to_jsonb(b) order by b.id)::text from public.bank_messages b where b.owner_id=owner),'[]') || ':' ||
+    coalesce((select jsonb_agg(to_jsonb(i) order by i.movement_id)::text from public.imported_finance_sources i where i.owner_id=owner),'[]') || ':' ||
+    coalesce((select state::text from public.account_rule_states where owner_id=owner),'{}'));
+$$;
 
 create or replace function public.alfred_finance_import_receipt(receipt public.finance_import_receipts)
 returns jsonb language sql stable set search_path = public as $$
@@ -329,7 +310,7 @@ begin
   -- Accounting writes use this same advisory lock. Source writers are blocked only during commit.
   lock table public.transactions,public.bank_messages in share mode;
   if public.alfred_accounting_source_version(owner) is distinct from stage.source_version then return jsonb_build_object('status','source_changed'); end if;
-  perform public.alfred_portability_lock_native(owner);
+  perform public.alfred_portability_lock_native();
   if public.alfred_portability_native_version(owner) is distinct from stage.native_version then return jsonb_build_object('status','native_changed'); end if;
   request_key='import:' || stage.id;
   if not public.alfred_accounting_document_valid(stage.next_state,owner)
@@ -383,7 +364,7 @@ begin
   if current_state is distinct from receipt.after_state then return jsonb_build_object('status','stale'); end if;
   lock table public.transactions,public.bank_messages in share mode;
   if public.alfred_accounting_source_version(owner) is distinct from receipt.source_version_after then return jsonb_build_object('status','source_changed'); end if;
-  perform public.alfred_portability_lock_native(owner);
+  perform public.alfred_portability_lock_native();
   if public.alfred_portability_native_version(owner) is distinct from receipt.native_after_version then return jsonb_build_object('status','native_changed'); end if;
   if not public.alfred_undo_import_native(owner,receipt) then return jsonb_build_object('status','native_changed'); end if;
   request_key='undo-import:' || receipt.id;
@@ -408,7 +389,7 @@ revoke all on function public.alfred_confirm_finance_import(uuid,text) from publ
 revoke all on function public.alfred_undo_finance_import(uuid,text) from public, anon, authenticated;
 revoke all on function public.alfred_accounting_source_version(uuid) from public, anon, authenticated;
 
-revoke all on function public.alfred_portability_lock_native(uuid) from public,anon,authenticated;
+revoke all on function public.alfred_portability_lock_native() from public,anon,authenticated;
 revoke all on function public.alfred_portability_native_version(uuid) from public,anon,authenticated;
 revoke all on function public.alfred_apply_import_native(uuid,jsonb,text) from public,anon,authenticated;
 revoke all on function public.alfred_undo_import_native(uuid,public.finance_import_receipts) from public,anon,authenticated;
@@ -423,7 +404,7 @@ begin
   select * into receipt from public.finance_import_receipts where owner_id=owner and id=receipt_key for update;
   if not found then return jsonb_build_object('status','missing'); end if;
   if receipt.undone_at is not null then return jsonb_build_object('status','undone'); end if;
-  perform public.alfred_portability_lock_native(owner);
+  perform public.alfred_portability_lock_native();
   update public.investments i set import_notifications_paused=false,updated_at=now()
     where i.owner_id=owner and i.import_notifications_paused and exists(select 1 from public.finance_import_native_origins o where o.owner_id=owner and o.table_name='investments' and o.record_key=i.id::text and o.receipt_id=receipt.id);
   get diagnostics resumed = row_count;

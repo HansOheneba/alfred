@@ -57,9 +57,7 @@ alter table public.account_rule_states enable row level security;
 alter table public.account_rule_events enable row level security;
 revoke all on public.account_rule_states,public.account_rule_events from public,anon,authenticated;
 grant select on public.account_rule_states,public.account_rule_events to authenticated;
-drop policy if exists account_rule_states_select_own on public.account_rule_states;
 create policy account_rule_states_select_own on public.account_rule_states for select to authenticated using(owner_id=auth.uid());
-drop policy if exists account_rule_events_select_own on public.account_rule_events;
 create policy account_rule_events_select_own on public.account_rule_events for select to authenticated using(owner_id=auth.uid());
 
 create or replace function public.alfred_write_account_rules(owner uuid,expected_revision bigint,request_key text,fingerprint text,next_state jsonb)
@@ -95,22 +93,12 @@ begin
   return jsonb_build_object('status','saved','state',next_state);
 end $$;
 
--- The single definition of the accounting source version from here on. Imported historical
--- evidence joins the version once the portability table exists, so a later migration never
--- needs to redefine this function and re-applying this file cannot silently drop that evidence.
 create or replace function public.alfred_accounting_source_version(owner uuid)
-returns text language plpgsql stable set search_path=public as $$
-declare transactions_part text; messages_part text; imported_part text; rules_part text;
-begin
-  select coalesce((select jsonb_agg(to_jsonb(t) order by t.id)::text from public.transactions t where t.owner_id=owner),'[]') into transactions_part;
-  select coalesce((select jsonb_agg(to_jsonb(b) order by b.id)::text from public.bank_messages b where b.owner_id=owner),'[]') into messages_part;
-  select coalesce((select state::text from public.account_rule_states where owner_id=owner),'{}') into rules_part;
-  if to_regclass('public.imported_finance_sources') is null then
-    return md5(transactions_part || ':' || messages_part || ':' || rules_part);
-  end if;
-  execute 'select coalesce((select jsonb_agg(to_jsonb(i) order by i.movement_id)::text from public.imported_finance_sources i where i.owner_id=$1),''[]'')' into imported_part using owner;
-  return md5(transactions_part || ':' || messages_part || ':' || imported_part || ':' || rules_part);
-end $$;
+returns text language sql stable set search_path=public as $$
+  select md5(coalesce((select jsonb_agg(to_jsonb(t) order by t.id)::text from public.transactions t where t.owner_id=owner),'[]') || ':' ||
+    coalesce((select jsonb_agg(to_jsonb(b) order by b.id)::text from public.bank_messages b where b.owner_id=owner),'[]') || ':' ||
+    coalesce((select state::text from public.account_rule_states where owner_id=owner),'{}'));
+$$;
 revoke all on function public.alfred_account_rule_document_valid(jsonb,uuid) from public,anon,authenticated;
 revoke all on function public.alfred_write_account_rules(uuid,bigint,text,text,jsonb) from public,anon,authenticated;
 revoke all on function public.alfred_accounting_source_version(uuid) from public,anon,authenticated;

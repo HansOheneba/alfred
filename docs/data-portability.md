@@ -25,11 +25,13 @@ Third-party allocations, income intentions and source-specific planning behavior
 
 ## Settings and undo
 
-Safe profile fields can transfer only when the destination remains at its defaults. Different non-default values are shown as conflicts. Reminder clock values can transfer without enabling reminders. Account-name collection controls remain saved for review.
+Safe profile fields can transfer only when the destination remains at its defaults. Different non-default profile or reminder choices are kept and listed under preserved preferences; they do not block the financial import. Invalid settings still require review. Reminder clock values can transfer without enabling reminders. Account-name collection controls remain saved for review.
 
 Appearance, amount privacy and home-screen preferences transfer separately on the current device when readable and supported. A device warning does not mean a successful financial import rolled back. Browser storage, the home cookie and PostgreSQL have separate commit boundaries.
 
 Receipts are available in recent imports. Undo refuses to discard later finance, native-feature or rule edits. Resuming imported investment notices also prevents undoing that import. Device preference undo separately checks for later device changes.
+
+New previews and receipts use the reviewed version-2 change guard: unrelated new chat messages, bank-name learning and reminder-delivery markers do not block them. Actual edits to imported financial or feature records still prevent unsafe undo. Earlier previews and receipts keep their original version-1 hashes and conservative checks. Ordinary chat can therefore still prevent undo of an older import. The upgrade never rewrites an old receipt's hash to make undo appear safe; its stored data remains recoverable.
 
 ## Database setup
 
@@ -37,8 +39,11 @@ Finance portability requires the existing schema through `20261102160000_financi
 
 1. `20261102170000_account_rules.sql`
 2. `20261102180000_data_portability.sql`
+3. `20261102190000_portability_review_fixes.sql`
 
-Review these migrations and the configured target database before running `npm run db:migrate`. The command changes that database; tests use an embedded synthetic database instead. Availability checks fail closed when the required schema is missing or incompatible. An earlier partial draft needs a reviewed forward migration; rerunning the same filename is not an upgrade strategy.
+The published `1700` and `1800` files stay unchanged. The `1900` forward migration installs the review fixes and new completion marker for both existing installations and fresh setups; do not edit or rerun the older files to upgrade an existing database. Import actions fail closed until the complete compatible `1900` schema is present. Existing receipts, archives and stored hashes are not rewritten.
+
+Review these migrations and the configured target database before running `npm run db:migrate`. The command changes that database; tests use an embedded synthetic database instead. An earlier partial draft needs an inspected forward upgrade; rerunning the same filename is not an upgrade strategy. Local tests and source integration do not establish which migrations are applied on a live database. No live setup change is implied by these instructions.
 
 The current migration runner applies a file before recording its filename separately. Apply reviewed SQL and its ledger entry in one checked transaction on one connection when preparing the release. If an earlier attempt was interrupted, inspect the schema and migration ledger before retrying. Completion markers and catalog checks disable imports when the required migration did not finish or its permissions or signatures are incompatible.
 

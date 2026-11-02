@@ -5,7 +5,7 @@ import type { SupabaseSettings } from "@/lib/config";
  * A future incompatible ABI must use a new marker name and token, rather than reuse this version.
  */
 export const ACCOUNT_RULE_SCHEMA_TOKEN = "alfred.account-rules:20261102:v1";
-export const PORTABILITY_SCHEMA_TOKEN = "alfred.finance-portability:20261102:v1";
+export const PORTABILITY_SCHEMA_TOKEN = "alfred.finance-portability:20261102:v2";
 const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
 const marker = (name: string, token: string) => `obj_description(to_regprocedure('public.${name}()'),'pg_proc')=${literal(token)}`;
 const columns = (table: string, fields: Record<string, string>) => `not exists(select 1 from (values ${Object.entries(fields).map(([name,type])=>`(${literal(name)},${literal(type)})`).join(",")}) required(name,type) where not exists(select 1 from pg_attribute a where a.attrelid=to_regclass('public.${table}') and a.attname=required.name and a.atttypid=to_regtype(required.type) and a.attnum>0 and not a.attisdropped))`;
@@ -13,6 +13,25 @@ const ownedTable = (table: string) => `exists(select 1 from pg_class c where c.o
 const fn = (name: string, args: string[], result: string) => `exists(select 1 from pg_proc p join pg_namespace n on n.oid=p.pronamespace where n.nspname='public' and p.proname=${literal(name)} and p.pronargs=${args.length} ${args.map((type,index)=>`and p.proargtypes[${index}]=to_regtype(${literal(type)})`).join(" ")} and p.prorettype=to_regtype(${literal(result)}) and p.prokind='f' and not p.prosecdef and has_function_privilege(current_user,p.oid,'EXECUTE') and not has_function_privilege('anon',p.oid,'EXECUTE') and not has_function_privilege('authenticated',p.oid,'EXECUTE'))`;
 const all = (checks: string[]) => checks.map(check=>`(${check})`).join(" and ");
 const index = (name: string, keys: string[], predicate: string) => `exists(select 1 from pg_index i where i.indexrelid=to_regclass('public.${name}') and i.indisunique and i.indisvalid and i.indnkeyatts=${keys.length} ${keys.map((key,offset)=>`and pg_get_indexdef(i.indexrelid,${offset+1},true)=${literal(key)}`).join(" ")} and lower(regexp_replace(pg_get_expr(i.indpred,i.indrelid),'[[:space:]()]','','g'))=${literal(predicate)})`;
+
+// Owner/profile locks prevent insert phantoms only while these immediate foreign keys
+// and their RI triggers are intact. Catalog checks remain valid on an absent schema.
+const nativeOwnerTables = ["reminder_preferences", "conversations", "investments", "investment_holdings", "investment_values", "investment_contributions", "budgets", "savings_goals", "bills", "people", "payee_rules", "about_me", "messages", "loans", "account_rule_states", "finance_import_native_origins"];
+const nativeForeignKeys = [
+  ...nativeOwnerTables.map(table => [table, "owner_id", "profiles", "id"]),
+  ...["investment_holdings", "investment_values", "investment_contributions"].map(table => [table, "investment_id", "investments", "id"]),
+  ["messages", "conversation_id", "conversations", "id"],
+  ["account_rule_events", "owner_id", "account_rule_states", "owner_id"],
+];
+export const NATIVE_FOREIGN_KEYS_READY_SQL = `current_setting('session_replication_role')='origin' and not exists(select 1 from (values ${nativeForeignKeys.map(parts => `(${parts.map(literal).join(",")})`).join(",")}) required(child_table,child_column,parent_table,parent_column)
+ where not exists(select 1 from pg_constraint c
+ join pg_attribute child on child.attrelid=c.conrelid and child.attnum=c.conkey[1]
+ join pg_attribute parent on parent.attrelid=c.confrelid and parent.attnum=c.confkey[1]
+ where c.contype='f' and c.conrelid=to_regclass('public.'||required.child_table) and c.confrelid=to_regclass('public.'||required.parent_table)
+ and c.convalidated and not c.condeferrable and cardinality(c.conkey)=1 and cardinality(c.confkey)=1
+ and child.attname=required.child_column and parent.attname=required.parent_column and not child.attisdropped and not parent.attisdropped
+ and (select count(*) from pg_trigger t where t.tgconstraint=c.oid)=4
+ and not exists(select 1 from pg_trigger t where t.tgconstraint=c.oid and (not t.tgisinternal or t.tgenabled not in ('O','A')))))`;
 
 const ruleChecks = [
   marker("alfred_account_rules_schema_20261102_v1",ACCOUNT_RULE_SCHEMA_TOKEN),
@@ -28,8 +47,8 @@ export const ACCOUNT_RULES_READY_SQL = `select to_regclass('public.account_rule_
 
 const portabilityChecks = [
   ...ruleChecks,
-  marker("alfred_portability_schema_20261102_v1",PORTABILITY_SCHEMA_TOKEN),
-  fn("alfred_portability_schema_20261102_v1",[],"text"),
+  marker("alfred_portability_schema_20261102_v2",PORTABILITY_SCHEMA_TOKEN),
+  fn("alfred_portability_schema_20261102_v2",[],"text"),
   ...["finance_import_previews","finance_import_receipts","imported_finance_sources","finance_import_native_origins"].map(ownedTable),
   columns("finance_import_previews",{owner_id:"uuid",id:"text",archive_id:"text",activation_of:"text",activation_key:"text",source_version:"text",native_version:"text",native_plan:"jsonb",expected_revision:"int8",base_hash:"text",before_state:"jsonb",next_state:"jsonb",sources:"jsonb",archive:"jsonb",summary:"jsonb",expires_at:"timestamptz",created_at:"timestamptz"}),
   columns("finance_import_receipts",{owner_id:"uuid",id:"text",archive_id:"text",activation_of:"text",activation_key:"text",archive:"jsonb",summary:"jsonb",before_state:"jsonb",after_state:"jsonb",source_version_after:"text",native_plan:"jsonb",native_before:"jsonb",native_inserted:"jsonb",native_after_version:"text",imported_at:"timestamptz",undone_at:"timestamptz",notifications_resumed_at:"timestamptz"}),
@@ -40,6 +59,10 @@ const portabilityChecks = [
   fn("alfred_undo_finance_import",["uuid","text"],"jsonb"),
   fn("alfred_resume_import_investment_notifications",["uuid","text"],"jsonb"),
   fn("alfred_portability_native_version",["uuid"],"text"),
+  fn("alfred_portability_native_version_v1",["uuid"],"text"),
+  fn("alfred_portability_native_version_matches",["uuid","text"],"bool"),
+  fn("alfred_portability_native_foreign_keys_valid",[],"bool"),
+  NATIVE_FOREIGN_KEYS_READY_SQL,
   fn("alfred_portability_lock_native",["uuid"],"void"),
   fn("alfred_apply_import_native",["uuid","jsonb","text"],"jsonb"),
   fn("alfred_undo_import_native",["uuid","public.finance_import_receipts"],"bool"),
@@ -57,7 +80,7 @@ export const PORTABILITY_READY_SQL = `select to_regclass('public.finance_import_
 const READY_TTL_MS = 5 * 60 * 1000;
 const readyUntil = new Map<string, number>();
 export async function schemaReady(settings: SupabaseSettings, sql: string, now = Date.now()): Promise<boolean> {
-  const key = `${settings.host}:${settings.projectRef}:${sql}`;
+  const key = JSON.stringify([settings.host, settings.projectRef, settings.user, settings.database, sql]);
   if ((readyUntil.get(key) ?? 0) > now) return true;
   // Loaded on use so this catalog module stays free of a database client at import time.
   const { query } = await import("@/lib/supabase/connection");
