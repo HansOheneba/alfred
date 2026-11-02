@@ -5,13 +5,14 @@ import { useState, type MouseEvent, type ReactNode } from "react";
 
 import { Card } from "@/app/components/ui";
 import { InvestmentsClient } from "@/app/investments/investments-client";
+import { NotebookClient } from "@/app/notebook/notebook-client";
 import { AccountsPreview } from "./accounts-preview";
-import { previewInvestments } from "@/ui-preview/destination-fixtures";
+import { previewAbout, previewInvestments, previewPeople } from "@/ui-preview/destination-fixtures";
 
 import { PreviewFrame } from "./preview-screen";
 import { ChatPreview } from "./chat-preview";
 
-export type PreviewDestinationSection = "chat" | "accounts" | "investments" | "review" | "settings";
+export type PreviewDestinationSection = "chat" | "accounts" | "investments" | "review" | "notebook" | "settings";
 
 function ReadOnlyScreen({ children, section }: { children: ReactNode; section: PreviewDestinationSection }) {
   const [notice, setNotice] = useState("");
@@ -25,7 +26,7 @@ function ReadOnlyScreen({ children, section }: { children: ReactNode; section: P
   return (
     <div className={`alfred-preview-destination alfred-preview-${section}`} onClickCapture={keepReadOnly} onSubmitCapture={(event) => { event.preventDefault(); event.stopPropagation(); setNotice("Read-only screen preview. No records or settings were changed."); }}>
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-2 px-4 pt-5 text-xs text-muted sm:px-8">
-        <p>Synthetic data · Existing Investments screen · Read-only</p>
+        <p>Synthetic data · Existing {section === "investments" ? "Investments" : section === "review" ? "Review" : "Notebook"} screen · Read-only</p>
         <Link href="/ui-preview" className="rounded-lg px-2 py-2 text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-accent">Back to Overview</Link>
       </div>
       {notice ? <p role="status" className="mx-auto mt-3 w-[calc(100%-2rem)] max-w-5xl rounded-xl border border-line bg-accent-soft px-4 py-3 text-sm text-accent">{notice}</p> : null}
@@ -65,7 +66,7 @@ export function PreviewDestination({ section }: { section: PreviewDestinationSec
     <PreviewFrame section={section}>
       {section === "chat" ? <ChatPreview /> : section === "settings" ? <SettingsPreview /> : section === "accounts" || section === "review" ? <AccountsPreview /> : (
         <ReadOnlyScreen section={section}>
-          <InvestmentsClient initial={previewInvestments} />
+          {section === "investments" ? <InvestmentsClient initial={previewInvestments} /> : <NotebookClient people={previewPeople} about={previewAbout} />}
         </ReadOnlyScreen>
       )}
     </PreviewFrame>

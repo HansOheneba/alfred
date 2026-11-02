@@ -1,13 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { ReplyChart } from "@/app/chat/reply-chart";
+import { NotebookIcon, NotebookPanel, useNotebookPanel, type ChatNotebookData } from "@/app/chat/notebook-panel";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
-import { getGettingStartedState } from "@/app/components/getting-started-state";
+import { NotebookClient } from "@/app/notebook/notebook-client";
 import type { ChatChart } from "@/lib/accounts/messages";
 import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -27,9 +27,11 @@ type ServerMessage = {
 
 type Suggestion = { label: string; text: string; fill?: boolean };
 
-const QUICK_ACTIONS: Suggestion[] = [
-  { label: "Record an expense", text: "Spent ", fill: true },
-  { label: "Record income", text: "Received ", fill: true },
+const STARTERS: Suggestion[] = [
+  { label: "Where is my money going?", text: "Where is my money going this month?" },
+  { label: "How much this week?", text: "How much have I spent this week?" },
+  { label: "Log an expense", text: "Spent ", fill: true },
+  { label: "Set a budget", text: "Set a budget of ", fill: true },
 ];
 
 const FOLLOW_UPS: Suggestion[] = [
@@ -38,6 +40,7 @@ const FOLLOW_UPS: Suggestion[] = [
   { label: "Tips to spend less", text: "Any tips to spend less?" },
 ];
 
+const noSubscribe = () => () => {};
 
 export const STATS_EVENT = "alfred:open-stats";
 
@@ -57,18 +60,25 @@ export function StatsButton() {
   );
 }
 
+function greeting(name: string): string {
+  const hour = new Date().getHours();
+  const part = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+  return name ? `${part}, ${name}.` : `${part}.`;
+}
 
 export function ChatPanel({
   ownerId,
   name,
   initialMessages,
   ledger,
+  notebook,
   initialQuestion = "",
 }: {
   ownerId: string;
   name: string;
   initialMessages: ThreadMessage[];
   ledger: Ledger;
+  notebook: ChatNotebookData;
   initialQuestion?: string;
 }) {
   const router = useRouter();
@@ -77,6 +87,9 @@ export function ChatPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [statsOpen, setStatsOpen] = useState(false);
+  const notebookPanel = useNotebookPanel();
+  // The greeting depends on the viewer's clock, so the server renders a neutral one.
+  const hello = useSyncExternalStore(noSubscribe, () => greeting(name), () => "");
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -100,14 +113,8 @@ export function ChatPanel({
 
   useEffect(() => {
     const node = threadRef.current;
-    if (!node) return;
-    const alignThread = () => {
-      if (stickToBottom.current) node.scrollTop = messages.length > 0 || busy ? node.scrollHeight : 0;
-    };
-    alignThread();
-    const observer = new ResizeObserver(alignThread);
-    observer.observe(node);
-    return () => observer.disconnect();
+    if (!node || !stickToBottom.current) return;
+    node.scrollTop = messages.length > 0 || busy ? node.scrollHeight : 0;
   }, [messages, busy]);
 
   useEffect(() => {
@@ -344,19 +351,33 @@ export function ChatPanel({
     return index === messages.length - 1 && !messages.slice(index + 1).some((item) => item.role === "assistant");
   }
 
-  const financialsEmpty = getGettingStartedState(ledger).isEmpty;
-  const empty = messages.length === 0;
-  const firstUse = empty && financialsEmpty;
   const last = messages.at(-1);
   const showFollowUps = !busy && last?.role === "assistant" && !(last.actionId && !last.settled) && text.length === 0;
 
   return (
     <div className="alfred-production-chat">
-      <section className="alfred-production-chat-conversation" data-empty={empty} aria-label="Chat with Alfred">
-        <h1 className="sr-only">Chat</h1>
+      <section className="alfred-production-chat-conversation" aria-label="Chat with Alfred">
+        <header className="alfred-production-chat-header">
+          <div className="alfred-production-chat-identity">
+            <AlfredMark size="size-8 alfred-production-chat-mark" />
+            <div><h1>Alfred</h1><p><span className="alfred-production-chat-desktopLabel">Your money, in context</span><span className="alfred-production-chat-mobileLabel">Assistant</span></p></div>
+          </div>
+          <div className="alfred-production-chat-tools" role="group" aria-label="Conversation actions">
+            <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span>Context</span></button>
+            <button type="button" aria-label="Notebook" title="Notebook" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => { setStatsOpen(false); notebookPanel.setOpen(true); }}><NotebookIcon /><span>Notebook</span></button>
+            <button type="button" className="alfred-production-chat-new" aria-label="New message" title="New message — keep saved conversation" disabled={busy} onClick={() => { setText(""); inputRef.current?.focus(); }}><ChatIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z" /></ChatIcon><span>New message</span></button>
+          </div>
+        </header>
 
         <div ref={threadRef} tabIndex={0} className="alfred-production-chat-scroll" aria-busy={busy} onScroll={onThreadScroll}>
-          {!empty ? (
+          {messages.length === 0 ? (
+            <div className="alfred-production-chat-empty">
+              <AlfredMark size="size-12 alfred-production-chat-emptyMark" />
+              <h2>{hello || "Hello."}</h2>
+              <p>Tell me what you spend or earn and I&apos;ll keep the books. Ask where your money goes and I&apos;ll tell you honestly. This is the same conversation as Telegram.</p>
+              <div className="alfred-production-chat-starters">{STARTERS.map((suggestion) => <button key={suggestion.label} type="button" disabled={busy} onClick={() => pickSuggestion(suggestion)}>{suggestion.label}<span aria-hidden="true">↗</span></button>)}</div>
+            </div>
+          ) : (
             <div className="alfred-production-chat-thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
               {messages.map((message, index) => message.role === "assistant" ? (
                 <article key={threadKey(message)} className="alfred-production-chat-assistant">
@@ -375,46 +396,32 @@ export function ChatPanel({
                 </article>
               ))}
             </div>
-          ) : null}
-          {financialsEmpty && messages.length > 0 ? <ChatGettingStarted /> : null}
+          )}
           {busy ? <div className="alfred-production-chat-thinking" role="status" aria-label="Alfred is thinking"><AlfredMark size="size-7" /><span aria-hidden="true"><i className="alfred-dot" /><i className="alfred-dot" /><i className="alfred-dot" /></span></div> : null}
-          {error && !empty ? <p className="alfred-production-chat-error" role="alert">{error}</p> : null}
+          {error ? <p className="alfred-production-chat-error" role="alert">{error}</p> : null}
         </div>
 
         <div className="alfred-production-chat-composeArea">
-          {empty ? <h2 className="alfred-production-chat-emptyHeadline">What’s on your mind?</h2> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
           {showFollowUps ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{FOLLOW_UPS.map((suggestion) => <button key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
-          <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
-            <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
-            <div className="alfred-production-chat-composerRow">
-              <button type="button" disabled={busy} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button>
-              <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={1} placeholder="Ask Alfred…" aria-describedby="alfred-compose-hint" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-              {!financialsEmpty ? <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span className="sr-only">Context</span></button> : null}
+          <form className="alfred-production-chat-composer" onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
+            <label htmlFor="alfred-message">Message Alfred</label>
+            <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={2} placeholder="Ask about your spending, budget or accounts…" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+            <div className="alfred-production-chat-composerFooter">
+              <div><button type="button" disabled={busy} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button><span>Enter to send · Shift + Enter for a new line</span></div>
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadImage(file); }} />
-              <button type="submit" disabled={busy || text.trim().length === 0} aria-label="Send" className="alfred-production-chat-send"><span className="sr-only">Send</span><ChatIcon><path d="M12 19V5m-6 6 6-6 6 6" /></ChatIcon></button>
+              <button type="submit" disabled={busy || text.trim().length === 0} aria-label="Send" className="alfred-production-chat-send"><span>Send</span><ChatIcon><path d="M12 19V5m-6 6 6-6 6 6" /></ChatIcon></button>
             </div>
-            <span id="alfred-compose-hint" className="sr-only">Enter to send · Shift + Enter for a new line</span>
           </form>
-          {error && empty ? <p className="alfred-production-chat-error" role="alert">{error}</p> : null}
-          {empty ? <div className="alfred-production-chat-quickActions" role="group" aria-label="Start recording your money">
-            {QUICK_ACTIONS.map((suggestion) => <button key={suggestion.label} type="button" disabled={busy} onClick={() => pickSuggestion(suggestion)}><ChatIcon><circle cx="12" cy="12" r="8"/><path d={suggestion.text === "Spent " ? "M8 12h8" : "M8 12h8M12 8v8"}/></ChatIcon><span>{suggestion.label}</span></button>)}
-            <Link href="/accounts?add=1"><ChatIcon><rect x="3" y="5" width="18" height="15" rx="3"/><path d="M3 9h18M16 14h3M7 5V3h11"/></ChatIcon><span>Add account</span><span aria-hidden="true">↗</span></Link>
-          </div> : null}
-          {firstUse ? <Link className="alfred-production-chat-emptyChecklist" href="/dashboard">View your setup checklist <span aria-hidden="true">↗</span></Link> : null}
-          {!empty ? <p className="alfred-production-chat-disclaimer">Alfred can make mistakes. Check anything important.</p> : null}
+          <p className="alfred-production-chat-disclaimer">Alfred can make mistakes. Check anything important.</p>
         </div>
       </section>
 
-      {!financialsEmpty ? <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}><StatsPanel ledger={ledger} /></ContextSheet> : null}
+      <aside className="alfred-production-chat-context" aria-label="Conversation context"><StatsPanel ledger={ledger} /></aside>
+      <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}><StatsPanel ledger={ledger} /></ContextSheet>
+      <NotebookPanel open={notebookPanel.open} onClose={() => notebookPanel.setOpen(false)}>{notebook.error ? <p className="text-sm leading-6 text-danger" role="alert">{notebook.error}</p> : <NotebookClient people={notebook.people} about={notebook.about} embedded />}</NotebookPanel>
     </div>
   );
-}
-
-
-/** Static setup UI, kept outside the saved conversation log. */
-function ChatGettingStarted() {
-  return <section className="alfred-production-chat-gettingStarted" aria-label="Getting started"><p>Start with an expense or income. <Link href="/accounts?add=1">Add account <span aria-hidden="true">↗</span></Link><span aria-hidden="true"> · </span><Link href="/dashboard">View your setup checklist <span aria-hidden="true">↗</span></Link></p></section>;
 }
 
 function ChatIcon({ children }: { children: ReactNode }) {

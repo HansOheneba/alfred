@@ -1,9 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { createContext, useContext, type ReactNode } from "react";
+import type { ReactNode } from "react";
 
-import { useChatViewport } from "@/app/components/chat-viewport";
 import { AlfredMark, usePrivacyMask, type Section } from "@/app/components/app-shell";
 
 export const PREVIEW_NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
@@ -18,19 +17,13 @@ export function PreviewIcon({ children, className = "" }: { children: ReactNode;
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>;
 }
 
-const PreviewToolsContext = createContext<ReactNode>(null);
-
-export function PreviewChatTools() { return <>{useContext(PreviewToolsContext)}</>; }
-
 export function PreviewShell({ section, tools, children }: { section: Section; tools: ReactNode; children: ReactNode }) {
   const [masked, setMasked] = usePrivacyMask();
-  const chat = section === "chat";
-  const viewportRef = useChatViewport(chat);
   const title = PREVIEW_NAV.find((item) => item.section === section)?.label;
   return (
-    <div ref={viewportRef} className={`alfred-ui-pageShell${chat ? " alfred-chat-viewport" : ""}`}>
+    <div className="alfred-ui-pageShell">
       <a className="alfred-ui-skip" href="#preview-content">Skip to content</a>
-      {!chat ? <header className="alfred-ui-header">
+      <header className="alfred-ui-header">
         <div className="alfred-ui-headerInner">
           <Link href="/ui-preview" className="alfred-ui-brand"><AlfredMark size="size-8"/><span>Alfred</span></Link>
           <span className="alfred-ui-pageTitle">{title}</span>
@@ -42,8 +35,8 @@ export function PreviewShell({ section, tools, children }: { section: Section; t
             {tools}
           </div>
         </div>
-      </header> : null}
-      <PreviewToolsContext.Provider value={tools}><main id="preview-content" className="alfred-ui-main" tabIndex={-1}>{children}</main></PreviewToolsContext.Provider>
+      </header>
+      <main id="preview-content" className="alfred-ui-main" tabIndex={-1}>{children}</main>
       <nav className="alfred-ui-dock" aria-label="Main">
         {PREVIEW_NAV.map((item) => <Link key={item.section} href={item.href} aria-current={section === item.section ? "page" : undefined} prefetch={false}><PreviewIcon>{item.icon}</PreviewIcon><span>{item.label}</span></Link>)}
       </nav>

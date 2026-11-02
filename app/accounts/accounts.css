@@ -213,19 +213,3 @@
 
 .alfred-account-card header > div, .alfred-accounts-mobileMovements header > div { min-width:0; }
 .alfred-account-card :is(h3,header p), .alfred-accounts-mobileMovements header > div { overflow-wrap:anywhere; }
-
-/* First-use guidance shares the application’s 4px spacing scale. */
-.alfred-accounts-welcome { padding:32px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
-.alfred-accounts-welcomeIcon { display:grid; place-items:center; width:48px; height:48px; margin-bottom:24px; border-radius:16px; background:var(--accent-soft); color:var(--accent); }
-.alfred-accounts-welcomeIcon svg { width:24px; height:24px; }
-.alfred-accounts-welcome h2 { margin-top:8px; font-size:24px; line-height:32px; letter-spacing:-.04em; }
-.alfred-accounts-welcome > p:not(.alfred-accounts-eyebrow) { max-width:608px; margin-top:12px; font-size:14px; line-height:24px; }
-.alfred-accounts-welcome ol { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; max-width:720px; margin:24px 0; }
-.alfred-accounts-welcome li { display:flex; align-items:flex-start; gap:12px; padding:16px; border:1px solid var(--line); border-radius:12px; }
-.alfred-accounts-welcome li > span { display:grid; place-items:center; width:24px; height:24px; flex-shrink:0; border-radius:8px; background:var(--accent-soft); color:var(--accent); font-size:12px; font-weight:600; line-height:16px; }
-.alfred-accounts-welcome li h3 { font-size:14px; line-height:24px; }
-.alfred-accounts-welcome li p { margin-top:4px; font-size:12px; line-height:20px; }
-.alfred-accounts-welcome .alfred-accounts-primary,.alfred-accounts-empty .alfred-accounts-primary { min-height:44px; }
-.alfred-accounts-welcome > .alfred-accounts-welcomeNote { margin-top:12px; font-size:12px!important; line-height:20px!important; }
-.alfred-accounts-empty .alfred-accounts-primary { display:inline-flex; align-items:center; justify-content:center; gap:8px; }
-@media(max-width:600px) { .alfred-accounts-welcome { padding:24px; } .alfred-accounts-welcome ol { grid-template-columns:minmax(0,1fr); } .alfred-accounts-welcome > .alfred-accounts-primary { width:100%; } }

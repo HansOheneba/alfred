@@ -10,7 +10,6 @@ import { formatMinor } from "@/lib/finance/money";
 import { INVESTMENT_KINDS, KIND_LABELS, type InvestmentKind } from "@/lib/investments/kinds";
 import type { Contribution } from "@/lib/investments/store";
 import type { InvestmentView, Portfolio } from "@/lib/investments/value";
-import "./investment-empty-state.css";
 
 export type InvestmentsData = {
   portfolio: Portfolio;
@@ -66,7 +65,6 @@ async function post(body: unknown): Promise<{ ok: true; portfolio: Portfolio } |
 export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
   const [portfolio, setPortfolio] = useState(initial.portfolio);
   const [adding, setAdding] = useState(false);
-  const firstUse = portfolio.items.length === 0 && initial.cash.length === 0;
   const cash = initial.cash.reduce((sum, item) => sum + item.balance, 0);
   const maturing = portfolio.items.filter((item) => item.maturity && item.maturity.daysLeft >= -7).sort((a, b) => a.maturity!.date.localeCompare(b.maturity!.date));
 
@@ -78,22 +76,12 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">What you own, at a glance.</h1>
           <p className="mt-1 text-sm text-muted">What it&apos;s worth, what you put in, and what&apos;s coming up.</p>
         </div>
-        {!firstUse ? <Button variant="primary" onClick={() => setAdding(true)}>
+        <Button variant="primary" onClick={() => setAdding(true)}>
           Add investment
-        </Button> : null}
+        </Button>
       </header>
 
-      {firstUse ? <section className="alfred-investments-firstUse" aria-labelledby="investments-start-title">
-        <span className="alfred-investments-firstUseIcon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m3 17 6-6 4 4 8-11m-6 0h6v6M3 21h18" /></svg></span>
-        <p className="alfred-investments-firstUseEyebrow">Start with what you own</p>
-        <h2 id="investments-start-title">Your first investment starts the picture</h2>
-        <p>Add an investment you already hold, such as a T-bill, fund or stock. This view will grow from the details you record.</p>
-        <ol><li><span>1</span><div><h3>Add what you own</h3><p>Choose a name, investment type and currency.</p></div></li><li><span>2</span><div><h3>Record its details</h3><p>Add its latest value or the holding details you have.</p></div></li><li><span>3</span><div><h3>Follow its progress</h3><p>See values, contributions and maturity dates as you build your records.</p></div></li></ol>
-        <div className="alfred-investments-firstUseActions"><Button variant="primary" onClick={() => setAdding(true)}>Add your first investment</Button><Link href={`/chat?question=${encodeURIComponent("I'd like to add an investment.")}`}>Ask Alfred <span aria-hidden="true">↗</span></Link></div>
-        <p className="alfred-investments-firstUseNote">No investment values are recorded yet.</p>
-      </section> : null}
-
-      {!firstUse ? <section className="grid overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[1.3fr_1fr]">
+      <section className="grid overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[1.3fr_1fr]">
         <div className="p-5 sm:p-6">
           <p className="text-sm font-medium text-muted">Net worth</p>
           <p className="mt-2">
@@ -131,9 +119,9 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
             </dd>
           </div>
         </dl>
-      </section> : null}
+      </section>
 
-      {firstUse ? null : portfolio.items.length === 0 ? (
+      {portfolio.items.length === 0 ? (
         <Card>
           <EmptyState>
             No investments yet. Add one here, or tell Alfred in{" "}
@@ -200,11 +188,11 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
         </Card>
       ) : null}
 
-      {!firstUse ? <p className="text-xs leading-5 text-faint">
+      <p className="text-xs leading-5 text-faint">
         Money you put into investments isn&apos;t counted as spending. US prices are daily closing prices; Ghana prices come from the Ghana Stock Exchange&apos;s daily board.
         {portfolio.usdGhs ? ` Dollars are converted at ${money(portfolio.usdGhs)} per $1.` : ""}
         {portfolio.unconverted.length ? ` Not in the totals (no cedi rate): ${portfolio.unconverted.join(", ")}.` : ""}
-      </p> : null}
+      </p>
 
       <AddInvestment open={adding} onClose={() => setAdding(false)} onSaved={setPortfolio} />
     </div>

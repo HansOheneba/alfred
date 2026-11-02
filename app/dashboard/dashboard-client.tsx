@@ -1,8 +1,6 @@
 "use client";
 
 import Link from "next/link";
-import { getGettingStartedState } from "@/app/components/getting-started-state";
-import { GettingStartedDashboard } from "./getting-started";
 import { WeeklyComparison } from "@/app/dashboard/weekly-comparison";
 
 import { DashboardAccountBalance } from "@/app/dashboard/account-balance";
@@ -100,8 +98,6 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
     setSelected((current) => (current === category ? null : category));
   }
 
-  if (getGettingStartedState(ledger).canShowSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} />;
-
   return (
     <div className={styles.dashboard}>
       <div className={styles.heading}>
@@ -157,7 +153,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
 
       {!hasAny ? (
         <EmptyState>
-          No spending or income is recorded in {currency} yet. Tell Alfred what you spent or earned, here in <Link href="/chat" className="text-accent underline-offset-2 hover:underline">chat</Link> or
+          Nothing is recorded yet. Tell Alfred what you spent or earned, here in <Link href="/chat" className="text-accent underline-offset-2 hover:underline">chat</Link> or
           on Telegram, and your charts will fill in.
         </EmptyState>
       ) : null}

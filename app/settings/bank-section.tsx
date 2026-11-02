@@ -126,24 +126,29 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
     <div className="flex flex-col gap-5">
       <Card title="Bank messages">
         <p className="text-sm leading-6 text-muted">
-          Forward MoMo and GCB texts from your iPhone to Alfred. He files the ones he recognises and asks you about the rest on Telegram.
+          Your iPhone forwards MoMo and GCB texts to Alfred. He files the ones he recognises and asks you about the rest on Telegram.
         </p>
 
-        {connected ? (
-          <div className="mt-4 flex flex-wrap items-center gap-3">
+        <div className="mt-4 flex flex-wrap items-center gap-3">
+          {connected ? (
             <span className="inline-flex items-center gap-2 rounded-full bg-success/10 px-3 py-1 text-xs font-medium text-success">
               <span className="size-1.5 rounded-full bg-success" aria-hidden="true" />
               Connected
               {bank.lastUsedAt ? <span className="font-normal text-muted">· last message {relativeTime(bank.lastUsedAt)}</span> : <span className="font-normal text-muted">· no messages yet</span>}
             </span>
-            {bank.lastEmptyAt && bank.lastUsedAt && Date.parse(bank.lastEmptyAt) >= Date.parse(bank.lastUsedAt) - 10_000 ? (
-              <p className="w-full text-xs leading-5 text-muted">
-                Your iPhone ran the automation {relativeTime(bank.lastEmptyAt)} but sent no text. In the automation, tap <span className="font-medium text-ink">Run Shortcut</span> and set its{" "}
-                <span className="font-medium text-ink">Input</span> to <span className="font-medium text-ink">Shortcut Input</span>.
-              </p>
-            ) : null}
-          </div>
-        ) : null}
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-full bg-surface-2 px-3 py-1 text-xs font-medium text-muted">
+              <span className="size-1.5 rounded-full bg-faint" aria-hidden="true" />
+              Not connected
+            </span>
+          )}
+          {connected && bank.lastEmptyAt && bank.lastUsedAt && Date.parse(bank.lastEmptyAt) >= Date.parse(bank.lastUsedAt) - 10_000 ? (
+            <p className="w-full text-xs leading-5 text-muted">
+              Your iPhone ran the automation {relativeTime(bank.lastEmptyAt)} but sent no text. In the automation, tap <span className="font-medium text-ink">Run Shortcut</span> and set its{" "}
+              <span className="font-medium text-ink">Input</span> to <span className="font-medium text-ink">Shortcut Input</span>.
+            </p>
+          ) : null}
+        </div>
 
         <div className="mt-4 flex flex-wrap gap-2">
           {connected ? (
@@ -222,7 +227,7 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
             className={`${inputClass} h-auto min-h-24 py-2 leading-6`}
             value={names}
             maxLength={600}
-            placeholder="Enter the name shown on your account"
+            placeholder="HANS OHENEBA ADUSE OPOKU"
             onChange={(event) => {
               setNames(event.target.value);
               setNamesState("idle");

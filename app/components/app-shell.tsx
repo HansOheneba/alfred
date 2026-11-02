@@ -3,11 +3,10 @@
 import Link from "next/link";
 import { useSyncExternalStore, type ReactNode } from "react";
 
-import { useChatViewport } from "./chat-viewport";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 import "./app-ui.css";
 
-export type Section = "chat" | "dashboard" | "accounts" | "investments" | "review" | "settings";
+export type Section = "chat" | "dashboard" | "accounts" | "investments" | "review" | "notebook" | "settings";
 
 const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
   {
@@ -119,7 +118,7 @@ export function usePrivacyMask(): [boolean, (next: boolean) => void] {
   return [masked, set];
 }
 
-export function PrivacyToggle() {
+function PrivacyToggle() {
   const [masked, setMasked] = usePrivacyMask();
   return (
     <button
@@ -173,12 +172,10 @@ export function AppShell({ current, name, fill = false, headerAction, children }
 }) {
   const title = NAV.find((item) => item.section === current)?.label ?? "Alfred";
   const [appearance, setAppearance] = useAppearance();
-  const chat = current === "chat";
-  const viewport = useChatViewport(chat);
-  return <div ref={viewport} className={`alfred-app${chat ? " alfred-app-chat alfred-chat-viewport" : ""}`}>
-    <div className={`alfred-ui-pageShell${fill || chat ? " alfred-ui-fill" : ""}`}>
+  return <div className="alfred-app">
+    <div className={`alfred-ui-pageShell${fill ? " alfred-ui-fill" : ""}`}>
       <a className="alfred-ui-skip" href="#app-content">Skip to content</a>
-      {!chat ? <header className="alfred-ui-header">
+      <header className="alfred-ui-header">
         <div className="alfred-ui-headerInner">
           <Link href="/" className="alfred-ui-brand"><AlfredMark size="size-8"/><span>Alfred</span></Link>
           <span className="alfred-ui-pageTitle">{title}</span>
@@ -189,7 +186,7 @@ export function AppShell({ current, name, fill = false, headerAction, children }
             <Link href="/settings#profile" className="alfred-app-profile" aria-label={name ? `${name}: profile and settings` : "Profile and settings"} title="Profile and settings"><Initial name={name}/></Link>
           </div>
         </div>
-      </header> : null}
+      </header>
       <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{children}</main>
       <nav className="alfred-ui-dock" aria-label="Main">
         {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined} prefetch={false}><Icon className="size-5">{item.icon}</Icon><span>{item.label}</span></Link>)}
