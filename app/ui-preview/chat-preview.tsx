@@ -114,17 +114,16 @@ export function ChatPreview() {
   const handoff = new URLSearchParams(query).get("question")?.trim().slice(0, 1000) ?? "";
   const [messages, setMessages] = useState<Message[]>([]);
   const [draft, setDraft] = useState("");
-  const [freshStart, setFreshStart] = useState(false);
   const [contextOpen, setContextOpen] = useState(false);
   const input = useRef<HTMLTextAreaElement>(null);
   const composer = useRef<HTMLFormElement>(null);
   const scroll = useRef<HTMLDivElement>(null);
   const stayAtBottom = useRef(true);
-  const question = freshStart ? "" : handoff || "How is my month looking?";
-  const initial: Message[] = question ? [
+  const question = handoff || "How is my month looking?";
+  const initial: Message[] = [
     { id: "initial-user", role: "user", text: question },
     { id: "initial-alfred", role: "assistant", reply: demoReply(question, finance), question },
-  ] : [{ id: "initial-alfred", role: "assistant", reply: { title: `What would you like to know, ${previewName}?`, text: "Ask about your spending, budgets, accounts or bills. I'll use the synthetic October overview shown beside this conversation.", note: "Local demo. No connected model, account changes or external messages." } }];
+  ];
   const thread = [...initial, ...messages];
 
   useEffect(() => {
@@ -158,7 +157,7 @@ export function ChatPreview() {
       <section className="alfred-chat-conversation" aria-label="Chat with Alfred">
 
         <div ref={scroll} className="alfred-chat-thread" tabIndex={0} onScroll={(event) => { const node = event.currentTarget; stayAtBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 48; }} role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
-        {handoff && !freshStart ? <div className="alfred-chat-handoff"><PreviewIcon><path d="m4 12 4 4 12-12M4 20h16"/></PreviewIcon>Question from your dashboard insights</div> : null}
+        {handoff ? <div className="alfred-chat-handoff"><PreviewIcon><path d="m4 12 4 4 12-12M4 20h16"/></PreviewIcon>Question from your dashboard insights</div> : null}
           <p className="alfred-chat-dayDivider">24 October · Synthetic conversation</p>
           {thread.map((message) => message.role === "user" ? <div className="alfred-chat-userTurn" key={message.id}><div><p>{message.text}</p></div><span className="alfred-chat-userAvatar" aria-hidden="true">A</span></div> : <article className="alfred-chat-assistantTurn" key={message.id}><div className="alfred-chat-messageIdentity"><AlfredMark size="size-6"/><span>Alfred</span><span>Demo response</span></div><AssistantReply reply={message.question ? demoReply(message.question, finance) : message.reply}/></article>)}
         </div>
@@ -168,7 +167,6 @@ export function ChatPreview() {
           <div className="alfred-chat-composerHeader"><label htmlFor="alfred-chat-message">Ask Alfred</label>
             <div className="alfred-chat-headerTools" role="group" aria-label="Conversation actions">
               <button className="alfred-chat-contextToggle" type="button" aria-label={contextOpen ? "Hide context" : "Show context"} title={contextOpen ? "Hide context" : "Show context"} aria-expanded={contextOpen} aria-controls="alfred-chat-context" onClick={() => setContextOpen((open) => !open)}><PreviewIcon><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M14 4v16M6 8h4m-4 4h4"/></PreviewIcon><span className="alfred-chat-actionLabel">{contextOpen ? "Hide context" : "Show context"}</span></button>
-              <button className="alfred-chat-new" type="button" aria-label="New conversation" title="New conversation" onClick={() => { setMessages([]); setDraft(""); setFreshStart(true); input.current?.focus(); }}><PreviewIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z"/></PreviewIcon><span className="alfred-chat-actionLabel">New conversation</span></button>
             </div>
           </div>
           <textarea ref={input} id="alfred-chat-message" value={draft} onChange={(event) => setDraft(event.target.value)} onKeyDown={enter} placeholder="Ask about your spending, budget or accounts…" maxLength={1000} rows={2}/>

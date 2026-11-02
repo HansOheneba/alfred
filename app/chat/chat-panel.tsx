@@ -410,10 +410,9 @@ export function ChatPanel({
           <form className="alfred-production-chat-composer" onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <div className="alfred-production-chat-composerHeader">
               <label htmlFor="alfred-message">Message Alfred</label>
-              <div className="alfred-production-chat-tools" role="group" aria-label="Conversation actions">
-                {!financialsEmpty ? <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span>Context</span></button> : null}
-                <button type="button" className="alfred-production-chat-new" aria-label="New message" title="New message — keep saved conversation" disabled={busy} onClick={() => { setText(""); inputRef.current?.focus(); }}><ChatIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z" /></ChatIcon><span>New message</span></button>
-              </div>
+              {!financialsEmpty ? <div className="alfred-production-chat-tools" role="group" aria-label="Conversation actions">
+                <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span>Context</span></button>
+              </div> : null}
             </div>
             <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={2} placeholder="Ask about your spending, budget or accounts…" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
             <div className="alfred-production-chat-composerFooter">

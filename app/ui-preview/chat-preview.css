@@ -13,7 +13,6 @@
 .alfred-chat-headerTools button svg { width: 20px; height: 20px; flex-shrink: 0; }
 .alfred-chat-headerTools button:hover,.alfred-chat-headerTools button[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb,var(--accent) 32%,var(--line)); }
 .alfred-chat-headerTools button.alfred-chat-contextToggle { display:inline-flex; }
-.alfred-chat-headerTools .alfred-chat-new { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
 .alfred-chat-workspace button:focus-visible,.alfred-chat-workspace a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .alfred-chat-demoBadge { font-size: 12px; line-height: 20px; color: var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 4px 8px; white-space: nowrap; font-weight: 500; }
 .alfred-chat-handoff { margin: 16px 24px 0; display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 12px; line-height: 20px; }
