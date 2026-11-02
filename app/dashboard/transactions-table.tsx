@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useMemo, useState } from "react";
 
+import { AccountingRowAction, isAccountingRow } from "@/app/dashboard/accounting-row-action";
 import { Spinner } from "@/app/components/status";
 import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerRow } from "@/lib/finance/analytics";
@@ -162,12 +163,14 @@ export function TransactionsTable({
                       {formatMinor(row.minor, row.currency)}
                     </td>
                     <td className="whitespace-nowrap py-2.5 text-right">
+                      {isAccountingRow(row.id) ? <AccountingRowAction /> : <>
                       <Button size="sm" variant="ghost" onClick={() => setEditing(row)} aria-label={`Edit ${row.description}`}>
                         Edit
                       </Button>
                       <Button size="sm" variant="ghost" onClick={() => setDeleting(row)} aria-label={`Delete ${row.description}`}>
                         Delete
                       </Button>
+                      </>}
                     </td>
                   </tr>
                 ))}
@@ -190,12 +193,14 @@ export function TransactionsTable({
                     </p>
                   </div>
                   <div className="mt-2 flex justify-end gap-1">
-                    <Button size="sm" variant="ghost" onClick={() => setEditing(row)} aria-label={`Edit ${row.description}`}>
+                    {isAccountingRow(row.id) ? <AccountingRowAction /> : <>
+                      <Button size="sm" variant="ghost" onClick={() => setEditing(row)} aria-label={`Edit ${row.description}`}>
                       Edit
                     </Button>
                     <Button size="sm" variant="ghost" onClick={() => setDeleting(row)} aria-label={`Delete ${row.description}`}>
                       Delete
                     </Button>
+                      </>}
                   </div>
                 </li>
               ))}

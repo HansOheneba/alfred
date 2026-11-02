@@ -232,15 +232,15 @@ function AddAbout() {
   );
 }
 
-export function NotebookClient({ people, about }: { people: KnownPerson[]; about: AboutNote[] }) {
+export function NotebookClient({ people, about, embedded = false }: { people: KnownPerson[]; about: AboutNote[]; embedded?: boolean }) {
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6">
-      <div>
+    <div className={embedded ? "flex w-full flex-col gap-7" : "mx-auto flex w-full max-w-3xl flex-col gap-8 px-4 pt-6 pb-[calc(2.5rem+env(safe-area-inset-bottom))] sm:px-6"}>
+      {!embedded ? <div>
         <h1 className="font-display text-2xl font-medium leading-tight tracking-tight text-ink">Notebook</h1>
         <p className="mt-1 text-sm text-muted">
           What Alfred has learnt about you and the people in your money. He adds to it when you tell him things in chat, like &ldquo;don&rsquo;t look at that account, it&rsquo;s my mum&rsquo;s&rdquo; or &ldquo;Cyril is my housemate&rdquo;, and keeps it in mind every time you talk.
         </p>
-      </div>
+      </div> : <p className="text-xs leading-6 text-muted">Keep useful context here. Alfred remembers it when you talk, and you can change or forget it any time.</p>}
 
       <section className="flex flex-col gap-3" aria-labelledby="about-heading">
         <h2 id="about-heading" className="text-sm font-medium text-ink">

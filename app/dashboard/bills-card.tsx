@@ -6,8 +6,11 @@ import { useState } from "react";
 import { Spinner } from "@/app/components/status";
 import { Button, Card, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { BillCadence, BillRecord, RenewalSuggestion, UpcomingBill } from "@/lib/finance/bills";
+import type { BillAction } from "@/lib/finance/bill-schedule";
 import { formatDisplayDate } from "@/lib/finance/dates";
 import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
+
+export type { BillAction } from "@/lib/finance/bill-schedule";
 
 const CADENCE_LABELS: Record<BillCadence, string> = {
   once: "One time",
@@ -22,12 +25,16 @@ export function BillsCard({
   suggestions,
   currency,
   today,
+  onAction,
+  reminderNote = "Confirmed bills get a Telegram reminder the day before they renew.",
 }: {
   bills: BillRecord[];
   upcoming: UpcomingBill[];
   suggestions: RenewalSuggestion[];
   currency: string;
   today: string;
+  onAction?: (action: BillAction) => Promise<unknown>;
+  reminderNote?: string;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -39,12 +46,21 @@ export function BillsCard({
   const variableCount = upcoming.length - knownUpcoming.length;
   const upcomingMinor = knownUpcoming.reduce((sum, item) => sum + toMinor(item.amount!), 0);
 
-  async function act(key: string, body: Record<string, unknown>) {
+  function close() {
+    setOpen(false);
+    setEditing(null);
+    setError("");
+  }
+
+  async function act(key: string, body: BillAction) {
     setBusy(key);
     setError("");
     try {
-      await sendJson("/api/bills", "POST", body);
-      router.refresh();
+      if (onAction) await onAction(body);
+      else {
+        await sendJson("/api/bills", "POST", body);
+        router.refresh();
+      }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That bill could not be updated.");
     } finally {
@@ -61,7 +77,7 @@ export function BillsCard({
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className="rounded-full bg-accent-soft px-2.5 py-0.5 text-xs font-medium text-accent hover:underline"
+              className="rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent hover:underline"
             >
               {suggestions.length} suggested
             </button>
@@ -90,9 +106,9 @@ export function BillsCard({
         <div className="flex flex-col gap-3">
           {upcoming.length > 0 ? (
             <>
-              <div className="rounded-xl bg-surface-2 px-3.5 py-2.5">
+              <div className="rounded-xl bg-surface-2 px-4 py-3">
                 <p className="text-xs text-muted">Planned in the next 30 days</p>
-                <p className="mt-0.5 text-lg font-medium tabular-nums">
+                <p className="mt-1 text-lg font-medium tabular-nums">
                   {knownUpcoming.length > 0
                     ? `${formatMinor(upcomingMinor, currency)}${variableCount > 0 ? ` + ${variableCount} variable` : ""}`
                     : "Amount varies"}
@@ -150,11 +166,7 @@ export function BillsCard({
 
       <Dialog
         open={open}
-        onClose={() => {
-          setOpen(false);
-          setEditing(null);
-          setError("");
-        }}
+        onClose={close}
         title={editing ? (editing.id ? "Edit bill" : "Add a bill") : "Bills & renewals"}
       >
         {editing ? (
@@ -162,16 +174,17 @@ export function BillsCard({
             initial={editing}
             currency={currency}
             today={today}
+            onAction={onAction}
             onCancel={() => setEditing(null)}
             onSaved={() => {
               setEditing(null);
-              router.refresh();
+              if (!onAction) router.refresh();
             }}
           />
         ) : (
           <div className="flex flex-col gap-4">
             <div className="flex items-center justify-between">
-              <p className="text-xs text-muted">Confirmed bills get a Telegram reminder the day before they renew.</p>
+              <p className="text-xs text-muted">{reminderNote}</p>
               <Button size="sm" variant="primary" onClick={() => setEditing({ name: "", nextDate: today, amount: "", cadence: "monthly" })}>
                 + Add bill
               </Button>
@@ -257,6 +270,9 @@ export function BillsCard({
             ) : null}
           </div>
         )}
+        <div className="mt-4 flex justify-end">
+          <Button variant="ghost" onClick={close} className="min-h-11">Close</Button>
+        </div>
       </Dialog>
     </Card>
   );
@@ -268,12 +284,14 @@ function BillForm({
   today,
   onCancel,
   onSaved,
+  onAction,
 }: {
   initial: Partial<BillRecord>;
   currency: string;
   today: string;
   onCancel: () => void;
   onSaved: () => void;
+  onAction?: (action: BillAction) => Promise<unknown>;
 }) {
   const [name, setName] = useState(initial.name ?? "");
   const [nextDate, setNextDate] = useState(initial.nextDate ?? today);
@@ -287,14 +305,16 @@ function BillForm({
     setBusy(true);
     setError("");
     try {
-      await sendJson("/api/bills", "POST", {
+      const action: BillAction = {
         action: "save",
         ...(initial.id ? { id: initial.id } : {}),
         name: name.trim(),
         nextDate,
         cadence,
         amount: varies ? null : amount.trim() || null,
-      });
+      };
+      if (onAction) await onAction(action);
+      else await sendJson("/api/bills", "POST", action);
       onSaved();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That bill could not be saved.");
@@ -306,6 +326,7 @@ function BillForm({
   return (
     <form
       className="flex flex-col gap-3"
+      data-preview-local-form={onAction ? "true" : undefined}
       onSubmit={(event) => {
         event.preventDefault();
         void submit();
@@ -333,7 +354,7 @@ function BillForm({
         </Field>
       ) : null}
       <label className="flex items-center gap-2 text-xs text-muted">
-        <input type="checkbox" className="size-3.5 accent-[var(--color-accent)]" checked={varies} onChange={(e) => setVaries(e.target.checked)} />
+        <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={varies} onChange={(e) => setVaries(e.target.checked)} />
         Amount varies each time (e.g. electricity or water)
       </label>
       {error ? (

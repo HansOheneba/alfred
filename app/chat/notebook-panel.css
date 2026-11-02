@@ -1,0 +1,32 @@
+.alfred-notebook-panel { position: fixed; inset: 16px; margin: 0 0 0 auto; width: min(480px,calc(100% - 32px)); max-width: none; height: calc(100dvh - 32px); max-height: none; padding: 0; border: 1px solid var(--line-strong); border-radius: 20px; background: var(--surface); color: var(--ink); box-shadow: 0 16px 80px #06191335; overflow: hidden; font-size: 14px; line-height: 24px; }
+.alfred-notebook-panel[open] { display: flex; flex-direction: column; }
+.alfred-notebook-panel::backdrop { background: #081b2138; backdrop-filter: blur(4px); }
+.alfred-notebook-panelHeader { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 16px; padding: 20px; border-bottom: 1px solid var(--line); }
+.alfred-notebook-panelIdentity { display: flex; align-items: center; gap: 12px; min-width: 0; }
+.alfred-notebook-panelIdentity > span { display: grid; place-items: center; width: 40px; height: 40px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); flex-shrink: 0; }
+.alfred-notebook-panelIdentity svg { width: 20px; height: 20px; }
+.alfred-notebook-panelIdentity h2 { font-size: 20px; line-height: 28px; font-weight: 600; letter-spacing: -.02em; }
+.alfred-notebook-panelIdentity p { font-size: 12px; line-height: 20px; margin-top: 4px; color: var(--muted); }
+.alfred-notebook-close { width: 44px; height: 44px; flex-shrink: 0; display: grid; place-items: center; border-radius: 12px; color: var(--muted); border: 1px solid var(--line); background: var(--surface); }
+.alfred-notebook-close svg { width: 20px; height: 20px; }
+.alfred-notebook-close:hover { color: var(--accent); background: var(--accent-soft); }
+.alfred-notebook-panelBody { min-height: 0; flex: 1; overflow-y: auto; overscroll-behavior: contain; padding: 20px; }
+.alfred-notebook-panelBody p { overflow-wrap: anywhere; font-size: 14px; line-height: 24px; }
+.alfred-notebook-panelBody :is(h2,h3,h4) { font-size: 14px; line-height: 20px; }
+.alfred-notebook-panelBody button { min-width: 44px; min-height: 44px; padding: 8px 12px; font-size: 12px; line-height: 20px; border-radius: 12px; }
+.alfred-notebook-panelBody :is(input,textarea) { min-height: 44px; border-radius: 12px; font-size: 14px; line-height: 24px; }
+.alfred-notebook-panelBody label { font-size: 12px; line-height: 20px; }
+.alfred-notebook-panelFooter { flex-shrink: 0; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; border-top: 1px solid var(--line); padding: 12px 20px max(12px,env(safe-area-inset-bottom)); }
+.alfred-notebook-panelFooter > span { font-size: 12px; line-height: 20px; color: var(--muted); }
+.alfred-notebook-panelFooter button { display: inline-flex; align-items: center; gap: 8px; min-height: 44px; font-size: 12px; line-height: 20px; font-weight: 500; color: var(--accent); }
+.alfred-notebook-panel button:focus-visible,.alfred-notebook-panel a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.alfred-notebook-open { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 20px; font-weight: 500; white-space: nowrap; }
+.alfred-notebook-open svg { width: 20px; height: 20px; }
+.alfred-notebook-open:hover { color: var(--accent); border-color: var(--accent); }
+.alfred-notebook-open:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+@media (max-width: 600px) {
+  .alfred-notebook-panel { inset: 0; width: 100%; height: 100dvh; border-radius: 0; border: 0; }
+  .alfred-notebook-panelHeader,.alfred-notebook-panelBody { padding: 16px; }
+  .alfred-notebook-panelFooter { padding-inline: 16px; }
+  .alfred-notebook-panelBody input,.alfred-notebook-panelBody textarea { font-size: 16px; }
+}

@@ -88,6 +88,14 @@ function transactionFrom(row: TransactionRow): TransactionRecord {
   };
 }
 
+/** Raw immutable source rows for the accounting adapter; callers normally want listTransactions. */
+export async function listRawTransactions(settings:SupabaseSettings,userId:string):Promise<TransactionRecord[]> {
+  const rows = await query<TransactionRow>(settings,`select id, transaction_id, created_at, transaction_date::text, coalesce(owner_id::text, user_id) as user_id, type, amount::text, currency,
+    category, description, payment_method, notes, status, updated_at, source_update_id
+    from public.transactions where owner_id = $1::uuid order by transaction_date, id`,[userId]);
+  return rows.map(transactionFrom);
+}
+
 export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceStore {
   return {
     async ensureReady() {
@@ -163,16 +171,32 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     },
 
     async listTransactions(userId) {
-      const rows = await query<TransactionRow>(
-        settings,
-        `select id, transaction_id, created_at, transaction_date::text, coalesce(owner_id::text, user_id) as user_id, type, amount::text, currency,
-                category, description, payment_method, notes, status, updated_at, source_update_id
-         from public.transactions
-         where owner_id = $1::uuid
-         order by transaction_date, id`,
-        [userId],
-      );
-      return rows.map(transactionFrom);
+      return listRawTransactions(settings,userId);
+    },
+
+    async listReportTransactions(userId) {
+      const raw=await listRawTransactions(settings,userId);
+      const { loadAccountingState }=await import("@/lib/finance/accounting/persisted-store");
+      const accounting=await loadAccountingState(settings,userId,raw);
+      if (accounting.availability !== "ready") return raw;
+      const { projectAccountingTransactions }=await import("@/lib/finance/accounting/view");
+      return projectAccountingTransactions(accounting.rawTransactions,accounting.state);
+    },
+
+    async getAccountBalances(userId,currency) {
+      const {loadAccountingState}=await import("@/lib/finance/accounting/persisted-store");
+      const result=await loadAccountingState(settings,userId);
+      if(result.availability!=="ready") return null;
+      const {accountBalances}=await import("@/lib/finance/accounting/accounts");
+      return accountBalances(result.state,currency);
+    },
+
+    async listLinkedLoans(userId) {
+      const {loadAccountingState}=await import("@/lib/finance/accounting/persisted-store");
+      const result=await loadAccountingState(settings,userId);
+      if(result.availability!=="ready") return [];
+      const {validateSettlements}=await import("@/lib/finance/accounting/settlements");
+      return validateSettlements(result.state).valid.filter((item) => item.link.kind==="loan").map((item) => ({settlementId:item.link.id,originalMovementId:item.original.id,description:item.original.description,currency:item.original.currency,principalMinor:item.original.amountMinor,returnedMinor:item.returnedMinor,outstandingMinor:item.outstandingMinor}));
     },
 
     async findTransactionsBySource(userId, sourceUpdateId) {

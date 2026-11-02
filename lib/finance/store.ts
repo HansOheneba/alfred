@@ -6,6 +6,8 @@ import type {
   TransactionChanges,
   TransactionRecord,
 } from "@/lib/finance/types";
+import type { accountBalances } from "@/lib/finance/accounting/accounts";
+import type { buildAccountingView } from "@/lib/finance/accounting/view";
 
 export type NewProcessedUpdate = Omit<ProcessedUpdateRecord, "rowNumber">;
 export type NewTransaction = Omit<TransactionRecord, "rowNumber">;
@@ -25,6 +27,11 @@ export interface FinanceStore {
     patch: Partial<Omit<ProcessedUpdateRecord, "rowNumber" | "updateId">>,
   ): Promise<ProcessedUpdateRecord>;
   listTransactions(userId: string): Promise<TransactionRecord[]>;
+  /** Derived spending/income rows for read-only summaries. Never use these IDs/amounts for source writes. */
+  listReportTransactions?(userId:string):Promise<TransactionRecord[]>;
+  /** null means the additive accounting schema is not installed; never a computed cash-flow balance. */
+  getAccountBalances?(userId:string,currency:string):Promise<ReturnType<typeof accountBalances>|null>;
+  listLinkedLoans?(userId:string):Promise<ReturnType<typeof buildAccountingView>["loans"]>;
   findTransactionsBySource(userId: string, sourceUpdateId: string): Promise<TransactionRecord[]>;
   appendTransaction(row: NewTransaction): Promise<TransactionRecord>;
   updateTransaction(
@@ -52,4 +59,8 @@ export interface FinanceStore {
     actionId: string,
     patch: Partial<Pick<PendingActionRecord, "status" | "payloadJson">>,
   ): Promise<PendingActionRecord>;
+}
+
+export function readReportingTransactions(store:FinanceStore,userId:string):Promise<TransactionRecord[]> {
+  return store.listReportTransactions ? store.listReportTransactions(userId) : store.listTransactions(userId);
 }

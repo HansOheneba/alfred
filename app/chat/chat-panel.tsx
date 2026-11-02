@@ -4,8 +4,10 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 
 import { ReplyChart } from "@/app/chat/reply-chart";
+import { NotebookIcon, NotebookPanel, useNotebookPanel, type ChatNotebookData } from "@/app/chat/notebook-panel";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
+import { NotebookClient } from "@/app/notebook/notebook-client";
 import type { ChatChart } from "@/lib/accounts/messages";
 import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -47,7 +49,7 @@ export function StatsButton() {
       type="button"
       onClick={() => window.dispatchEvent(new Event(STATS_EVENT))}
       aria-label="This month at a glance"
-      className="grid size-9 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
+      className="grid size-11 place-items-center rounded-xl text-muted hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
     >
       <svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
         <path d="M5 20V11m7 9V5m7 15v-6" />
@@ -67,11 +69,13 @@ export function ChatPanel({
   name,
   initialMessages,
   ledger,
+  notebook,
 }: {
   ownerId: string;
   name: string;
   initialMessages: ThreadMessage[];
   ledger: Ledger;
+  notebook: ChatNotebookData;
 }) {
   const router = useRouter();
   const [text, setText] = useState("");
@@ -79,6 +83,7 @@ export function ChatPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [statsOpen, setStatsOpen] = useState(false);
+  const notebookPanel = useNotebookPanel();
   // The greeting depends on the viewer's clock, so the server renders a neutral one.
   const hello = useSyncExternalStore(noSubscribe, () => greeting(name), () => "");
   const threadRef = useRef<HTMLDivElement>(null);
@@ -340,16 +345,22 @@ export function ChatPanel({
   return (
     <div className="flex min-h-0 flex-1">
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <button
-          type="button"
-          onClick={() => setStatsOpen(true)}
-          aria-label="This month at a glance"
-          className="absolute right-3 top-3 z-20 hidden size-9 place-items-center rounded-full border border-line bg-surface/90 text-muted shadow-sm backdrop-blur hover:text-ink focus-visible:outline-2 focus-visible:outline-accent md:grid xl:hidden"
-        >
-          <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-            <path d="M5 20V11m7 9V5m7 15v-6" />
-          </svg>
-        </button>
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-6">
+          <p className="text-xs text-muted">Conversation</p>
+          <div className="flex items-center gap-2">
+            <button type="button" className="alfred-notebook-open" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => { setStatsOpen(false); notebookPanel.setOpen(true); }}><NotebookIcon/>Notebook</button>
+            <button
+              type="button"
+              onClick={() => setStatsOpen(true)}
+              aria-label="This month at a glance"
+              className="hidden size-11 place-items-center rounded-xl border border-line bg-surface text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent md:grid xl:hidden"
+            >
+              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+                <path d="M5 20V11m7 9V5m7 15v-6" />
+              </svg>
+            </button>
+          </div>
+        </div>
         <div
           ref={threadRef}
           tabIndex={0}
@@ -378,7 +389,7 @@ export function ChatPanel({
               </div>
             </div>
           ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-4 pb-6 pt-6 sm:px-6 md:pt-14 xl:pt-8" role="log" aria-label="Conversation" aria-relevant="additions">
+            <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-4 pb-6 pt-6 sm:px-6 xl:pt-8" role="log" aria-label="Conversation" aria-relevant="additions">
               {messages.map((message, index) =>
                 message.role === "assistant" ? (
                   <article key={threadKey(message)} className="min-w-0">
@@ -561,6 +572,9 @@ export function ChatPanel({
           </div>
         </div>
       ) : null}
+      <NotebookPanel open={notebookPanel.open} onClose={() => notebookPanel.setOpen(false)}>
+        {notebook.error ? <p className="text-sm leading-6 text-danger" role="alert">{notebook.error}</p> : <NotebookClient people={notebook.people} about={notebook.about} embedded />}
+      </NotebookPanel>
     </div>
   );
 }

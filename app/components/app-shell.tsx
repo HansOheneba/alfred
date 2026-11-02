@@ -5,7 +5,7 @@ import { useCallback, useEffect, useRef, useState, useSyncExternalStore, type Re
 
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 
-export type Section = "chat" | "dashboard" | "investments" | "review" | "notebook" | "settings";
+export type Section = "chat" | "dashboard" | "accounts" | "investments" | "review" | "notebook" | "settings";
 
 const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
   {
@@ -28,27 +28,14 @@ const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] 
     ),
   },
   {
+    section: "accounts", href: "/accounts", label: "Accounts",
+    icon: <path d="M3 7h16a2 2 0 0 1 2 2v10H5a2 2 0 0 1-2-2V7Zm0 0V5a2 2 0 0 1 2-2h12v4m0 5h4m-4 0v3h4" />,
+  },
+  {
     section: "investments",
     href: "/investments",
     label: "Investments",
     icon: <path d="m3 18 6-6 4 4 8-11m-6 0h6v6" />,
-  },
-  {
-    section: "review",
-    href: "/review",
-    label: "Review",
-    icon: <path d="M4 7h16m-4-4 4 4-4 4M20 17H4m4-4-4 4 4 4" />,
-  },
-  {
-    section: "notebook",
-    href: "/notebook",
-    label: "Notebook",
-    icon: (
-      <>
-        <path d="M6 3h11a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6z" />
-        <path d="M6 3v18M10 8h6M10 12h5" />
-      </>
-    ),
   },
   {
     section: "settings",

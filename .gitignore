@@ -43,3 +43,8 @@ alfred-*.json
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Local UI review exports and machine-specific browser harnesses
+/artifacts/
+/ui-preview/capture*.mjs
+/ui-preview/check*.mjs

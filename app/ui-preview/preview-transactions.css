@@ -1,0 +1,35 @@
+.alfred-preview-transactions .alfred-preview-transaction-filters {
+  display: grid;
+  grid-template-columns: minmax(180px, 1.8fr) repeat(3, minmax(130px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+.alfred-preview-transaction-field { display: flex; flex-direction: column; gap: 8px; min-width: 0; }
+.alfred-preview-transaction-field > span:first-child { color: var(--muted); font-size: 12px; font-weight: 500; line-height: 1.3; }
+.alfred-preview-transactions .alfred-preview-transaction-field :is(input, select) { min-height: 44px; height: 44px; border-radius: 12px; padding: 0 12px; min-width: 0; width: 100%; font-size: 14px; }
+.alfred-preview-transaction-select { position: relative; display: block; min-width: 0; }
+.alfred-preview-transactions .alfred-preview-transaction-select select { appearance: none; -webkit-appearance: none; padding-right: 44px; cursor: pointer; background-image: none; }
+.alfred-preview-transaction-select > svg { pointer-events: none; position: absolute; width: 16px; height: 16px; right: 12px; top: 50%; transform: translateY(-50%); color: var(--muted); }
+.alfred-preview-transaction-select:has(select:disabled) > svg { opacity: .5; }
+.alfred-preview-transaction-select select:disabled { cursor: default; opacity: .65; }
+.alfred-preview-transaction-time { display: block; color: var(--muted); font-size: 12px; line-height: 1.5; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.alfred-preview-transaction-date { display: block; line-height: 1.5; }
+.alfred-preview-transaction-time-note { color: var(--muted); font-size: 12px; white-space: nowrap; }
+
+@media (max-width: 1099px) {
+  .alfred-preview-transactions .alfred-preview-transaction-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+
+@media (max-width: 600px) {
+  .alfred-preview-transactions .alfred-preview-transaction-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px 12px; }
+  .alfred-preview-transaction-field:first-child { grid-column: 1 / -1; }
+  .alfred-preview-transaction-field:last-child { grid-column: 1 / -1; }
+  .alfred-preview-transaction-time-note { white-space: normal; text-align: right; max-width: 6rem; }
+  .alfred-preview-transactions .alfred-preview-transaction-field :is(input, select) { font-size: 14px; }
+  .alfred-preview-transaction-time { font-size: 12px; margin-top: 4px; }
+}
+
+.alfred-preview-transactions .alfred-preview-transaction-field > span:first-child { line-height: 16px; }
+.alfred-preview-transactions :is(input,select) { font-family: inherit; }
+@media(max-width:600px) { .alfred-preview-transactions .alfred-preview-transaction-field :is(input,select) { font-size:16px; } }
