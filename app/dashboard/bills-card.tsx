@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -26,6 +27,7 @@ export function BillsCard({
   currency,
   today,
   onAction,
+  showCategoryLink = false,
   reminderNote = "Confirmed bills get a Telegram reminder the day before they renew.",
 }: {
   bills: BillRecord[];
@@ -35,6 +37,7 @@ export function BillsCard({
   today: string;
   onAction?: (action: BillAction) => Promise<unknown>;
   reminderNote?: string;
+  showCategoryLink?: boolean;
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
@@ -163,6 +166,8 @@ export function BillsCard({
           ) : null}
         </div>
       )}
+
+      {showCategoryLink ? <Link href="/accounts?tab=needs-attention" className="mt-4 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs font-medium text-accent hover:bg-accent-soft"><span>Missing a category? Categorise an incoming payment</span><span aria-hidden="true">↗</span></Link> : null}
 
       <Dialog
         open={open}

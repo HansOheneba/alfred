@@ -3,6 +3,7 @@
 import { useEffect, useState, type ReactNode } from "react";
 import type { AccountingAction, AccountingState } from "@/lib/finance/accounting/types";
 import { AccountsWorkspace } from "./accounts-workspace";
+import { AccountsErrorState, AccountsLoading } from "./accounts-status";
 
 type Payload = { ok: true; state: AccountingState; availability: "ready" | "migration-required" };
 async function readResponse(response: Response): Promise<Payload> {
@@ -27,6 +28,6 @@ export function AccountsClient({ defaultCurrency, subscriptions }: { defaultCurr
     }
     const next = await readResponse(response); setPayload(next); return next.state;
   }
-  if (!payload) return <div className="alfred-accounts"><h1>Accounts</h1>{error ? <div className="alfred-accounts-message is-error" role="alert"><p>{error}</p><button onClick={() => setRetry((value) => value+1)}>Retry</button></div> : <p role="status">Loading your account records…</p>}</div>;
+  if (!payload) return error ? <AccountsErrorState message={error} onRetry={() => { setError(""); setRetry((value) => value+1); }} /> : <AccountsLoading />;
   return <AccountsWorkspace state={payload.state} dispatch={dispatch} mode="live" availability={payload.availability} defaultCurrency={defaultCurrency} subscriptions={subscriptions} />;
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, useSyncExternalStore } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { NotebookIcon, NotebookPanel, useNotebookPanel, type ChatNotebookData } from "@/app/chat/notebook-panel";
@@ -12,6 +12,8 @@ import type { ChatChart } from "@/lib/accounts/messages";
 import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { Ledger } from "@/lib/web/ledger";
+
+import "./chat.css";
 
 type ServerMessage = {
   id: string;
@@ -42,7 +44,7 @@ const noSubscribe = () => () => {};
 
 export const STATS_EVENT = "alfred:open-stats";
 
-/** Opens the month-at-a-glance sheet from the phone top bar. */
+/** Retained for existing controls that open the conversation context sheet. */
 export function StatsButton() {
   return (
     <button
@@ -70,15 +72,17 @@ export function ChatPanel({
   initialMessages,
   ledger,
   notebook,
+  initialQuestion = "",
 }: {
   ownerId: string;
   name: string;
   initialMessages: ThreadMessage[];
   ledger: Ledger;
   notebook: ChatNotebookData;
+  initialQuestion?: string;
 }) {
   const router = useRouter();
-  const [text, setText] = useState("");
+  const [text, setText] = useState(initialQuestion);
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -92,7 +96,15 @@ export function ChatPanel({
   const sending = useRef(false);
   const stickToBottom = useRef(true);
 
-  // The phone top bar's stats button lives outside this component and asks for the sheet by event.
+  // A dashboard question is a draft, never an automatic financial action or POST.
+  useEffect(() => {
+    if (!initialQuestion) return;
+    const node = inputRef.current;
+    node?.focus({ preventScroll: true });
+    node?.setSelectionRange(initialQuestion.length, initialQuestion.length);
+  }, [initialQuestion]);
+
+  // Existing callers can also ask for the context sheet by event.
   useEffect(() => {
     const open = () => setStatsOpen(true);
     window.addEventListener(STATS_EVENT, open);
@@ -102,7 +114,7 @@ export function ChatPanel({
   useEffect(() => {
     const node = threadRef.current;
     if (!node || !stickToBottom.current) return;
-    node.scrollTop = node.scrollHeight;
+    node.scrollTop = messages.length > 0 || busy ? node.scrollHeight : 0;
   }, [messages, busy]);
 
   useEffect(() => {
@@ -343,246 +355,105 @@ export function ChatPanel({
   const showFollowUps = !busy && last?.role === "assistant" && !(last.actionId && !last.settled) && text.length === 0;
 
   return (
-    <div className="flex min-h-0 flex-1">
-      <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-line px-4 py-3 sm:px-6">
-          <p className="text-xs text-muted">Conversation</p>
-          <div className="flex items-center gap-2">
-            <button type="button" className="alfred-notebook-open" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => { setStatsOpen(false); notebookPanel.setOpen(true); }}><NotebookIcon/>Notebook</button>
-            <button
-              type="button"
-              onClick={() => setStatsOpen(true)}
-              aria-label="This month at a glance"
-              className="hidden size-11 place-items-center rounded-xl border border-line bg-surface text-muted hover:text-ink focus-visible:outline-2 focus-visible:outline-accent md:grid xl:hidden"
-            >
-              <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                <path d="M5 20V11m7 9V5m7 15v-6" />
-              </svg>
-            </button>
+    <div className="alfred-production-chat">
+      <section className="alfred-production-chat-conversation" aria-label="Chat with Alfred">
+        <header className="alfred-production-chat-header">
+          <div className="alfred-production-chat-identity">
+            <AlfredMark size="size-8 alfred-production-chat-mark" />
+            <div><h1>Alfred</h1><p><span className="alfred-production-chat-desktopLabel">Your money, in context</span><span className="alfred-production-chat-mobileLabel">Assistant</span></p></div>
           </div>
-        </div>
-        <div
-          ref={threadRef}
-          tabIndex={0}
-          className="min-h-0 flex-1 overflow-y-auto overscroll-contain focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-line-strong"
-          aria-busy={busy}
-          onScroll={onThreadScroll}
-        >
+          <div className="alfred-production-chat-tools" role="group" aria-label="Conversation actions">
+            <button type="button" className="alfred-production-chat-contextToggle" aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span>Context</span></button>
+            <button type="button" aria-label="Notebook" title="Notebook" aria-haspopup="dialog" aria-expanded={notebookPanel.open} aria-controls="alfred-chat-notebook" onClick={() => { setStatsOpen(false); notebookPanel.setOpen(true); }}><NotebookIcon /><span>Notebook</span></button>
+            <button type="button" className="alfred-production-chat-new" aria-label="New message" title="New message — keep saved conversation" disabled={busy} onClick={() => { setText(""); inputRef.current?.focus(); }}><ChatIcon><path d="M12 4H5a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2h13a2 2 0 0 0 2-2v-7M16 3l5 5M10 14l2-6 5-5a2.1 2.1 0 0 1 3 3l-5 5-5 3Z" /></ChatIcon><span>New message</span></button>
+          </div>
+        </header>
+
+        <div ref={threadRef} tabIndex={0} className="alfred-production-chat-scroll" aria-busy={busy} onScroll={onThreadScroll}>
           {messages.length === 0 ? (
-            <div className="mx-auto flex min-h-full w-full max-w-2xl flex-col items-center justify-center px-4 py-10 text-center">
-              <AlfredMark size="size-14" />
-              <h1 className="mt-5 font-display text-2xl font-medium tracking-tight">{hello || "Hello."}</h1>
-              <p className="mt-2 max-w-md text-sm leading-6 text-muted">
-                Tell me what you spend or earn and I&apos;ll keep the books. Ask where your money goes and I&apos;ll tell you honestly. This is the same conversation as Telegram.
-              </p>
-              <div className="mt-8 grid w-full max-w-lg grid-cols-1 gap-2 sm:grid-cols-2">
-                {STARTERS.map((suggestion) => (
-                  <button
-                    key={suggestion.label}
-                    type="button"
-                    onClick={() => pickSuggestion(suggestion)}
-                    className="rounded-2xl border border-line bg-surface px-4 py-3 text-left text-sm text-ink transition hover:border-accent/40 hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-accent"
-                  >
-                    {suggestion.label}
-                  </button>
-                ))}
-              </div>
+            <div className="alfred-production-chat-empty">
+              <AlfredMark size="size-12 alfred-production-chat-emptyMark" />
+              <h2>{hello || "Hello."}</h2>
+              <p>Tell me what you spend or earn and I&apos;ll keep the books. Ask where your money goes and I&apos;ll tell you honestly. This is the same conversation as Telegram.</p>
+              <div className="alfred-production-chat-starters">{STARTERS.map((suggestion) => <button key={suggestion.label} type="button" disabled={busy} onClick={() => pickSuggestion(suggestion)}>{suggestion.label}<span aria-hidden="true">↗</span></button>)}</div>
             </div>
           ) : (
-            <div className="mx-auto flex w-full max-w-3xl flex-col gap-7 px-4 pb-6 pt-6 sm:px-6 xl:pt-8" role="log" aria-label="Conversation" aria-relevant="additions">
-              {messages.map((message, index) =>
-                message.role === "assistant" ? (
-                  <article key={threadKey(message)} className="min-w-0">
-                    {message.channel === "telegram" ? (
-                      <p className="mb-1.5">
-                        <TelegramBadge />
-                      </p>
-                    ) : null}
-                    <div>
-                      <p className="whitespace-pre-wrap text-base leading-7 text-ink">{message.text}</p>
-                      {message.chart ? <ReplyChart chart={message.chart} /> : null}
-                      {message.actionId && !message.settled ? (
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            type="button"
-                            disabled={busy}
-                            className="h-8 rounded-full bg-accent px-4 text-xs font-medium text-accent-ink hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
-                            onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}
-                          >
-                            Confirm
-                          </button>
-                          <button
-                            type="button"
-                            disabled={busy}
-                            className="h-8 rounded-full border border-line-strong px-4 text-xs text-ink hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:opacity-40"
-                            onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}
-                          >
-                            Cancel
-                          </button>
-                        </div>
-                      ) : null}
-                    </div>
-                  </article>
-                ) : (
-                  <article key={threadKey(message)} className="flex flex-col items-end">
-                    {message.channel === "telegram" ? (
-                      <span className="mb-1">
-                        <TelegramBadge />
-                      </span>
-                    ) : null}
-                    <div
-                      className={`max-w-[85%] rounded-2xl bg-surface-2 px-4 py-2.5 text-base leading-7 text-ink ${
-                        message.status === "sending" ? "opacity-70" : ""
-                      }`}
-                    >
-                      <p className="whitespace-pre-wrap">{message.text}</p>
-                    </div>
-                    {canRetry(message, index) ? (
-                      <button
-                        type="button"
-                        className="mt-1.5 text-xs text-danger underline-offset-2 hover:underline focus-visible:outline-2 focus-visible:outline-accent"
-                        onClick={() => submitText(message.text, message.clientId ?? undefined)}
-                      >
-                        Not sent · Retry
-                      </button>
-                    ) : null}
-                  </article>
-                ),
-              )}
-              {busy ? (
-                <div className="flex items-center gap-3" role="status" aria-label="Alfred is thinking">
-                  <span className="relative">
-                    <span className="alfred-avatar-glow pointer-events-none absolute -inset-2 rounded-full" aria-hidden="true" />
-                    <AlfredMark size="size-7" />
-                  </span>
-                  <span className="flex gap-1" aria-hidden="true">
-                    <span className="alfred-dot size-1.5 rounded-full bg-accent" />
-                    <span className="alfred-dot size-1.5 rounded-full bg-accent [animation-delay:0.15s]" />
-                    <span className="alfred-dot size-1.5 rounded-full bg-accent [animation-delay:0.3s]" />
-                  </span>
-                </div>
-              ) : null}
-              {error ? (
-                <p className="text-sm text-danger" role="alert">
-                  {error}
-                </p>
-              ) : null}
+            <div className="alfred-production-chat-thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
+              {messages.map((message, index) => message.role === "assistant" ? (
+                <article key={threadKey(message)} className="alfred-production-chat-assistant">
+                  <div className="alfred-production-chat-messageIdentity"><AlfredMark size="size-6" /><span>Alfred</span>{message.channel === "telegram" ? <TelegramBadge /> : null}</div>
+                  <div className="alfred-production-chat-assistantContent">
+                    <p>{message.text}</p>
+                    {message.chart ? <ReplyChart chart={message.chart} /> : null}
+                    {message.actionId && !message.settled ? <div className="alfred-production-chat-decisions"><button type="button" disabled={busy} className="is-primary" onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}>Confirm</button><button type="button" disabled={busy} onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}>Cancel</button></div> : null}
+                  </div>
+                </article>
+              ) : (
+                <article key={threadKey(message)} className="alfred-production-chat-user" data-sending={message.status === "sending"}>
+                  {message.channel === "telegram" ? <TelegramBadge /> : null}
+                  <div className="alfred-production-chat-userRow"><div><p>{message.text}</p></div><span className="alfred-production-chat-userAvatar" aria-label={name || "You"}>{name.trim().charAt(0).toUpperCase() || "Y"}</span></div>
+                  {canRetry(message, index) ? <button type="button" className="alfred-production-chat-retry" onClick={() => submitText(message.text, message.clientId ?? undefined)}>Not sent · Retry</button> : null}
+                </article>
+              ))}
             </div>
           )}
+          {busy ? <div className="alfred-production-chat-thinking" role="status" aria-label="Alfred is thinking"><AlfredMark size="size-7" /><span aria-hidden="true"><i className="alfred-dot" /><i className="alfred-dot" /><i className="alfred-dot" /></span></div> : null}
+          {error ? <p className="alfred-production-chat-error" role="alert">{error}</p> : null}
         </div>
 
-        <form
-          className="shrink-0 bg-bg"
-          onSubmit={(event) => {
-            event.preventDefault();
-            submitText(text);
-          }}
-        >
-          <div className="mx-auto w-full max-w-3xl px-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] sm:px-6">
-            {showFollowUps ? (
-              <div className="-mx-4 mb-2 flex gap-2 overflow-x-auto px-4 pb-1">
-                {FOLLOW_UPS.map((suggestion) => (
-                  <button
-                    key={suggestion.label}
-                    type="button"
-                    onClick={() => pickSuggestion(suggestion)}
-                    className="shrink-0 rounded-full border border-line bg-surface px-3 py-1.5 text-xs text-muted transition hover:border-accent/40 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent"
-                  >
-                    {suggestion.label}
-                  </button>
-                ))}
-              </div>
-            ) : null}
-            <label className="sr-only" htmlFor="alfred-message">
-              Message Alfred
-            </label>
-            <div className="rounded-[28px] border border-line-strong bg-surface px-3 pb-2 pt-3 shadow-sm transition focus-within:border-accent/50">
-              <textarea
-                ref={inputRef}
-                id="alfred-message"
-                className="block max-h-[200px] min-h-7 w-full resize-none bg-transparent px-2 text-base leading-7 text-ink outline-none placeholder:text-faint"
-                value={text}
-                maxLength={2000}
-                rows={1}
-                placeholder="Message Alfred"
-                enterKeyHint="send"
-                onChange={(event) => setText(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
-                    event.preventDefault();
-                    event.currentTarget.form?.requestSubmit();
-                  }
-                }}
-              />
-              <div className="mt-2 flex items-center justify-between">
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => fileRef.current?.click()}
-                  aria-label="Attach a screenshot"
-                  className="grid size-9 place-items-center rounded-full text-muted transition hover:bg-surface-2 hover:text-ink focus-visible:outline-2 focus-visible:outline-accent disabled:opacity-40"
-                >
-                  <svg viewBox="0 0 24 24" className="size-5" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-                    <path d="M12 5v14M5 12h14" />
-                  </svg>
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="image/png,image/jpeg,image/webp,image/heic,image/heif"
-                  className="hidden"
-                  onChange={(event) => {
-                    const file = event.target.files?.[0];
-                    event.target.value = "";
-                    if (file) void uploadImage(file);
-                  }}
-                />
-                <button
-                  type="submit"
-                  disabled={busy || text.trim().length === 0}
-                  aria-label="Send"
-                  className="grid size-9 shrink-0 place-items-center rounded-full bg-accent text-accent-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:bg-surface-2 disabled:text-faint"
-                >
-                  <svg viewBox="0 0 24 24" className="size-4" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                    <path d="M12 19V5m-6 6 6-6 6 6" />
-                  </svg>
-                </button>
-              </div>
+        <div className="alfred-production-chat-composeArea">
+          {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
+          {showFollowUps ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{FOLLOW_UPS.map((suggestion) => <button key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
+          <form className="alfred-production-chat-composer" onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
+            <label htmlFor="alfred-message">Message Alfred</label>
+            <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={2} placeholder="Ask about your spending, budget or accounts…" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
+            <div className="alfred-production-chat-composerFooter">
+              <div><button type="button" disabled={busy} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button><span>Enter to send · Shift + Enter for a new line</span></div>
+              <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadImage(file); }} />
+              <button type="submit" disabled={busy || text.trim().length === 0} aria-label="Send" className="alfred-production-chat-send"><span>Send</span><ChatIcon><path d="M12 19V5m-6 6 6-6 6 6" /></ChatIcon></button>
             </div>
-            <p className="mt-2 hidden text-center text-xs text-faint sm:block">Enter to send · Shift+Enter for a new line · Alfred can make mistakes, so check anything important.</p>
-          </div>
-        </form>
-      </div>
-
-      <aside className="hidden w-80 shrink-0 overflow-y-auto border-l border-line bg-surface p-5 xl:block" aria-label="This month">
-        <StatsPanel ledger={ledger} />
-      </aside>
-
-      {statsOpen ? (
-        <div className="fixed inset-0 z-40 xl:hidden" role="dialog" aria-modal="true" aria-label="This month">
-          <button type="button" aria-label="Close" className="absolute inset-0 bg-black/60" onClick={() => setStatsOpen(false)} />
-          <div className="absolute inset-x-0 bottom-0 max-h-[85dvh] overflow-y-auto rounded-t-3xl border-t border-line-strong bg-surface p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl">
-            <div className="mb-4 flex items-center justify-between">
-              <span className="mx-auto h-1 w-10 rounded-full bg-line-strong" aria-hidden="true" />
-            </div>
-            <StatsPanel ledger={ledger} />
-            <button type="button" onClick={() => setStatsOpen(false)} className="mt-5 w-full rounded-full border border-line-strong py-2 text-sm text-muted">
-              Close
-            </button>
-          </div>
+          </form>
+          <p className="alfred-production-chat-disclaimer">Alfred can make mistakes. Check anything important.</p>
         </div>
-      ) : null}
-      <NotebookPanel open={notebookPanel.open} onClose={() => notebookPanel.setOpen(false)}>
-        {notebook.error ? <p className="text-sm leading-6 text-danger" role="alert">{notebook.error}</p> : <NotebookClient people={notebook.people} about={notebook.about} embedded />}
-      </NotebookPanel>
+      </section>
+
+      <aside className="alfred-production-chat-context" aria-label="Conversation context"><StatsPanel ledger={ledger} /></aside>
+      <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}><StatsPanel ledger={ledger} /></ContextSheet>
+      <NotebookPanel open={notebookPanel.open} onClose={() => notebookPanel.setOpen(false)}>{notebook.error ? <p className="text-sm leading-6 text-danger" role="alert">{notebook.error}</p> : <NotebookClient people={notebook.people} about={notebook.about} embedded />}</NotebookPanel>
     </div>
   );
 }
 
+function ChatIcon({ children }: { children: ReactNode }) {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>;
+}
+
+function ContextSheet({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+  const dialog = useRef<HTMLDialogElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const node = dialog.current;
+    if (!node) return;
+    if (open && !node.open) { previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; node.showModal(); }
+    else if (!open && node.open) { node.close(); previousFocus.current?.focus({ preventScroll: true }); }
+  }, [open]);
+  return <dialog ref={dialog} id="alfred-production-chat-contextSheet" className="alfred-production-chat-contextSheet" aria-labelledby="alfred-production-chat-contextTitle" onCancel={(event) => { event.preventDefault(); onClose(); }} onClose={() => { previousFocus.current?.focus({ preventScroll: true }); if (open) onClose(); }} onClick={(event) => {
+    if (event.target !== event.currentTarget) return;
+    const box = event.currentTarget.getBoundingClientRect();
+    if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) onClose();
+  }} onKeyDown={(event) => {
+    if (event.key !== "Tab") return;
+    const controls = [...event.currentTarget.querySelectorAll<HTMLElement>('button:not([disabled]),a[href],input:not([disabled]),textarea:not([disabled]),select:not([disabled]),[tabindex="0"]')].filter((node) => node.getClientRects().length);
+    const first = controls[0], last = controls.at(-1);
+    if (event.shiftKey && document.activeElement === first && last) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last && first) { event.preventDefault(); first.focus(); }
+  }}><header><div><h2 id="alfred-production-chat-contextTitle">Conversation context</h2><p>Your recorded activity, alongside Chat</p></div><button type="button" aria-label="Close context" onClick={onClose} autoFocus><ChatIcon><path d="m6 6 12 12M6 18 18 6" /></ChatIcon></button></header><div className="alfred-production-chat-contextSheetBody">{children}</div><footer><button type="button" onClick={onClose}>Back to chat <span aria-hidden="true">↗</span></button></footer></dialog>;
+}
+
 function TelegramBadge() {
   return (
-    <span className="inline-flex items-center gap-1 rounded-full bg-[#2aabee]/15 px-2 py-0.5 text-[10px] font-medium text-[#2aabee]">
-      <svg viewBox="0 0 24 24" className="size-2.5" fill="currentColor" aria-hidden="true">
+    <span className="alfred-production-chat-telegram">
+      <svg viewBox="0 0 24 24" className="size-3" fill="currentColor" aria-hidden="true">
         <path d="M21.9 4.3 18.7 19.5c-.2 1-.9 1.3-1.7.8l-4.8-3.5-2.3 2.2c-.3.3-.5.5-1 .5l.3-4.9 8.9-8c.4-.3-.1-.5-.6-.2l-11 6.9-4.7-1.5c-1-.3-1-1 .2-1.5L20.5 3c.9-.3 1.6.2 1.4 1.3z" />
       </svg>
       Telegram

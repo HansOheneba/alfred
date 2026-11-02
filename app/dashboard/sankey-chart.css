@@ -1,0 +1,72 @@
+.alfred-flow { --flow-gap: 64px; --flow-center: 214px; }
+.alfred-flow-headings, .alfred-flow-diagram { display: grid; grid-template-columns: minmax(0,1fr) var(--flow-center) minmax(0,1.15fr); gap: var(--flow-gap); }
+.alfred-flow-headings { margin-bottom: 16px; color: var(--muted); font-size: 12px; font-weight: 500; }
+.alfred-flow-headings p:nth-child(2) { text-align: center; }
+.alfred-flow-diagram { position: relative; align-items: center; min-width: 0; padding-block: 8px; }
+.alfred-flow-curves { position: absolute; inset: 0; height: 100%; width: 100%; overflow: visible; pointer-events: none; }
+.alfred-flow-curves path { transition: opacity 150ms ease; }
+.alfred-flow-sources, .alfred-flow-destinations { position: relative; min-width: 0; }
+.alfred-flow-sources ul, .alfred-flow-destinations ul { display: grid; gap: 8px; }
+.alfred-flow-node { position: relative; display: flex; align-items: center; justify-content: space-between; gap: 12px; width: 100%; min-height: 48px; padding: 12px 16px 12px 20px; border-radius: 8px; border: 1px solid var(--line); background: var(--surface); text-align: left; color: var(--ink); transition: border-color 150ms ease,background 150ms ease; }
+.alfred-flow-node::before { content: ""; position: absolute; width: 4px; left: 0px; top: 12px; bottom: 12px; border-radius: 4px; background: var(--flow-hue); }
+.alfred-flow-sources .alfred-flow-node { min-height: 68px; }
+.alfred-flow-income { background: color-mix(in srgb,var(--income) 5%,var(--surface)); }
+.alfred-flow-expense { background: color-mix(in srgb,var(--outgoing) 3%,var(--surface)); }
+.alfred-flow-net { background: color-mix(in srgb,var(--brand) 6%,var(--surface)); }
+.alfred-flow-gap { border-style: dashed; background: var(--surface-2); }
+.alfred-flow-node:hover, .alfred-flow-node[aria-pressed="true"] { border-color: var(--flow-hue); background: color-mix(in srgb,var(--flow-hue) 10%,var(--surface)); }
+.alfred-flow-node:focus-visible { outline: 2px solid var(--flow-hue); outline-offset: 4px; }
+.alfred-flow-nodeLabel { font-size: 12px; font-weight: 500; line-height: 1.45; }
+.alfred-flow-nodeLabel small { display: block; margin-top: 4px; font-size: 12px; font-weight: 400; color: var(--muted); }
+.alfred-flow-nodeAmount { flex-shrink: 0; font-size: 14px; font-weight: 600; letter-spacing: -.015em; }
+.alfred-flow-net .alfred-flow-nodeAmount { color: var(--brand); }
+.alfred-flow-pool { position: relative; display: flex; flex-direction: column; align-items: center; padding: 24px 16px 20px; border-radius: 16px; border: 1px solid var(--line-strong); background: var(--surface); text-align: center; box-shadow: 0 7px 26px #17362b08; }
+.alfred-flow-poolEyebrow { color: var(--muted); font-size: 12px; font-weight: 500; }
+.alfred-flow-poolValue { margin-top: 8px; font-size: 24px; font-weight: 600; line-height: 1.2; letter-spacing: -.045em; }
+.alfred-flow-poolNote { margin-top: 4px; color: var(--muted); font-size: 12px; }
+.alfred-flow-pool dl { width: 100%; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); display: grid; gap: 12px; }
+.alfred-flow-pool dl > div { display: flex; flex-direction: column; gap: 4px; }
+.alfred-flow-pool dt { color: var(--muted); font-size: 12px; }
+.alfred-flow-pool dd { font-size: 14px; font-weight: 600; }
+.alfred-flow-netValue { color: var(--brand); }
+.alfred-flow-gapValue { color: var(--outgoing); }
+.alfred-flow-mobileTitle { display: none; }
+.alfred-flow-footer { display: grid; grid-template-columns: minmax(0,1fr) minmax(230px,.7fr); align-items: start; gap: 24px; margin-top: 20px; padding-top: 16px; border-top: 1px solid var(--line); }
+.alfred-flow-footer > p { font-size: 12px; line-height: 1.7; color: var(--muted); }
+.alfred-flow-inspection { display: flex; flex-wrap: wrap; justify-content: end; column-gap: 12px; row-gap: 4px; min-height: 20px; }
+.alfred-flow-inspection strong { font-weight: 600; color: var(--ink); }
+.alfred-flow-inspection > span:last-child { flex-basis: 100%; text-align: right; }
+.alfred-flow-empty { padding: 24px 20px; border: 1px dashed var(--line); border-radius: 12px; text-align: center; font-size: 14px; line-height: 1.7; color: var(--muted); }
+@media (max-width: 1199px) {
+  .alfred-flow { --flow-gap: 40px; --flow-center: 196px; }
+  .alfred-flow-node { padding-inline: 12px; gap: 8px; }
+  .alfred-flow-nodeAmount { font-size: 12px; }
+  .alfred-flow-poolValue { font-size: 24px; }
+}
+@media (max-width: 840px) {
+  .alfred-flow-headings, .alfred-flow-curves { display: none; }
+  .alfred-flow-diagram { grid-template-columns: minmax(0,1fr); gap: 36px; padding: 0; }
+  .alfred-flow-sources ul, .alfred-flow-destinations ul { grid-template-columns: repeat(2,minmax(0,1fr)); }
+  .alfred-flow-node, .alfred-flow-sources .alfred-flow-node { min-height: 76px; flex-direction: column; align-items: start; justify-content: center; gap: 4px; padding: 12px 16px; }
+  .alfred-flow-nodeAmount { font-size: 14px; }
+  .alfred-flow-nodeLabel { font-size: 12px; }
+  .alfred-flow-gapItem { grid-column: 1 / -1; }
+  .alfred-flow-destinations li:has(> .alfred-flow-net) { grid-column: 1 / -1; }
+  .alfred-flow-mobileTitle { display: block; margin-bottom: 12px; font-size: 12px; font-weight: 500; color: var(--muted); }
+  .alfred-flow-pool { padding: 20px; margin-inline: 0; }
+  .alfred-flow-pool::before, .alfred-flow-destinations::before { content: "↓"; position: absolute; top: -28px; left: calc(50% - 8px); font-size: 20px; line-height: 20px; color: var(--faint); }
+  .alfred-flow-poolValue { font-size: 28px; }
+  .alfred-flow-pool dl { grid-template-columns: repeat(2,minmax(0,1fr)); padding-top: 12px; margin-top: 16px; gap: 8px; }
+  .alfred-flow-pool dl > div + div { border-left: 1px solid var(--line); }
+  .alfred-flow-pool dd { font-size: 14px; }
+  .alfred-flow-footer { grid-template-columns: 1fr; gap: 12px; margin-top: 16px; }
+  .alfred-flow-inspection { justify-content: start; }
+  .alfred-flow-inspection > span:last-child { text-align: left; }
+}
+@media (max-width: 349px) { .alfred-flow-node { padding-inline: 12px; } .alfred-flow-nodeAmount { font-size: 12px; } }
+@media (prefers-reduced-motion: reduce) { .alfred-flow-curves path, .alfred-flow-node { transition: none; } }
+
+.alfred-flow-nodeLabel, .alfred-flow-nodeAmount { line-height: 20px; }
+.alfred-flow-nodeLabel small, .alfred-flow-poolEyebrow, .alfred-flow-poolNote, .alfred-flow-pool dt, .alfred-flow-footer > p { line-height: 16px; }
+.alfred-flow-poolValue { font-size: 28px; line-height: 36px; }
+.alfred-flow-pool dd { line-height: 20px; }
