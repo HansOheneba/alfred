@@ -36,6 +36,7 @@ import { converse } from "@/lib/conversation/turn";
 import { welcomeFor } from "@/lib/conversation/welcome";
 import { userFacingError, UNLINKED_TEXT } from "@/lib/telegram/messages";
 import { createSupabaseInvestmentStore, type InvestmentStore } from "@/lib/investments/store";
+import { ACCOUNT_RULE_INTENT_GUIDANCE, createAccountRuleBotDeps, handleAccountRuleBotCommand, isScopedAccountRuleIntent, type AccountRuleBotDeps } from "@/lib/account-rules/bot-command";
 
 export type HandlerDeps = {
   settings: AppSettings;
@@ -54,6 +55,8 @@ export type HandlerDeps = {
   people?: PeopleStore | null;
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
+  /** Explicit fixed commands; never interpreted by the language model. */
+  accountRuleCommands?: AccountRuleBotDeps | null;
   /** Downloads and reads a photo the person sent. */
   readPhoto?: ((fileId: string) => Promise<ImageText>) | null;
   /** Files a screenshot of bank texts; null when it isn't one. */
@@ -117,6 +120,17 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   if (command === "start" || command === "help") {
     await deps.telegram.sendMessage(actor.chatId, await welcomeFor(profile, deps.bank));
     return { httpStatus: 200 };
+  }
+  if (command === "rule") {
+    if (!deps.store) {
+      await deps.telegram.sendMessage(actor.chatId, "Account-rule commands require finance storage. No rule was created.");
+      return { httpStatus: 200 };
+    }
+    return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async () => ({ kind: "text", text: await handleAccountRuleBotCommand(text, profile.profileId, String(actor.chatId), deps.accountRuleCommands) ?? "Use /rule help for the fixed command syntax.", intent: "account-rule:command" }));
+  }
+  if (!command && isScopedAccountRuleIntent(text)) {
+    if (!deps.store) { await deps.telegram.sendMessage(actor.chatId, ACCOUNT_RULE_INTENT_GUIDANCE); return { httpStatus: 200 }; }
+    return withClaim(update.update_id, actor, profile, deps, { userText: text, channel: "telegram" }, async () => ({ kind: "text", text: ACCOUNT_RULE_INTENT_GUIDANCE, intent: "account-rule:guidance" }));
   }
   if (command) {
     await deps.telegram.sendMessage(actor.chatId, "I don't have that command. Tell me what you spent, or ask how your money is looking.");
@@ -412,6 +426,7 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     investments: settings.supabase ? createSupabaseInvestmentStore(settings.supabase) : null,
     people: settings.supabase ? createSupabasePeopleStore(settings.supabase) : null,
     notebook: settings.supabase ? createSupabaseNotebookStore(settings.supabase) : null,
+    accountRuleCommands: settings.supabase ? createAccountRuleBotDeps(settings.supabase) : null,
     readPhoto: settings.deepseek
       ? async (fileId) => {
           const bytes = await downloadTelegramFile(settings.telegramBotToken, fileId, fetchImpl);

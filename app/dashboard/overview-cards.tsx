@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 
+import { buttonClassName } from "@/app/components/button-styles";
 import { EmptyState } from "@/app/components/ui";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 
@@ -42,15 +43,15 @@ export function MonthlyInsights({ insights }: { insights: string[] }) {
   }
 
   return <section className="alfred-ui-insights" aria-labelledby="monthly-insights-title">
-    <div className="alfred-ui-insightsHeader"><div><h2 id="monthly-insights-title">Alfred&apos;s insights · this month</h2><p>Your monthly summary</p></div><button type="button" className="alfred-ui-insightRefresh" disabled={refreshing} onClick={() => startRefresh(() => router.refresh())}>{refreshing ? "Refreshing…" : "Refresh"}</button></div>
+    <div className="alfred-ui-insightsHeader"><div><h2 id="monthly-insights-title">Alfred&apos;s insights · this month</h2><p>Your monthly summary</p></div><button type="button" className={buttonClassName({ className: "alfred-ui-insightRefresh" })} disabled={refreshing} onClick={() => startRefresh(() => router.refresh())}>{refreshing ? "Refreshing…" : "Refresh"}</button></div>
     {insights.length === 0 ? <EmptyState>Insights appear once a few expenses are logged.</EmptyState> : <ul id="monthly-insight-rows" className="alfred-ui-insightRows">{(expanded ? insights : insights.slice(0, 3)).map((line) => <li key={line}><span className="alfred-ui-insightSpark" aria-hidden="true">✦</span><p>{line}</p></li>)}</ul>}
-    {insights.length > 3 ? <button type="button" className="mt-2 inline-flex min-h-11 items-center text-xs font-medium text-accent" aria-expanded={expanded} aria-controls="monthly-insight-rows" onClick={() => setExpanded((value) => !value)}>{expanded ? "Show fewer insights" : `Show ${insights.length - 3} more insight${insights.length - 3 === 1 ? "" : "s"}`}</button> : null}
+    {insights.length > 3 ? <button type="button" className={buttonClassName({ variant: "ghost", className: "mt-2" })} aria-expanded={expanded} aria-controls="monthly-insight-rows" onClick={() => setExpanded((value) => !value)}>{expanded ? "Show fewer insights" : `Show ${insights.length - 3} more insight${insights.length - 3 === 1 ? "" : "s"}`}</button> : null}
     <div className="alfred-ui-insightComposer">
     {open ? <form id="insight-question-form" className="alfred-ui-insightQuestionForm" onSubmit={ask}>
         <label htmlFor="insight-question" className="sr-only">Ask about these insights</label>
-        <div className="alfred-ui-insightInput"><AlfredAvatar sizeClass="size-6" sizes="24px" /><input ref={input} id="insight-question" value={question} onChange={(event) => { setQuestion(event.target.value); setError(""); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setOpen(false); setError(""); requestAnimationFrame(() => trigger.current?.focus()); } }} placeholder="Ask Alfred…" maxLength={280}/><button type="submit" aria-label="Ask question"><Icon><path d="M12 19V5m-6 6 6-6 6 6"/></Icon></button></div>
+        <div className="alfred-ui-insightInput"><AlfredAvatar sizeClass="size-6" sizes="24px" /><input ref={input} id="insight-question" value={question} onChange={(event) => { setQuestion(event.target.value); setError(""); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setOpen(false); setError(""); requestAnimationFrame(() => trigger.current?.focus()); } }} placeholder="Ask Alfred…" maxLength={280}/><button type="submit" className={buttonClassName({ variant: "primary", size: "icon" })} aria-label="Ask question"><Icon><path d="M12 19V5m-6 6 6-6 6 6"/></Icon></button></div>
         {error ? <p role="alert">{error}</p> : null}
-      </form> : <button ref={trigger} type="button" className="alfred-ui-insightAskButton" aria-expanded={false} aria-controls="insight-question-form" onClick={() => { setOpen(true); requestAnimationFrame(() => input.current?.focus()); }}><AlfredAvatar sizeClass="size-6" sizes="24px" /> Ask Alfred</button>}
+      </form> : <button ref={trigger} type="button" className={buttonClassName({ variant: "soft", className: "alfred-ui-insightAskButton" })} aria-expanded={false} aria-controls="insight-question-form" onClick={() => { setOpen(true); requestAnimationFrame(() => input.current?.focus()); }}><AlfredAvatar sizeClass="size-6" sizes="24px" /> Ask Alfred</button>}
     </div>
     <p role="status" className="sr-only">{refreshing ? "Refreshing monthly insights from your recorded activity." : "Monthly insights reflect your recorded activity."}</p>
   </section>;

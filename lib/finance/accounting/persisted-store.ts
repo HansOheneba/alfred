@@ -2,10 +2,12 @@ import type { SupabaseSettings } from "../../config";
 import { createSupabaseBankStore } from "../../bank/store";
 import { listRawTransactions } from "../../supabase/finance-store";
 import { query } from "../../supabase/connection";
+import { loadAccountRules } from "../../account-rules/store";
+import { applyAccountRules } from "../../account-rules/matcher";
 import type { TransactionRecord } from "../types";
 import { actionFingerprint, applyAccountingAction } from "./reducer";
 import { hydrateAccountingSources, sourceMovements } from "./sources";
-import { AccountingError, emptyAccountingState, type AccountingAction, type AccountingState } from "./types";
+import { AccountingError, emptyAccountingState, type AccountingAction, type AccountingState, type CashMovement } from "./types";
 
 export type AccountingResult={state:AccountingState;availability:"ready"|"migration-required";sourceVersion:string|null;rawTransactions:TransactionRecord[]};
 async function sourceVersion(settings:SupabaseSettings,ownerId:string) {
@@ -15,20 +17,27 @@ async function sourceVersion(settings:SupabaseSettings,ownerId:string) {
 
 /** Does not initialize or migrate tables. Legacy ledgers remain usable before the additive migration. */
 export async function loadAccountingState(settings:SupabaseSettings,ownerId:string,providedRaw?:TransactionRecord[]):Promise<AccountingResult> {
-  const ready=await query<{ready:boolean}>(settings,"select to_regclass('public.accounting_states') is not null and to_regprocedure('public.alfred_write_accounting_state(uuid,bigint,text,text,text,jsonb)') is not null as ready");
+  const ready=await query<{ready:boolean;portability_ready:boolean}>(settings,"select to_regclass('public.accounting_states') is not null and to_regprocedure('public.alfred_write_accounting_state(uuid,bigint,text,text,text,jsonb)') is not null as ready, to_regclass('public.imported_finance_sources') is not null as portability_ready");
   const availability=ready[0]?.ready ? "ready" : "migration-required";
   const versionBefore=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
-  const [saved,raw,messages]=await Promise.all([
+  const [saved,raw,messages,imported,rules]=await Promise.all([
     availability==="ready" ? query<{state:AccountingState}>(settings,"select state from public.accounting_states where owner_id=$1::uuid",[ownerId]) : Promise.resolve([]),
     // For a source-coherent accounting read, fetch fresh rows inside the two version observations.
     availability==="ready" || !providedRaw ? listRawTransactions(settings,ownerId) : Promise.resolve(providedRaw),
     createSupabaseBankStore(settings).listMessages(ownerId),
+    ready[0]?.portability_ready ? query<{movement:CashMovement}>(settings,"select movement from public.imported_finance_sources where owner_id=$1::uuid order by movement_id",[ownerId]) : Promise.resolve([]),
+    loadAccountRules(settings,ownerId),
   ]);
   const versionAfter=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
   if (versionBefore!==versionAfter) throw new AccountingError("Source records changed while loading. Refresh and try again.","stale");
   const base=saved[0]?.state ?? emptyAccountingState(ownerId);
   if (base.ownerId!==ownerId) throw new AccountingError("Financial state belongs to another owner.","ownership");
-  return {state:hydrateAccountingSources(base,sourceMovements(ownerId,raw,messages)),availability,sourceVersion:versionAfter,rawTransactions:raw};
+  const fresh=[...sourceMovements(ownerId,raw,messages),...imported.map((row) => row.movement)];
+  // Bind explicit account identities before hydration so authoritative balance snapshots
+  // are generated normally. Reapply categories after hydration so manual overrides win.
+  const bound=applyAccountRules({...base,movements:fresh},rules.state);
+  const hydrated=hydrateAccountingSources(base,bound.movements);
+  return {state:applyAccountRules(hydrated,rules.state),availability,sourceVersion:versionAfter,rawTransactions:raw};
 }
 
 export async function saveAccountingAction(settings:SupabaseSettings,ownerId:string,action:AccountingAction):Promise<AccountingResult> {

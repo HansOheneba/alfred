@@ -3,6 +3,7 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
+import { buttonClassName } from "@/app/components/button-styles";
 
 import { EmptyState } from "@/app/components/ui";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
@@ -46,7 +47,7 @@ export function AccountBalanceCard({ accounts, currency, totals }: { accounts: P
     <ul className="alfred-ui-accountBreakdown" aria-label="Accounts contributing to total">
       {summary.accounts.map((account) => <li key={account.id}><div><span>{account.label}</span><time dateTime={account.reportedAt}>{stamp.format(new Date(account.reportedAt))} GMT</time></div><strong className="tabular-nums">{formatMinor(toMinor(account.balance), currency)}</strong></li>)}
     </ul>
-    <div className="alfred-ui-balanceFootnote"><p>{summary.totalMinor === null ? "Record a balance for every included account to see the total." : "Latest reported balances · Not live"}</p><p>Included cash accounts. Excludes investments and loans.</p><Link href="/ui-preview/accounts" className="mt-2 inline-block font-medium text-accent hover:underline">Manage accounts ↗</Link></div>
+    <div className="alfred-ui-balanceFootnote"><p>{summary.totalMinor === null ? "Record a balance for every included account to see the total." : "Latest reported balances · Not live"}</p><p>Included cash accounts. Excludes investments and loans.</p><Link href="/ui-preview/accounts" className={buttonClassName({ variant: "ghost", size: "sm", className: "mt-2" })}>Manage accounts ↗</Link></div>
   </section>;
 }
 
@@ -67,14 +68,14 @@ export function MonthlyInsights({ insights }: { insights: string[] }) {
   }
 
   return <section className="alfred-ui-insights" aria-labelledby="monthly-insights-title">
-    <div className="alfred-ui-insightsHeader"><div><h2 id="monthly-insights-title">Alfred&apos;s insights · this month</h2><p>Your monthly summary</p></div><button type="button" className="alfred-ui-insightRefresh" onClick={() => { router.refresh(); setStatus("Insights refreshed from the demo records."); }}>Refresh</button></div>
+    <div className="alfred-ui-insightsHeader"><div><h2 id="monthly-insights-title">Alfred&apos;s insights · this month</h2><p>Your monthly summary</p></div><button type="button" className={buttonClassName({ variant: "secondary", size: "sm", className: "alfred-ui-insightRefresh" })} onClick={() => { router.refresh(); setStatus("Insights refreshed from the demo records."); }}>Refresh</button></div>
     {insights.length === 0 ? <EmptyState>Insights appear once a few expenses are logged.</EmptyState> : <ul className="alfred-ui-insightRows">{insights.map((line) => <li key={line}><span className="alfred-ui-insightSpark" aria-hidden="true">✦</span><p>{line}</p></li>)}</ul>}
     <div className="alfred-ui-insightComposer">
     {open ? <form id="insight-question-form" className="alfred-ui-insightQuestionForm" data-preview-local-form="true" onSubmit={ask}>
         <label htmlFor="insight-question" className="sr-only">Ask about these insights</label>
-        <div className="alfred-ui-insightInput"><AlfredAvatar sizeClass="size-6" sizes="24px" /><input ref={input} id="insight-question" value={question} onChange={(event) => { setQuestion(event.target.value); setError(""); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setOpen(false); setError(""); requestAnimationFrame(() => trigger.current?.focus()); } }} placeholder="Ask Alfred…" maxLength={280}/><button type="submit" aria-label="Ask question"><PreviewIcon><path d="M12 19V5m-6 6 6-6 6 6"/></PreviewIcon></button></div>
+        <div className="alfred-ui-insightInput"><AlfredAvatar sizeClass="size-6" sizes="24px" /><input ref={input} id="insight-question" value={question} onChange={(event) => { setQuestion(event.target.value); setError(""); }} onKeyDown={(event) => { if (event.key === "Escape") { event.preventDefault(); setOpen(false); setError(""); requestAnimationFrame(() => trigger.current?.focus()); } }} placeholder="Ask Alfred…" maxLength={280}/><button type="submit" className={buttonClassName({ variant: "primary", size: "icon" })} aria-label="Ask question"><PreviewIcon><path d="M12 19V5m-6 6 6-6 6 6"/></PreviewIcon></button></div>
         {error ? <p role="alert">{error}</p> : null}
-      </form> : <button ref={trigger} type="button" className="alfred-ui-insightAskButton" aria-expanded={false} aria-controls="insight-question-form" onClick={() => { setOpen(true); requestAnimationFrame(() => input.current?.focus()); }}><AlfredAvatar sizeClass="size-6" sizes="24px" /> Ask Alfred</button>}
+      </form> : <button ref={trigger} type="button" className={buttonClassName({ variant: "soft", className: "alfred-ui-insightAskButton" })} aria-expanded={false} aria-controls="insight-question-form" onClick={() => { setOpen(true); requestAnimationFrame(() => input.current?.focus()); }}><AlfredAvatar sizeClass="size-6" sizes="24px" /> Ask Alfred</button>}
     </div>
     <p role="status" className="sr-only">{status}</p>
   </section>;

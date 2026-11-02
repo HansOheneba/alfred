@@ -14,7 +14,10 @@
     "eval:conversations": "tsx scripts/eval-conversations.ts",
     "seed:users": "tsx scripts/seed-users.ts",
     "setup:webhook": "tsx scripts/set-webhook.ts",
-    "telegram:user-ids": "tsx scripts/print-telegram-user-ids.ts"
+    "telegram:user-ids": "tsx scripts/print-telegram-user-ids.ts",
+    "test:portability:archive": "node --test portability/archive.test.mjs",
+    "test:portability:sql": "node tests/portability-sql.integration.mjs && node --import tsx tests/portability-export-sql.integration.mjs && node --import tsx tests/finance-capabilities-sql.integration.mjs",
+    "test:portability:journey": "vitest run tests/portability-usable-journey.test.ts"
   },
   "dependencies": {
     "@react-email/components": "^1.0.12",
@@ -29,6 +32,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "^0.5.14",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^22",
     "@types/pg": "^8.23.1",

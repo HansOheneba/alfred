@@ -18,6 +18,9 @@ export type Investment = {
   currency: string;
   /** What was in it before Alfred tracked it, in its own currency. */
   investedBefore: string;
+  /** Imported portfolio value has no known historical cost basis. */
+  importCostBasisUnknown?: boolean;
+  importNotificationsPaused?: boolean;
   principal: string | null;
   /** Yearly rate, in percent. */
   rate: number | null;
@@ -94,6 +97,8 @@ type InvestmentRow = {
   provider: string;
   currency: string;
   invested_before: string;
+  import_cost_basis_unknown?: boolean;
+  import_notifications_paused?: boolean;
   principal: string | null;
   rate: string | null;
   started_on: string | null;
@@ -103,7 +108,7 @@ type InvestmentRow = {
   status: Investment["status"];
 };
 
-const investmentColumns = `id::text, owner_id::text, name, kind, provider, currency, invested_before::text, principal::text, rate::text,
+const investmentColumns = `id::text, owner_id::text, name, kind, provider, currency, invested_before::text, coalesce((to_jsonb(investments)->>'import_cost_basis_unknown')::boolean,false) as import_cost_basis_unknown, coalesce((to_jsonb(investments)->>'import_notifications_paused')::boolean,false) as import_notifications_paused, principal::text, rate::text,
   to_char(started_on, 'YYYY-MM-DD') as started_on, to_char(matures_on, 'YYYY-MM-DD') as matures_on, reminded_at, payee_key, status`;
 
 const money = (value: string | number) => Number(value).toFixed(2);
@@ -117,6 +122,8 @@ function fromRow(row: InvestmentRow): Investment {
     provider: row.provider,
     currency: row.currency,
     investedBefore: money(row.invested_before),
+    importCostBasisUnknown: row.import_cost_basis_unknown ?? false,
+    importNotificationsPaused: row.import_notifications_paused ?? false,
     principal: row.principal == null ? null : money(row.principal),
     rate: row.rate == null ? null : Number(row.rate),
     startedOn: row.started_on,
@@ -272,7 +279,7 @@ export function createSupabaseInvestmentStore(settings: SupabaseSettings): Inves
       const rows = await query<InvestmentRow>(
         settings,
         `select ${investmentColumns} from public.investments
-         where status = 'active' and kind in ('tbill', 'fixed_deposit', 'bond') and matures_on is not null and matures_on <= $1 and reminded_at is null`,
+         where status = 'active' and not coalesce((to_jsonb(investments)->>'import_notifications_paused')::boolean,false) and kind in ('tbill', 'fixed_deposit', 'bond') and matures_on is not null and matures_on <= $1 and reminded_at is null`,
         [until],
       );
       return rows.map(fromRow);

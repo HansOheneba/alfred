@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Spinner } from "@/app/components/status";
-import { inputClass, sendJson } from "@/app/components/ui";
+import { Button, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerBankItem } from "@/lib/web/ledger";
 
 // Mirrors OUT_CHOICES and IN_CHOICES in lib/bank/ingest.ts. That module uses
@@ -83,19 +83,19 @@ function Item({ item, compact }: { item: LedgerBankItem; compact: boolean }) {
       ) : null}
       <div className="mt-2 flex items-center gap-4 text-xs">
         {!noteOpen ? (
-          <button type="button" className="text-muted underline-offset-4 hover:text-ink hover:underline" onClick={() => setNoteOpen(true)}>
+          <Button variant="ghost" size="sm" onClick={() => setNoteOpen(true)}>
             Add a note
-          </button>
+          </Button>
         ) : null}
-        <button
-          type="button"
-          className="inline-flex items-center gap-1.5 text-muted underline-offset-4 hover:text-ink hover:underline disabled:opacity-50"
+        <Button
+          variant="ghost"
+          size="sm"
           disabled={busy !== null}
           onClick={() => void label("skip", { action: "skip" })}
         >
           {busy === "skip" ? <Spinner className="size-3" /> : null}
           Skip
-        </button>
+        </Button>
       </div>
       {reply && !reply.ok ? (
         <p className="mt-2 text-xs text-danger" role="alert">

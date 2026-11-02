@@ -27,8 +27,8 @@ html[data-theme="dark"] .alfred-ui-study {
 .alfred-ui-brand { display: inline-flex; align-items: center; gap: 8px; font-size: 20px; font-weight: 600; letter-spacing: -.04em; }
 .alfred-ui-pageTitle { border-left: 1px solid var(--line); padding-left: 24px; font-size: 14px; color: var(--muted); }
 .alfred-ui-headerActions { margin-left: auto; display: flex; align-items: center; gap: 16px; }
-.alfred-ui-privacy { min-height: 44px; display: inline-flex; align-items: center; gap: 8px; color: var(--muted); font-size: 12px; border-radius: 8px; padding: 8px; }
-.alfred-ui-privacy svg { width: 16px; height: 16px; }
+.alfred-ui-privacy { white-space: nowrap; }
+.alfred-ui-privacy svg { width: 20px; height: 20px; }
 .alfred-ui-main { min-width: 0; }
 .alfred-ui-skip { position: fixed; left: 16px; top: -80px; z-index: 80; padding: 12px; background: var(--surface); border: 2px solid var(--accent); border-radius: 8px; }
 .alfred-ui-skip:focus { top: 8px; }
@@ -44,12 +44,12 @@ body:has(dialog[open]) .alfred-ui-dock { visibility: hidden; pointer-events: non
 .alfred-ui-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 20px; }
 .alfred-ui-heading h1 { font-size: 32px; font-weight: 600; letter-spacing: -.05em; margin-top: 4px; }
 .alfred-ui-controls { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.alfred-ui-ranges { display: flex; min-width: 0; overflow-x: auto; scrollbar-width: thin; padding: 4px; gap: 4px; border: 1px solid var(--line); background: var(--surface); border-radius: 12px; }
-.alfred-ui-ranges button { white-space: nowrap; border-radius: 8px; padding: 8px 12px; font-weight: 500; }
-.alfred-ui-talk { display: inline-flex; align-items: center; justify-content: center; min-height: 44px; padding: 0 16px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-size: 14px; font-weight: 600; white-space: nowrap; }
-.alfred-ui-talk:hover { background: var(--accent-strong); }
+.alfred-ui-ranges { display: flex; min-width: 0; overflow-x: auto; scrollbar-width: thin; padding: 8px; gap: 4px; border: 1px solid var(--line); background: var(--surface); border-radius: 20px; }
+.alfred-ui-ranges button { white-space: nowrap; }
+.alfred-ui-talk { white-space: nowrap; }
+
 .alfred-ui-reviewPrompt { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: 12px; margin-top: -4px; }
-.alfred-ui-reviewPrompt a { color: var(--accent); font-weight: 600; display: flex; gap: 8px; align-items: center; }
+
 
 .alfred-ui-overviewGrid { display: grid; grid-template-columns: minmax(300px,.9fr) minmax(0,2fr); gap: 20px; align-items: stretch; }
 .alfred-ui-totalBalance { border-radius: 20px; background: var(--accent-soft); border: 1px solid color-mix(in srgb,var(--accent) 18%,var(--line)); padding: 24px; }
@@ -93,21 +93,21 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
 .alfred-ui-insightsHeader { display: flex; align-items: start; justify-content: space-between; gap: 12px; }
 .alfred-ui-insightsHeader h2 { font-size: 16px; font-weight: 600; line-height: 1.4; letter-spacing: -.025em; }
 .alfred-ui-insightsHeader p { font-size: 12px; color: var(--muted); margin-top: 4px; }
-.alfred-ui-insightRefresh { min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 8px; font-size: 12px; font-weight: 500; color: var(--ink); }
-.alfred-ui-insightRefresh:hover { background: var(--surface-2); }
+
+
 .alfred-ui-insightRows { display: flex; flex-direction: column; gap: 8px; margin-top: 16px; }
 .alfred-ui-insightRows li { display: flex; align-items: start; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); }
 .alfred-ui-insightRows p { font-size: 14px; line-height: 20px; }
 .alfred-ui-insightSpark { display: grid; place-items: center; width: 20px; height: 20px; flex-shrink: 0; color: var(--accent); font-size: 16px; line-height: 20px; }
-.alfred-ui-insightComposer { margin-top: 12px; min-height: 56px; }
-.alfred-ui-insightAskButton { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; min-height: 56px; border: 1px solid color-mix(in srgb,var(--accent) 24%,var(--line)); border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 14px; line-height: 20px; font-weight: 600; }
-.alfred-ui-insightAskButton:hover { background: color-mix(in srgb,var(--accent) 12%,var(--surface)); }
+.alfred-ui-insightComposer { margin-top: 12px; min-height: 44px; }
+.alfred-ui-insightAskButton { width: 100%; }
+
 .alfred-ui-insightQuestionForm { margin: 0; }
 .alfred-ui-insightInput { display: flex; align-items: center; min-width: 0; height: 56px; gap: 8px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; }
 .alfred-ui-insightInput:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .alfred-ui-insightInput input { flex: 1; min-width: 0; height: 44px; font-size: 14px; line-height: 20px; outline: none; background: transparent; }
 .alfred-ui-insightInput input::placeholder { color: var(--muted); }
-.alfred-ui-insightInput button { display: grid; place-items: center; flex-shrink: 0; width: 44px; height: 44px; border-radius: 8px; background: var(--accent); color: var(--accent-ink); }
+
 .alfred-ui-insightInput button svg { width: 20px; height: 20px; }
 .alfred-ui-insightQuestionForm [role="alert"] { font-size: 12px; line-height: 16px; color: var(--danger); margin-top: 8px; }
 
@@ -133,9 +133,9 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
 .alfred-ui-comparison { display: inline-flex; background: var(--surface-2); border-radius: 8px; padding: 4px; }
 .alfred-ui-comparison a { padding: 4px 8px; border-radius: 4px; color: var(--muted); font-size: 12px; }
 .alfred-ui-comparison a[aria-current="page"] { background: var(--surface); color: var(--ink); box-shadow: 0 1px 3px #1b403312; }
-.alfred-ui-themeButton { font-size: 12px; color: var(--muted); padding: 8px; min-height: 44px; border-radius: 8px; }
+
 .alfred-ui-notice { position: fixed; z-index: 60; bottom: calc(104px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); width: min(576px,calc(100vw - 32px)); display: flex; align-items: center; gap: 16px; padding: 16px; border-radius: 12px; background: var(--surface); border: 1px solid var(--line-strong); box-shadow: 0 4px 24px #1b403320; font-size: 14px; }
-.alfred-ui-notice button { margin-left: auto; min-width: 32px; min-height: 32px; font-size: 20px; }
+.alfred-ui-notice button { margin-left: auto; }
 
 @media (max-width: 1199px) {
   .alfred-ui-heading { align-items: start; }
@@ -171,7 +171,7 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
   .alfred-ui-heading h1 { font-size: 28px; }
   .alfred-ui-controls { gap: 12px; }
   .alfred-ui-ranges button { min-height: 44px; padding-inline: 12px; }
-  .alfred-ui-talk { min-height: 48px; padding-inline: 12px; font-size: 12px; }
+
   .alfred-ui-reviewPrompt { font-size: 12px; flex-wrap: wrap; gap: 8px 12px; }
   .alfred-ui-insights { padding: 20px; }
   .alfred-ui-insightsAndTrends { grid-template-columns: 1fr; }
@@ -236,4 +236,17 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
   .alfred-ui-dock { width: calc(100% - 8px); }
   .alfred-ui-dock a span { letter-spacing: -.04em; }
 }
-.alfred-ui-study .alfred-ui-dashboard .alfred-ui-insightAskButton { min-height: 56px; }
+
+
+/* Mobile destinations are app navigation fixed to the screen edge. */
+@media (max-width: 760px) {
+  .alfred-ui-study .alfred-ui-dock { left:0; right:0; bottom:0; width:100%; max-width:none; transform:none; min-height:calc(64px + env(safe-area-inset-bottom)); padding:4px 4px calc(4px + env(safe-area-inset-bottom)); border-radius:0; border:0; box-shadow:0 -1px 0 var(--line); }
+  .alfred-ui-study .alfred-ui-dock a { border-radius:8px; }
+  .alfred-ui-study .alfred-ui-pageShell:not(.alfred-chat-viewport) { padding-bottom:calc(88px + env(safe-area-inset-bottom)); }
+}
+.alfred-ui-study .alfred-ui-pageShell.alfred-chat-viewport { min-height:0; padding-bottom:0; }
+.alfred-ui-study .alfred-chat-viewport > .alfred-ui-main { display:flex; flex:1; flex-direction:column; min-height:0; overflow:hidden; }
+@media (max-width:760px) {
+  .alfred-ui-study .alfred-ui-dock a[aria-current="page"] { position:relative; color:var(--accent); background:transparent; }
+  .alfred-ui-study .alfred-ui-dock a[aria-current="page"]::before { content:""; position:absolute; top:0; left:calc(50% - 12px); width:24px; height:4px; border-radius:0 0 4px 4px; background:var(--accent); }
+}

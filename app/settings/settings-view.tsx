@@ -2,12 +2,14 @@
 
 import { useEffect, useState, type ReactNode } from "react";
 
+import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
 import { Button, Card, Field, inputClass } from "@/app/components/ui";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
 import { DataSection } from "@/app/settings/data-section";
+import { AccountRulesSection } from "@/app/settings/account-rules-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
 import type { HomeScreen } from "@/lib/web/home";
 import type { Ledger } from "@/lib/web/ledger";
@@ -20,6 +22,7 @@ const SECTIONS = [
   { id: "reminders", label: "Reminders" },
   { id: "telegram", label: "Telegram" },
   { id: "bank", label: "Bank messages" },
+  { id: "rules", label: "Categorisation rules" },
   { id: "app", label: "App & look" },
   { id: "data", label: "Data & privacy" },
 ] as const;
@@ -128,7 +131,7 @@ export function SettingsView({
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         <nav
           aria-label="Settings sections"
-          className="-mx-4 flex gap-1 overflow-x-auto px-4 pb-1 md:sticky md:top-6 md:mx-0 md:w-52 md:shrink-0 md:flex-col md:overflow-visible md:px-0"
+          className="-mx-4 flex gap-1 overflow-x-auto px-4 py-2 md:sticky md:top-6 md:mx-0 md:w-52 md:shrink-0 md:flex-col md:overflow-visible md:px-0 md:py-0"
         >
           {SECTIONS.map((item) => {
             const active = item.id === section;
@@ -139,7 +142,7 @@ export function SettingsView({
                 data-section={item.id}
                 onClick={() => choose(item.id)}
                 aria-current={active ? "page" : undefined}
-                className={`shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm transition focus-visible:outline-2 focus-visible:outline-accent ${
+                className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm font-medium leading-5 transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent ${
                   active ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"
                 }`}
               >
@@ -260,6 +263,7 @@ export function SettingsView({
           ) : null}
 
           {section === "bank" ? <BankSection bank={ledger.bank} currency={ledger.currency} /> : null}
+          {section === "rules" ? <AccountRulesSection /> : null}
           {section === "app" ? <AppSection home={home} /> : null}
           {section === "data" ? <DataSection /> : null}
         </div>
@@ -295,7 +299,7 @@ function SaveBar({ dirty, state, onSave, onReset }: { dirty: boolean; state: Sav
 function Choice({ checked, onChange, title, body }: { checked: boolean; onChange: () => void; title: string; body: string }) {
   return (
     <label
-      className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-accent ${
+      className={`flex cursor-pointer gap-3 rounded-xl border p-4 transition has-[:focus-visible]:outline-2 has-[:focus-visible]:outline-offset-4 has-[:focus-visible]:outline-accent ${
         checked ? "border-accent bg-accent-soft" : "border-line hover:border-line-strong"
       }`}
     >
@@ -333,11 +337,11 @@ function Reminder({
           aria-checked={enabled}
           aria-labelledby={`${id}-label`}
           onClick={() => onEnabled(!enabled)}
-          className={`relative mt-0.5 h-6 w-11 shrink-0 rounded-full transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent ${
-            enabled ? "bg-accent" : "bg-surface-2 ring-1 ring-line-strong"
-          }`}
+          className="grid size-11 shrink-0 place-items-center rounded-xl focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent"
         >
-          <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
+          <span aria-hidden="true" className={`relative h-6 w-11 rounded-full transition ${enabled ? "bg-accent" : "bg-surface-2 ring-1 ring-line-strong"}`}>
+            <span className={`absolute top-0.5 size-5 rounded-full bg-white shadow transition-all ${enabled ? "left-[22px]" : "left-0.5"}`} />
+          </span>
         </button>
         <div>
           <p id={`${id}-label`} className="text-sm font-medium">
@@ -401,7 +405,7 @@ function TelegramSection({
             href={botLink}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex h-10 items-center rounded-full bg-accent px-4 text-sm font-medium text-accent-ink transition hover:brightness-110 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+            className={buttonClassName({ variant: "primary" })}
           >
             Open Alfred on Telegram
           </a>

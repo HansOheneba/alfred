@@ -32,6 +32,7 @@ export function applyAccountingAction(state: AccountingState, action: Accounting
     for(const event of state.audit) {if(event.action==="undo") active.pop();else active.push(event);}
     const previous = active.at(-1);
     if (!previous) throw new AccountingError("There is no financial change to undo.","not_found");
+    if (previous.action === "import" || previous.action === "undo_import") throw new AccountingError("Use the data import receipt to undo an import. Regular undo cannot cross an import boundary.","conflict");
     const before = previous.before;
     // Fresh source imports are retained. Changed evidence must be reviewed, never overwritten by undo.
     for (const old of before.movements) {
@@ -41,7 +42,13 @@ export function applyAccountingAction(state: AccountingState, action: Accounting
     const restored = new Map(before.movements.map((movement) => [movement.id,movement]));
     next = {...state,...structuredClone(before),movements:state.movements.map((movement) => {
       const old = restored.get(movement.id);
-      return old ? {...movement,accountId:old.accountId,status:old.status,category:old.category} : movement;
+      if (!old) return movement;
+      const restoredMovement={...movement,accountId:old.accountId,status:old.status,category:old.category};
+      for(const key of ["categoryOrigin","appliedRuleId","ruleConflict"] as const) {
+        if(old[key]===undefined) delete restoredMovement[key];
+        else Object.assign(restoredMovement,{[key]:old[key]});
+      }
+      return restoredMovement;
     }),snapshots:[...before.snapshots,...state.snapshots.filter((snapshot) => !before.snapshots.some((old) => old.id === snapshot.id) && snapshot.sourceMovementId !== null)]};
     // Snapshot evidence is retained, but snapshots of accounts removed by undo do not contribute.
     next.snapshots = next.snapshots.filter((snapshot) => next.accounts.some((account) => account.id === snapshot.accountId));

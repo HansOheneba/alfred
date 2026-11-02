@@ -3,6 +3,7 @@
 import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { Spinner } from "@/app/components/status";
+import { buttonClassName, type ButtonSize, type ButtonVariant } from "./button-styles";
 
 // Category hues from the My Money palette: distinct, but muted enough to sit beside the teal.
 export const CATEGORY_COLORS = ["#7254ca", "#137d70", "#c77493", "#c9a15f", "#6194dd", "#b94e5b", "#67a69b", "#9b91b3", "#e08a5c", "#8d8994"];
@@ -11,34 +12,20 @@ export function categoryColor(index: number): string {
   return CATEGORY_COLORS[index % CATEGORY_COLORS.length];
 }
 
-const buttonStyles = {
-  primary: "bg-accent text-accent-ink hover:brightness-110",
-  secondary: "border border-line-strong bg-surface text-ink hover:bg-surface-2",
-  ghost: "text-muted hover:bg-surface-2 hover:text-ink",
-  danger: "bg-danger text-white hover:brightness-110",
-} as const;
-
 export function Button({
   variant = "secondary",
   size = "md",
   className = "",
   ...props
-}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: keyof typeof buttonStyles; size?: "sm" | "md" }) {
-  const sizing = size === "sm" ? "h-8 px-3 text-xs" : "h-10 px-4 text-sm";
-  return (
-    <button
-      type="button"
-      {...props}
-      className={`inline-flex items-center justify-center gap-2 rounded-full font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent disabled:cursor-not-allowed disabled:opacity-50 ${sizing} ${buttonStyles[variant]} ${className}`}
-    />
-  );
+}: ButtonHTMLAttributes<HTMLButtonElement> & { variant?: ButtonVariant; size?: ButtonSize }) {
+  return <button type="button" {...props} className={buttonClassName({ variant, size, className })} />;
 }
 
 export function Card({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <section className={`rounded-2xl border border-line bg-surface p-4 sm:p-5 ${className}`}>
       {title || action ? (
-        <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           {title ? <h2 className="text-sm font-medium text-ink">{title}</h2> : <span />}
           {action}
         </div>

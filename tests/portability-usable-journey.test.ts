@@ -1,0 +1,76 @@
+import { afterAll, beforeAll, expect, it, vi } from "vitest";
+import { PGlite } from "@electric-sql/pglite";
+import { readFile, readdir } from "node:fs/promises";
+import { readArchive } from "../portability/archive.mjs";
+import { previewFinanceImport, confirmFinanceImport, exportFinanceArchive } from "@/lib/portability/service";
+import { listPendingFinanceData, pendingFinanceDataDetails } from "@/lib/portability/pending";
+import { loadLedger } from "@/lib/web/ledger";
+import { loadAccountingState } from "@/lib/finance/accounting/persisted-store";
+import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
+import { createSupabaseNotebookStore } from "@/lib/notebook/store";
+import { createSupabaseInvestmentStore } from "@/lib/investments/store";
+import { loadPortfolio } from "@/lib/investments/actions";
+import type { StudioSettings, SupabaseSettings, UserProfile } from "@/lib/config";
+import { journeyArchive, JOURNEY_ACCOUNT_LABELS, retainedReturnArchive } from "./fixtures/portability/journey-archive";
+
+const harness = vi.hoisted(() => ({ query: vi.fn() }));
+vi.mock("@/lib/supabase/connection", () => ({ query: (...args: unknown[]) => harness.query(...args) }));
+const owner = "00000000-0000-4000-8000-000000000010", returnOwner = "00000000-0000-4000-8000-000000000011";
+// The only query transport is the embedded database below. These settings cannot connect to a real project.
+const database = { projectRef: "synthetic", host: "synthetic.invalid", user: "synthetic", database: "postgres", password: "" } as unknown as SupabaseSettings;
+const settings: StudioSettings = { deepseek: { apiKey: "", model: "unused" }, google: null, supabase: database, authorizedUserIds: [], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "always" };
+const profile = (profileId: string): UserProfile => ({ profileId, telegramUserId: null, spreadsheetId: "", preferredName: "Synthetic review", timezone: "Africa/Accra", currency: "GHS", communicationPreference: "concise" });
+let db: PGlite;
+beforeAll(async () => {
+  db = new PGlite();
+  await db.exec("create role anon; create role authenticated; create schema auth; create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$; create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}'::jsonb);");
+  const migrationDir = new URL("../supabase/migrations/", import.meta.url);
+  for (const name of (await readdir(migrationDir)).filter((name) => name.endsWith(".sql")).sort()) await db.exec(await readFile(new URL(name, migrationDir), "utf8"));
+  await db.query("insert into auth.users(id) values($1::uuid),($2::uuid)", [owner, returnOwner]);
+  harness.query.mockImplementation(async (_settings: unknown, sql: string, values: unknown[] = []) => (await db.query(sql, values)).rows);
+}, 30_000);
+afterAll(async () => { await db?.close(); });
+
+it("a repository-owned finance archive populates the actual Alfred screen stores and survives a retained-native return hop", async () => {
+  const day = new Date().toISOString().slice(0, 10), at = `${day}T00:00:00.000Z`;
+  const expectedNames = [...JOURNEY_ACCOUNT_LABELS].sort();
+  const file = await journeyArchive(day);
+  expect((await readArchive(file)).datasets.accounts.map((account) => (account as { label: string }).label).sort()).toEqual(expectedNames);
+  const preview = await previewFinanceImport(settings.supabase, owner, file);
+  expect(preview.canConfirm).toBe(true); expect(preview.counts).toMatchObject({ accounts: 2, movements: 6, transfers: 1, settlements: 2 });
+  const receipt = await confirmFinanceImport(settings.supabase, owner, preview.id);
+  const ledger = await loadLedger(profile(owner), settings);
+  expect(ledger.rows.filter((item) => item.type === "income").reduce((sum, item) => sum + item.minor, 0)).toBe(500);
+  expect(ledger.rows.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.minor, 0)).toBe(7160);
+  expect(ledger.accounting?.balances.totalMinor).toBe(100000);
+  expect(ledger.accounting?.balances.accounts.map((item) => item.account.label).sort()).toEqual(expectedNames);
+  expect(ledger.rows.some((item) => item.category === "Food & groceries")).toBe(true);
+  expect(ledger.budgets).toHaveLength(1); expect(ledger.budgets[0]).toMatchObject({ category: "Food & groceries", budgetMinor: 20000 });
+  expect(ledger.owed[0].owed).toBe("40.00");
+  const notebooks = await createSupabaseNotebookStore(settings.supabase).list(owner); expect(notebooks.some((item) => item.note.includes("Synthetic receipt note"))).toBe(true);
+  const repeated = await previewFinanceImport(settings.supabase, owner, file);
+  expect(repeated.duplicates).toBeGreaterThan(0);
+  expect((await confirmFinanceImport(settings.supabase, owner, repeated.id)).id).toBe(receipt.id);
+  expect((await loadAccountingState(settings.supabase, owner)).state.movements).toHaveLength(6);
+
+  await createSupabaseFinanceStore(settings.supabase).appendSavingsGoal({ goalId: "synthetic-review-goal", userId: owner, name: "Synthetic laptop goal", targetAmount: "500.00", currentAmount: "125.00", currency: "GHS", targetDate: "2027-01-01", status: "active", createdAt: at, updatedAt: at });
+  const alfredFile = await exportFinanceArchive(settings.supabase, owner);
+  const fromRetainingApp = await retainedReturnArchive(alfredFile);
+  const restored = await readArchive(fromRetainingApp);
+  expect(restored.datasets.accounts.map((account) => (account as { label: string }).label).sort()).toEqual(expectedNames);
+  expect(restored.datasets.movements).toHaveLength(6); expect(JSON.stringify(restored.datasets)).toContain("Synthetic laptop goal");
+  const returningPreview = await previewFinanceImport(settings.supabase, returnOwner, fromRetainingApp);
+  expect(returningPreview.canConfirm).toBe(true);
+  await confirmFinanceImport(settings.supabase, returnOwner, returningPreview.id);
+  const returningLedger = await loadLedger(profile(returnOwner), settings);
+  expect(returningLedger.accounting?.balances.accounts.map((item) => item.account.label).sort()).toEqual(expectedNames);
+  expect(returningLedger.rows.filter((item) => item.type === "expense").reduce((sum, item) => sum + item.minor, 0)).toBe(7160);
+  expect(returningLedger.goals).toHaveLength(1); expect(returningLedger.goals[0]).toMatchObject({ name: "Synthetic laptop goal", targetAmount: "500.00", currentAmount: "125.00" });
+  const pending = await listPendingFinanceData(settings.supabase, owner); expect(JSON.stringify(pending)).toContain(receipt.id);
+  const details = await pendingFinanceDataDetails(settings.supabase, owner, receipt.id);
+  expect(JSON.stringify(details)).toContain("Fictional unsupported allocation");
+  const accounting = await loadAccountingState(settings.supabase, returnOwner);
+  expect(accounting.state.movements.some((movement) => movement.sourceMissing)).toBe(false);
+  expect(accounting.state.movements.filter((movement) => (movement.taxMinor ?? 0) > 0).map((movement) => (movement.taxMinor ?? 0)).sort((a, b) => a - b)).toEqual([5, 20]);
+  const portfolio = await loadPortfolio(createSupabaseInvestmentStore(settings.supabase), returnOwner, day); expect(portfolio.items).toHaveLength(0);
+}, 30_000);

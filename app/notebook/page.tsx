@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** Keep existing bookmarks useful now that Notebook lives alongside Chat. */
+/** Retired Notebook bookmarks lead back to the conversation. Saved notes are kept. */
 export default function NotebookPage() {
-  redirect("/chat?panel=notebook");
+  redirect("/chat");
 }

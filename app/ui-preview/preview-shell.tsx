@@ -1,9 +1,11 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { createContext, useContext, type ReactNode } from "react";
 
-import { AlfredMark, usePrivacyMask, type Section } from "@/app/components/app-shell";
+import { buttonClassName } from "@/app/components/button-styles";
+import { useChatViewport } from "@/app/components/chat-viewport";
+import { useAppearance, usePrivacyMask, type Section } from "@/app/components/app-shell";
 
 export const PREVIEW_NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
   { section: "chat", href: "/ui-preview/chat", label: "Chat", icon: <path d="M4 5.5A2.5 2.5 0 0 1 6.5 3h11A2.5 2.5 0 0 1 20 5.5v8a2.5 2.5 0 0 1-2.5 2.5H10l-4.5 4v-4A1.5 1.5 0 0 1 4 14.5z" /> },
@@ -17,26 +19,33 @@ export function PreviewIcon({ children, className = "" }: { children: ReactNode;
   return <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>;
 }
 
+const PreviewToolsContext = createContext<ReactNode>(null);
+
+export function PreviewChatTools() { return <>{useContext(PreviewToolsContext)}</>; }
+
 export function PreviewShell({ section, tools, children }: { section: Section; tools: ReactNode; children: ReactNode }) {
   const [masked, setMasked] = usePrivacyMask();
+  const [appearance, setAppearance] = useAppearance();
+  const chat = section === "chat";
+  const viewportRef = useChatViewport(chat);
   const title = PREVIEW_NAV.find((item) => item.section === section)?.label;
   return (
-    <div className="alfred-ui-pageShell">
+    <div ref={viewportRef} className={`alfred-ui-pageShell${chat ? " alfred-chat-viewport" : ""}`}>
       <a className="alfred-ui-skip" href="#preview-content">Skip to content</a>
-      <header className="alfred-ui-header">
+      <header className={`alfred-ui-header${chat ? " alfred-ui-chatHeader" : ""}`}>
         <div className="alfred-ui-headerInner">
-          <Link href="/ui-preview" className="alfred-ui-brand"><AlfredMark size="size-8"/><span>Alfred</span></Link>
+          <Link href="/ui-preview" className="alfred-ui-brand"><span>Alfred</span></Link>
           <span className="alfred-ui-pageTitle">{title}</span>
           <div className="alfred-ui-headerActions">
-            <button type="button" className="alfred-ui-privacy" onClick={() => setMasked(!masked)} aria-label={masked ? "Reveal amounts" : "Hide amounts"} aria-pressed={masked} title={masked ? "Reveal amounts" : "Hide amounts"}>
+            <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-ui-privacy" })} onClick={() => setMasked(!masked)} aria-label={masked ? "Reveal amounts" : "Hide amounts"} aria-pressed={masked} title={masked ? "Reveal amounts" : "Hide amounts"}>
               <PreviewIcon><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12z"/><circle cx="12" cy="12" r="3"/>{masked ? <path d="M3 3l18 18"/> : null}</PreviewIcon>
               <span>{masked ? "Amounts hidden" : "Hide amounts"}</span>
             </button>
-            {tools}
+            {chat ? <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-ui-themeButton" })} onClick={() => setAppearance(appearance === "light" ? "dark" : "light")} aria-label={`Switch to ${appearance === "light" ? "dark" : "light"} appearance`}>{appearance === "light" ? "Dark" : "Light"}</button> : tools}
           </div>
         </div>
       </header>
-      <main id="preview-content" className="alfred-ui-main" tabIndex={-1}>{children}</main>
+      <PreviewToolsContext.Provider value={tools}><main id="preview-content" className="alfred-ui-main" tabIndex={-1}>{children}</main></PreviewToolsContext.Provider>
       <nav className="alfred-ui-dock" aria-label="Main">
         {PREVIEW_NAV.map((item) => <Link key={item.section} href={item.href} aria-current={section === item.section ? "page" : undefined} prefetch={false}><PreviewIcon>{item.icon}</PreviewIcon><span>{item.label}</span></Link>)}
       </nav>

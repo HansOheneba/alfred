@@ -36,6 +36,7 @@ export function accountingReportRows(state: AccountingState): LedgerRow[] {
       else if (status === "confirmed") add(movement,`accounting:${movement.id}`,"income",movement.amountMinor-(effect?.receivedOffsetMinor ?? 0),movement.category,movement.description);
     }
     add(movement,`accounting-fee:${movement.id}`,"expense",movement.feeMinor,"Fees",`${movement.description} · fee`);
+    add(movement,`accounting-tax:${movement.id}`,"expense",movement.taxMinor ?? 0,"Taxes",`${movement.description} · tax`);
   }
   return rows.sort((a,b) => b.date.localeCompare(a.date) || a.id.localeCompare(b.id));
 }
@@ -53,15 +54,16 @@ export function buildAccountingView(state: AccountingState, currency:string) {
 /** Overlay only explicit accounting changes. Unclassified legacy refunds/loans retain their old semantics. */
 export function projectAccountingTransactions(raw:TransactionRecord[],state:AccountingState):TransactionRecord[] {
   const effects = settlementEffects(state);
-  const managed = state.movements.filter((movement) => movement.ownerId === state.ownerId && movement.legacyClassification === null && (
+  const managed = state.movements.filter((movement) => movement.ownerId === state.ownerId && (movement.importProvenance !== undefined || movement.legacyClassification === null) && (
+    movement.importProvenance !== undefined ||
     effects.has(movement.id) || state.transfers.some((link) => link.incoming.movementId === movement.id || link.outgoing.movementId === movement.id)
     || (movement.sourceStatus !== undefined && movement.status !== movement.sourceStatus)
   ));
   const managedIds = new Set(managed.map((movement) => movement.id));
   const managedById = new Map(managed.map((movement) => [movement.id,movement]));
   const replacedIds = new Set(managed.flatMap((movement) => [movement.legacyTransactionId,movement.feeTransactionId]).filter((id):id is string => id !== null));
-  const derived = accountingReportRows(state).filter((row) => managedIds.has(row.id.replace(/^accounting(?:-fee)?:/,""))).map((row):TransactionRecord => ({
-    transactionId:row.id,createdAt:managedById.get(row.id.replace(/^accounting(?:-fee)?:/,""))?.occurredAt ?? `${row.date}T00:00:00.000Z`,transactionDate:row.date,userId:state.ownerId,type:row.type,amount:row.amount,currency:row.currency,category:row.category,description:row.description,paymentMethod:row.paymentMethod,notes:"Accounting projection; edit source/link in Accounts.",status:"active",updatedAt:new Date(0).toISOString(),sourceUpdateId:row.id,rowNumber:0,
+  const derived = accountingReportRows(state).filter((row) => managedIds.has(row.id.replace(/^accounting(?:-fee|-tax)?:/,""))).map((row):TransactionRecord => ({
+    transactionId:row.id,createdAt:managedById.get(row.id.replace(/^accounting(?:-fee|-tax)?:/,""))?.occurredAt ?? `${row.date}T00:00:00.000Z`,transactionDate:row.date,userId:state.ownerId,type:row.type,amount:row.amount,currency:row.currency,category:row.category,description:row.description,paymentMethod:row.paymentMethod,notes:"Accounting projection; edit source/link in Accounts.",status:"active",updatedAt:new Date(0).toISOString(),sourceUpdateId:row.id,rowNumber:0,
   }));
   const metadata=new Map(state.movements.filter((movement) => movement.ownerId===state.ownerId && movement.legacyTransactionId!==null && movement.status!=="duplicate").map((movement) => [movement.legacyTransactionId,movement]));
   const accountNames=new Map(state.accounts.map((account) => [account.id,account.label]));

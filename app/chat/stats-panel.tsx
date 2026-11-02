@@ -6,6 +6,7 @@ import { Area, AreaChart, ResponsiveContainer, Tooltip, XAxis } from "recharts";
 
 import { NeedsLabel } from "@/app/components/needs-label";
 import { categoryColor } from "@/app/components/ui";
+import { getGettingStartedState } from "@/app/components/getting-started-state";
 import { categoryTotals, dailySeries, inRows, presetRange, sumMinor } from "@/lib/finance/analytics";
 import { formatAmount, formatMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
@@ -37,6 +38,15 @@ export function StatsPanel({ ledger }: { ledger: Ledger }) {
   const totalBalance = balances?.totalMinor ?? null;
   const stamp = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Africa/Accra", timeZoneName: "short" });
   const balanceNote = !accounting ? "Account balances are unavailable." : accounting.availability === "migration-required" ? "Account storage must be set up before saving accounts." : balances?.missingCount ? `${balances.missingCount} included account${balances.missingCount === 1 ? " needs" : "s need"} a reported balance before the total is available.` : !accountCount ? "Add an account and record its balance to see your total." : "Latest reported balances · Not live";
+
+  if (getGettingStartedState(ledger).isEmpty) return <div className="alfred-production-chat-contextCards" data-first-use-context="true">
+    <section className="alfred-production-chat-setupContext" aria-labelledby={`${fillId}-setup-title`}>
+      <h2 id={`${fillId}-setup-title`}>Give Alfred a starting point</h2>
+      <p>Your balances and spending will appear here as you add accounts and record activity.</p>
+      <Link className="alfred-production-chat-setupPrimary" href="/accounts?add=1">Add your first account <span aria-hidden="true">↗</span></Link>
+      <Link className="alfred-production-chat-setupLink" href="/dashboard">View your setup checklist <span aria-hidden="true">↗</span></Link>
+    </section>
+  </div>;
 
   return (
     <div className="alfred-production-chat-contextCards">

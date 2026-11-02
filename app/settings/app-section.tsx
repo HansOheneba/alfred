@@ -8,6 +8,7 @@ import { useInstallState } from "@/app/components/pwa";
 import { Button, Card } from "@/app/components/ui";
 import { setHomeScreen } from "@/app/settings/actions";
 import type { HomeScreen } from "@/lib/web/home";
+import { serializeBrowserPreferenceWrite } from "@/lib/portability/browser-preferences-lock";
 
 function ShareIcon() {
   return (
@@ -39,7 +40,7 @@ function Segmented<T extends string>({
             role="radio"
             aria-checked={checked}
             onClick={() => onChange(option.value)}
-            className={`rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-accent ${
+            className={`rounded-xl border p-3 text-left transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent ${
               checked ? "border-accent bg-accent-soft" : "border-line hover:bg-surface-2"
             }`}
           >
@@ -57,6 +58,7 @@ export function AppSection({ home: initialHome }: { home: HomeScreen }) {
   const [appearance, setAppearance] = useAppearance();
   const [home, setHome] = useState(initialHome);
   const [saving, startSaving] = useTransition();
+  const [homeError, setHomeError] = useState("");
 
   return (
     <div className="flex flex-col gap-4">
@@ -76,9 +78,10 @@ export function AppSection({ home: initialHome }: { home: HomeScreen }) {
           label="Start on"
           value={home}
           onChange={(next) => {
-            setHome(next);
+            setHomeError("");
             startSaving(async () => {
-              setHome(await setHomeScreen(next));
+              try { await serializeBrowserPreferenceWrite(async () => { setHome(await setHomeScreen(next)); }); }
+              catch { setHomeError("The start screen could not be saved. Try again."); }
             });
           }}
           options={[
@@ -86,6 +89,7 @@ export function AppSection({ home: initialHome }: { home: HomeScreen }) {
             { value: "overview", label: "Overview", hint: "Open on your balances and this month's numbers." },
           ]}
         />
+        {homeError ? <p role="alert" className="mt-3 text-xs text-danger">{homeError}</p> : null}
       </Card>
       <InstallCard />
       <Card title="Account">

@@ -115,9 +115,10 @@ export function validateAccountData(state: AccountingState): void {
   for (const movement of state.movements) {
     if (movement.ownerId !== state.ownerId) throw new AccountingError("Movement belongs to another owner.", "ownership");
     currency(movement.currency);
-    integer(movement.amountMinor, "Movement principal", 1);
+    integer(movement.amountMinor, "Movement principal", 0);
     integer(movement.feeMinor, "Movement fee", 0);
-    integer(movement.amountMinor + movement.feeMinor, "Movement gross amount", 1);
+    integer(movement.taxMinor ?? 0, "Movement tax", 0);
+    integer(movement.amountMinor + movement.feeMinor + (movement.taxMinor ?? 0), "Movement gross amount", 1);
     if (!STATUSES.has(movement.status) || !["in", "out", "internal"].includes(movement.direction) || !SOURCE_KINDS.has(movement.sourceKind)) throw new AccountingError("Movement classification is invalid.");
     if (!isRealDate(movement.date)) throw new AccountingError("Movement date is invalid.");
     if (movement.occurredAt !== null) instant(movement.occurredAt, "Movement time");
@@ -186,7 +187,12 @@ export function applyAccountAction(state: AccountingState, action: AccountingAct
     if (movementInUse(state, movement.id)) throw new AccountingError("Remove the movement's transfer or settlement link before reclassifying it.", "conflict");
     if (movement.legacyClassification) throw new AccountingError("Legacy refund or loan classification must be resolved before reclassifying this movement.", "conflict");
     if (action.category !== undefined) requireText(action.category, "Category", 160);
-    const next = { ...state, movements: state.movements.map((row) => row.id === movement.id ? { ...row, status: action.status, ...(action.category === undefined ? {} : { category: action.category.trim() }) } : row) };
+    const next = { ...state, movements: state.movements.map((row) => {
+      if (row.id!==movement.id) return row;
+      const changed={...row,status:action.status};
+      if (action.category!==undefined) {changed.category=action.category.trim();changed.categoryOrigin="manual";delete changed.appliedRuleId;delete changed.ruleConflict;}
+      return changed;
+    }) };
     validateAccountData(next);
     return next;
   }
@@ -279,9 +285,9 @@ function reconcile(state: AccountingState, account: FinancialAccount, snapshots:
       const reference = [transfer.outgoing, transfer.incoming].find((row) => row.movementId === movement.id);
       if (reference && reference.sourceFingerprint !== movement.sourceFingerprint) issues.add("Some transfer links refer to changed source evidence.");
     }
-    if (movement.direction === "out") expected -= movement.amountMinor + movement.feeMinor;
-    else if (movement.direction === "in") expected += movement.amountMinor - movement.feeMinor;
-    else if (movement.feeMinor > 0) expected -= movement.feeMinor;
+    if (movement.direction === "out") expected -= movement.amountMinor + movement.feeMinor + (movement.taxMinor ?? 0);
+    else if (movement.direction === "in") expected += movement.amountMinor - movement.feeMinor - (movement.taxMinor ?? 0);
+    else if (movement.feeMinor + (movement.taxMinor ?? 0) > 0) expected -= movement.feeMinor + (movement.taxMinor ?? 0);
     if (!Number.isSafeInteger(expected)) throw new AccountingError("Reconciliation exceeds safe integer precision.");
   }
   const difference = latest.balanceMinor - expected;

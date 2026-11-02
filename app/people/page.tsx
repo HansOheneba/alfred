@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 
-/** People notes now live in the Notebook. */
+/** Retired people-note bookmarks lead back to the conversation. Saved notes are kept. */
 export default function PeoplePage() {
-  redirect("/notebook");
+  redirect("/chat");
 }

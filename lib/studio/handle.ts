@@ -21,6 +21,7 @@ import { logError } from "@/lib/log";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { createSupabaseInvestmentStore, type InvestmentStore } from "@/lib/investments/store";
+import { ACCOUNT_RULE_INTENT_GUIDANCE, createAccountRuleBotDeps, handleAccountRuleBotCommand, isAccountRuleCommand, isScopedAccountRuleIntent, type AccountRuleBotDeps } from "@/lib/account-rules/bot-command";
 
 export const STUDIO_CHAT_ID = 0;
 
@@ -53,6 +54,7 @@ export type StudioDeps = {
   people?: PeopleStore | null;
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
+  accountRuleCommands?: AccountRuleBotDeps | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -162,6 +164,8 @@ async function respond(
   deps: StudioDeps,
   clientId?: string,
 ): Promise<Delivery & { intent?: string }> {
+  if (isAccountRuleCommand(text)) return { kind: "text", text: await handleAccountRuleBotCommand(text, ctx.profile.profileId, String(STUDIO_CHAT_ID), deps.accountRuleCommands) ?? "Use /rule help for the fixed command syntax.", intent: "account-rule:command" };
+  if (isScopedAccountRuleIntent(text)) return { kind: "text", text: ACCOUNT_RULE_INTENT_GUIDANCE, intent: "account-rule:guidance" };
   return converse(text, ctx, deps, { channel: "web", excludeClientId: clientId });
 }
 
@@ -259,5 +263,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     investments: createSupabaseInvestmentStore(settings.supabase),
     people: createSupabasePeopleStore(settings.supabase),
     notebook: createSupabaseNotebookStore(settings.supabase),
+    accountRuleCommands: createAccountRuleBotDeps(settings.supabase),
   };
 }

@@ -3,7 +3,7 @@ export type MovementStatus = "confirmed" | "review" | "hold" | "transfer" | "dup
 export type FinancialAccount = { id: string; label: string; provider: string; currency: string; includeInCash: boolean; createdAt: string };
 export type CashMovement = {
   id: string; ownerId: string; accountId: string | null; direction: "in" | "out" | "internal"; status: MovementStatus;
-  amountMinor: number; feeMinor: number; currency: string; date: string; occurredAt: string | null;
+  amountMinor: number; feeMinor: number; taxMinor?: number; currency: string; date: string; occurredAt: string | null;
   description: string; category: string; sourceId: string; sourceKind: "bank" | "transaction" | "manual"; sourceFingerprint: string;
   legacyTransactionId: string | null; feeTransactionId: string | null; legacyClassification: null | "refund" | "loan";
   /** Source-reported evidence; never inferred from income/spending. Retained even before account assignment. */
@@ -11,7 +11,13 @@ export type CashMovement = {
   /** Immutable ingestion classification; explicit overrides are stored separately from source facts. */
   sourceStatus?: MovementStatus;
   sourceCategory?: string;
+  /** Explicit user categories outrank deterministic account rules, which outrank source/payee defaults. */
+  categoryOrigin?: "manual" | "account_rule" | "source";
+  appliedRuleId?: string;
+  ruleConflict?: boolean;
   sourceMissing?: boolean;
+  /** Durable historical import evidence, distinct from SMS ingestion. */
+  importProvenance?: { namespace: string; sourceId: string; sourceFingerprint?: string };
 };
 export type BalanceSnapshot = { id: string; accountId: string; balanceMinor: number; occurredAt: string; sourceId: string; sourceMovementId: string | null; sourceFingerprint?: string };
 export type MovementReference = { movementId: string; sourceFingerprint: string };

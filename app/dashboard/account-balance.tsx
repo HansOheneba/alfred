@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { buttonClassName } from "@/app/components/button-styles";
 import { formatMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
 
@@ -19,6 +20,6 @@ export function DashboardAccountBalance({ accounting, currency, timeZone = "Afri
       {contributing.map(({ account, snapshot }) => <li key={account.id}><div><span>{account.label}</span>{snapshot ? <time dateTime={snapshot.occurredAt}>{stamp.format(new Date(snapshot.occurredAt))}</time> : <p className="text-xs text-muted">Reported balance needed</p>}</div><strong className="tabular-nums">{snapshot ? formatMinor(snapshot.balanceMinor, currency) : "—"}</strong></li>)}
       {contributing.length === 0 ? <li><p className="text-xs text-muted">{accounting?.availability === "ready" ? "No included accounts yet." : "No account balances available."}</p></li> : null}
     </ul>
-    <div className="alfred-ui-balanceFootnote"><p>{note}</p><p>Included cash accounts. Excludes investments and loans.</p><Link href="/accounts" className="mt-2 inline-flex min-h-11 items-center font-medium text-accent hover:underline">Manage accounts ↗</Link></div>
+    <div className="alfred-ui-balanceFootnote"><p>{note}</p><p>Included cash accounts. Excludes investments and loans.</p><Link href="/accounts" className={buttonClassName({ variant: "ghost", size: "sm", className: "mt-2" })}>Manage accounts ↗</Link></div>
   </section>;
 }

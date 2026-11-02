@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
 import { Button, Card, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { BillCadence, BillRecord, RenewalSuggestion, UpcomingBill } from "@/lib/finance/bills";
@@ -75,17 +76,17 @@ export function BillsCard({
     <Card
       title="Bills & renewals · next 30 days"
       action={
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center justify-end gap-2">
           {suggestions.length > 0 ? (
             <button
               type="button"
               onClick={() => setOpen(true)}
-              className="rounded-full bg-accent-soft px-3 py-1 text-xs font-medium text-accent hover:underline"
+              className={buttonClassName({ variant: "soft", size: "sm" })}
             >
               {suggestions.length} suggested
             </button>
           ) : null}
-          <button type="button" onClick={() => setOpen(true)} className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">
+          <button type="button" onClick={() => setOpen(true)} className={buttonClassName({ variant: "ghost", size: "sm" })}>
             Manage ({bills.length})
           </button>
         </div>
@@ -100,7 +101,7 @@ export function BillsCard({
               setEditing({ name: "", nextDate: today, amount: "", cadence: "monthly" });
               setOpen(true);
             }}
-            className="text-accent underline-offset-2 hover:underline"
+            className={buttonClassName({ variant: "ghost", size: "sm" })}
           >
             Add a bill
           </button>
@@ -167,7 +168,7 @@ export function BillsCard({
         </div>
       )}
 
-      {showCategoryLink ? <Link href="/accounts?tab=needs-attention" className="mt-4 flex min-h-11 items-center justify-between gap-2 rounded-xl px-3 py-2 text-xs font-medium text-accent hover:bg-accent-soft"><span>Missing a category? Categorise an incoming payment</span><span aria-hidden="true">↗</span></Link> : null}
+      {showCategoryLink ? <Link href="/accounts?tab=needs-attention" className={buttonClassName({ variant: "ghost", className: "mt-4 w-full justify-between" })}><span>Missing a category? Categorise an incoming payment</span><span aria-hidden="true">↗</span></Link> : null}
 
       <Dialog
         open={open}
@@ -188,8 +189,8 @@ export function BillsCard({
           />
         ) : (
           <div className="flex flex-col gap-4">
-            <div className="flex items-center justify-between">
-              <p className="text-xs text-muted">{reminderNote}</p>
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="min-w-0 flex-1 text-xs text-muted">{reminderNote}</p>
               <Button size="sm" variant="primary" onClick={() => setEditing({ name: "", nextDate: today, amount: "", cadence: "monthly" })}>
                 + Add bill
               </Button>

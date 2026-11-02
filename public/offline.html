@@ -17,9 +17,16 @@
       h1 { margin: 20px 0 8px; font-size: 22px; font-weight: 500; letter-spacing: -0.01em; }
       p { margin: 0 auto; max-width: 320px; color: #9b9ba1; font-size: 15px; line-height: 1.6; }
       button {
-        margin-top: 24px; height: 44px; padding: 0 22px; border: 0; border-radius: 999px;
-        background: #d9b45a; color: #1a1404; font: inherit; font-weight: 500; cursor: pointer;
+        box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+        margin-top: 24px; min-width: 44px; min-height: 44px; padding: 8px 16px;
+        border: 1px solid #137d70; border-radius: 12px; background: #137d70; color: #fff;
+        font-family: inherit; font-size: 14px; line-height: 20px; font-weight: 500; cursor: pointer;
+        transition: background-color 150ms, border-color 150ms;
       }
+      button:hover:not(:disabled) { background: #0c665b; border-color: #0c665b; }
+      button:focus-visible { outline: 2px solid #5cc4b2; outline-offset: 4px; }
+      button:disabled { opacity: .5; cursor: not-allowed; }
+      @media (prefers-reduced-motion: reduce) { button { transition: none; } }
     </style>
   </head>
   <body>

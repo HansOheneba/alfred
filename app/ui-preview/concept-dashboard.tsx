@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { buttonClassName } from "@/app/components/button-styles";
 import { WeeklyComparison } from "@/app/dashboard/weekly-comparison";
 
 import { previewStyles as styles } from "./styles";
@@ -110,9 +111,7 @@ export function ConceptDashboardClient({ ledger, name, balanceAccounts, balanceT
                   setSelected(null);
                 }}
                 aria-pressed={preset === item}
-                className={`rounded-full px-3 py-2 text-xs transition focus-visible:outline-2 focus-visible:outline-accent ${
-                  preset === item ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"
-                }`}
+                className={buttonClassName({ variant: preset === item ? "primary" : "ghost", size: "sm" })}
               >
                 {RANGE_LABELS[item]}
               </button>
@@ -120,14 +119,14 @@ export function ConceptDashboardClient({ ledger, name, balanceAccounts, balanceT
           </div>
           <Link
             href="/chat"
-            className={styles.talk}
+            className={buttonClassName({ variant: "primary", className: styles.talk })}
           >
             Talk to Alfred
           </Link>
         </div>
       </div>
 
-      {ledger.bank.needsLabel.length > 0 ? <div className="alfred-ui-reviewPrompt"><span>Make your overview more complete.</span><Link href="/ui-preview/accounts?tab=needs-attention">{ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label <span aria-hidden="true">↗</span></Link></div> : null}
+      {ledger.bank.needsLabel.length > 0 ? <div className="alfred-ui-reviewPrompt"><span>Make your overview more complete.</span><Link href="/ui-preview/accounts?tab=needs-attention" className={buttonClassName({ variant: "ghost", size: "sm" })}>{ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label <span aria-hidden="true">↗</span></Link></div> : null}
 
       {!hasAny ? (
         <EmptyState>
@@ -164,14 +163,14 @@ export function ConceptDashboardClient({ ledger, name, balanceAccounts, balanceT
         <Card
           title={`Spending by day · ${rangeLabel}`}
           action={
-            <div className="flex rounded-full border border-line p-1 text-xs" role="group" aria-label="Chart mode">
+            <div className="flex flex-wrap rounded-xl border border-line p-1" role="group" aria-label="Chart mode">
               {(["daily", "cumulative"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   aria-pressed={dailyMode === mode}
                   onClick={() => setDailyMode(mode)}
-                  className={`rounded-full px-3 py-1 focus-visible:outline-2 focus-visible:outline-accent ${dailyMode === mode ? "bg-surface-2 text-ink" : "text-muted"}`}
+                  className={buttonClassName({ variant: dailyMode === mode ? "soft" : "ghost", size: "sm" })}
                 >
                   {mode === "daily" ? "Daily" : "Running total"}
                 </button>
@@ -189,7 +188,7 @@ export function ConceptDashboardClient({ ledger, name, balanceAccounts, balanceT
         title={`Where the money went · ${rangeLabel}`}
         action={
           selected ? (
-            <button type="button" onClick={() => setSelected(null)} className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">
+            <button type="button" onClick={() => setSelected(null)} className={buttonClassName({ variant: "ghost", size: "sm" })}>
               Clear selection
             </button>
           ) : null
@@ -300,7 +299,7 @@ export function ConceptDashboardClient({ ledger, name, balanceAccounts, balanceT
           currency={currency}
           today={today}
         />
-        <Card title="Budgets · this month" action={<Link href="/settings" className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">Manage</Link>}>
+        <Card title="Budgets · this month" action={<Link href="/settings" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
           {budgets.length === 0 ? (
             <EmptyState>No budgets for this month. Ask Alfred, e.g. &ldquo;Set a food budget of 800&rdquo;.</EmptyState>
           ) : (
@@ -338,7 +337,7 @@ export function ConceptDashboardClient({ ledger, name, balanceAccounts, balanceT
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Savings goals" action={<Link href="/settings" className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">Manage</Link>}>
+        <Card title="Savings goals" action={<Link href="/settings" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
           {goals.length === 0 ? (
             <EmptyState>No savings goals yet. Ask Alfred, e.g. &ldquo;Save 3000 for a laptop by March&rdquo;.</EmptyState>
           ) : (

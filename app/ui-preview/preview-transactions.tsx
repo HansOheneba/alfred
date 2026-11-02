@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 
 import { AccountingRowAction, isAccountingRow } from "@/app/dashboard/accounting-row-action";
 import { Spinner } from "@/app/components/status";
+import { buttonClassName } from "@/app/components/button-styles";
 import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerRow } from "@/lib/finance/analytics";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
@@ -143,7 +144,7 @@ export function PreviewTransactionsTable({
       {category ? (
         <p className="mt-3 flex items-center gap-2 text-xs text-muted">
           Showing <span className="rounded-full bg-accent-soft px-2 py-1 text-accent">{category}</span>
-          <button type="button" className="underline-offset-2 hover:text-ink hover:underline" onClick={onClearCategory}>
+          <button type="button" className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={onClearCategory}>
             Clear
           </button>
         </p>

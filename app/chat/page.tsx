@@ -2,14 +2,11 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { ChatPanel } from "@/app/chat/chat-panel";
-import type { ChatNotebookData } from "@/app/chat/notebook-panel";
 import { AlfredMark, AppShell } from "@/app/components/app-shell";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { toThreadMessage } from "@/lib/accounts/thread";
-import { createSupabaseNotebookStore } from "@/lib/notebook/store";
 import { loadLedger } from "@/lib/web/ledger";
-import { loadPeople } from "@/lib/web/people";
 
 type ChatSearchParams = Promise<{ question?: string | string[] }>;
 
@@ -50,15 +47,10 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
   const name = account.profile.preferredName.trim();
   let history;
   let ledger;
-  let notebook: ChatNotebookData;
   try {
-    [history, ledger, notebook] = await Promise.all([
+    [history, ledger] = await Promise.all([
       createSupabaseMessageLog(account.settings.supabase).listRecent(account.userId, 80),
       loadLedger(account.profile, account.settings),
-      Promise.all([
-        loadPeople(account.profile, account.settings),
-        createSupabaseNotebookStore(account.settings.supabase).list(account.profile.profileId),
-      ]).then(([people, about]) => ({ people, about }), () => ({ people: [], about: [], error: "Alfred could not load your notebook. Try refreshing the page." })),
     ]);
   } catch (error) {
     return (
@@ -72,7 +64,7 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
 
   return (
     <AppShell current="chat" name={name} fill>
-      <ChatPanel key={question || "conversation"} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} ledger={ledger} notebook={notebook} />
+      <ChatPanel key={question || "conversation"} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} ledger={ledger} />
     </AppShell>
   );
 }
