@@ -1,7 +1,7 @@
 import { z } from "zod";
 
 import { chatCompletion } from "@/lib/ai/deepseek";
-import { BUILDER_NAME, personaLines, type Channel } from "@/lib/ai/persona";
+import { builderFor, personaLines, type Channel } from "@/lib/ai/persona";
 import { DASHBOARD_URL, type DeepSeekSettings, type UserProfile } from "@/lib/config";
 import type { Delivery } from "@/lib/finance/action-router";
 import type { ChatCue } from "@/lib/finance/context";
@@ -43,7 +43,7 @@ export function intentOf(action: FinanceAction): string {
   return action.type === "chat" ? `chat:${action.topic ?? "other"}` : action.type;
 }
 
-function ladder(turn: number, topic: "money" | "other", builder: string): string {
+function ladder(turn: number, topic: "money" | "other", builder: string | null): string {
   if (topic === "money") {
     return "This is about their money, so lean in: be supportive and practical, like a friend who is good with money. Two or three sentences.";
   }
@@ -56,12 +56,14 @@ function ladder(turn: number, topic: "money" | "other", builder: string): string
   if (turn === 3) {
     return [
       "They have been chatting off-topic for three messages in a row. Answer briefly, then steer back to their finances with gentle wit.",
-      `Make the point that ${builder} built you to help with their money. If you are talking to ${builder} himself, say he built you for exactly this.`,
+      builder
+        ? `Make the point that ${builder} built you to help with their money.`
+        : "Make the point that this is what you were built for: helping with their money.",
       "Stay warm; never refuse or sound like a wall.",
     ].join(" ");
   }
   return [
-    `They are still off-topic (${turn} messages in a row) and you have already reminded them why ${builder} built you, so don't say that again.`,
+    `They are still off-topic (${turn} messages in a row) and you have already reminded them ${builder ? `why ${builder} built you` : "what you were built for"}, so don't say that again.`,
     "Answer in a few words, then offer one concrete thing you could do right now, such as showing this week's spending or logging today's expenses. Keep it light.",
   ].join(" ");
 }
@@ -84,7 +86,7 @@ function chatSystem(request: VoiceRequest): string {
     ...(request.state?.length ? request.state : ["Nothing in particular."]),
     "Keep what the draft does: if it answers, asks, or offers something, your reply does the same. Never promise to do something the draft doesn't.",
     "If they ask a general question, such as a fact or a recommendation, answer it in one short line first.",
-    ladder(cue?.offTopicTurn ?? 1, request.topic ?? "other", BUILDER_NAME),
+    ladder(cue?.offTopicTurn ?? 1, request.topic ?? "other", builderFor(request.profile)),
     "Keep it to one or two sentences unless the line above allows more. Never state any figure that is not in the facts above.",
     'Reply with JSON only, in the form {"reply":"..."}.',
   ].join("\n");

@@ -72,6 +72,7 @@ export async function interpretWithContext(input: {
       preferredName: input.profile.preferredName,
       communicationPreference: input.profile.communicationPreference,
       toneNote: input.profile.toneNote,
+      telegramUserId: input.profile.telegramUserId,
       channel: input.channel,
       budgets: budgets.slice(0, 12).map((item) => ({
         period: item.period,

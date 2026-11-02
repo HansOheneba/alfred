@@ -31,6 +31,8 @@ export type InterpretRequest = {
   preferredName?: string;
   communicationPreference?: "concise" | "detailed";
   toneNote?: string;
+  /** Who Alfred is talking to, so it knows whether to name who built it. */
+  telegramUserId?: number | null;
   channel?: Channel;
   budgets?: { period: string; category: string; amount: string; currency: string }[];
   goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
@@ -64,6 +66,7 @@ export async function interpretMessage(
     preferredName: request.preferredName,
     communicationPreference: request.communicationPreference,
     toneNote: request.toneNote,
+    telegramUserId: request.telegramUserId,
     channel: request.channel,
     budgets: request.budgets,
     goals: request.goals,

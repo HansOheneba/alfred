@@ -66,6 +66,7 @@ export function buildSystemPrompt(input: {
   preferredName?: string;
   communicationPreference?: "concise" | "detailed";
   toneNote?: string;
+  telegramUserId?: number | null;
   channel?: Channel;
   budgets?: { period: string; category: string; amount: string; currency: string }[];
   goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
@@ -97,6 +98,7 @@ export function buildSystemPrompt(input: {
       preferredName: input.preferredName ?? "",
       communicationPreference: input.communicationPreference ?? "concise",
       toneNote: input.toneNote,
+      telegramUserId: input.telegramUserId ?? null,
     },
     input.channel ?? "telegram",
   );
