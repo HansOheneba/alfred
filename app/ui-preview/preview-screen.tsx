@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { buttonClassName } from "@/app/components/button-styles";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
@@ -15,7 +16,7 @@ import { ConceptDashboardClient } from "./concept-dashboard";
 import { PreviewShell } from "./preview-shell";
 import { previewStyles as styles } from "./styles";
 
-const previewRoutes: Record<string, string> = { "/chat": "/ui-preview/chat", "/dashboard": "/ui-preview", "/investments": "/ui-preview/investments", "/accounts": "/ui-preview/accounts", "/review": "/ui-preview/accounts?tab=needs-attention", "/notebook": "/ui-preview/chat?panel=notebook", "/settings": "/ui-preview/settings", "/": "/ui-preview" };
+const previewRoutes: Record<string, string> = { "/chat": "/ui-preview/chat", "/dashboard": "/ui-preview", "/investments": "/ui-preview/investments", "/accounts": "/ui-preview/accounts", "/review": "/ui-preview/accounts?tab=needs-attention", "/notebook": "/ui-preview/chat", "/people": "/ui-preview/chat", "/settings": "/ui-preview/settings", "/": "/ui-preview" };
 
 export function PreviewFrame({ children, section = "dashboard", variant = "concept" }: { children: ReactNode; section?: Section; variant?: "current" | "concept" }) {
   const [appearance, setAppearance] = useAppearance();
@@ -51,14 +52,14 @@ export function PreviewFrame({ children, section = "dashboard", variant = "conce
       <Link href="/ui-preview/current" aria-current={variant === "current" ? "page" : undefined}>Current</Link>
       <Link href="/ui-preview" aria-current={variant === "concept" && section === "dashboard" ? "page" : undefined}>Concept</Link>
     </nav>
-    <button type="button" className={styles.themeButton} onClick={() => setAppearance(appearance === "light" ? "dark" : "light")} aria-label={`Switch to ${appearance === "light" ? "dark" : "light"} appearance`}>
+    <button type="button" className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={() => setAppearance(appearance === "light" ? "dark" : "light")} aria-label={`Switch to ${appearance === "light" ? "dark" : "light"} appearance`}>
       {appearance === "light" ? "Dark" : "Light"}
     </button>
   </div>;
 
   return <div className={variant === "concept" ? styles.study : styles.current} onClickCapture={keepReadOnly} onSubmitCapture={(event) => { if (!(event.target as HTMLFormElement).matches('form[data-preview-local-form="true"]')) { event.preventDefault(); event.stopPropagation(); } }}>
     {variant === "concept" ? <PreviewShell section={section} tools={tools}>{children}</PreviewShell> : <AppShell current={section} name={previewName} headerAction={tools}>{children}</AppShell>}
-    {notice ? <div className={styles.notice} role="status"><span>{notice}</span><button type="button" onClick={() => setNotice("")} aria-label="Dismiss preview notice">×</button></div> : null}
+    {notice ? <div className={styles.notice} role="status"><span>{notice}</span><button type="button" className={buttonClassName({ variant: "ghost", size: "icon" })} onClick={() => setNotice("")} aria-label="Dismiss preview notice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" aria-hidden="true"><path d="m6 6 12 12M6 18 18 6"/></svg></button></div> : null}
   </div>;
 }
 

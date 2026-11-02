@@ -27,7 +27,7 @@ export type InvestmentView = {
   asOf: string | null;
   stale: boolean;
   /** Money in, less money out, including what was there before Alfred, in cedis. */
-  investedGhs: number;
+  investedGhs: number | null;
   gainGhs: number | null;
   holdings: HoldingView[];
   maturity: { date: string; daysLeft: number; valueAtMaturity: number | null } | null;
@@ -36,7 +36,7 @@ export type InvestmentView = {
 export type Portfolio = {
   items: InvestmentView[];
   totalGhs: number;
-  investedGhs: number;
+  investedGhs: number | null;
   gainGhs: number | null;
   /** Cedi value by kind, for the allocation chart. */
   byKind: { kind: InvestmentKind; label: string; valueGhs: number }[];
@@ -99,7 +99,7 @@ export function valuePortfolio(input: {
     const reported = input.values.find((value) => value.investmentId === investment.id) ?? null;
     const flows = input.contributions.filter((item) => item.investmentId === investment.id);
     const before = Number(investment.investedBefore);
-    const investedGhs = round(
+    const investedGhs = investment.importCostBasisUnknown ? null : round(
       (toGhs(before, investment.currency, usdGhs) ?? 0) + flows.reduce((sum, item) => sum + (toGhs(Number(item.amount), item.currency, usdGhs) ?? 0), 0),
     );
     const investedOwn = before + flows.reduce((sum, item) => sum + (item.currency === investment.currency ? Number(item.amount) : 0), 0);
@@ -119,14 +119,14 @@ export function valuePortfolio(input: {
       source = "reported";
       asOf = reported.asOf;
     } else if (FIXED_INCOME.includes(investment.kind) && investment.rate != null && investment.startedOn) {
-      const principal = investment.principal != null ? Number(investment.principal) : investedOwn;
+      const principal = investment.principal != null ? Number(investment.principal) : investment.importCostBasisUnknown ? 0 : investedOwn;
       if (principal > 0) {
         value = round(grownByRate(principal, investment.rate, investment.startedOn, input.today, investment.maturesOn));
         source = "rate";
         asOf = input.today;
       }
     }
-    if (value === null && investedOwn > 0) {
+    if (value === null && investedOwn > 0 && !investment.importCostBasisUnknown) {
       value = round(investedOwn);
       source = "invested";
       asOf = null;
@@ -139,7 +139,7 @@ export function valuePortfolio(input: {
 
     let maturity: InvestmentView["maturity"] = null;
     if (investment.maturesOn) {
-      const principal = investment.principal != null ? Number(investment.principal) : investedOwn;
+      const principal = investment.principal != null ? Number(investment.principal) : investment.importCostBasisUnknown ? 0 : investedOwn;
       maturity = {
         date: investment.maturesOn,
         daysLeft: days(input.today, investment.maturesOn),
@@ -159,7 +159,7 @@ export function valuePortfolio(input: {
       asOf,
       stale,
       investedGhs,
-      gainGhs: valueGhs !== null && investedGhs > 0 ? round(valueGhs - investedGhs) : null,
+      gainGhs: valueGhs !== null && investedGhs !== null && investedGhs > 0 ? round(valueGhs - investedGhs) : null,
       holdings,
       maturity,
     });
@@ -167,14 +167,14 @@ export function valuePortfolio(input: {
 
   const counted = items.filter((item) => item.valueGhs !== null);
   const totalGhs = round(counted.reduce((sum, item) => sum + item.valueGhs!, 0));
-  const investedGhs = round(counted.reduce((sum, item) => sum + item.investedGhs, 0));
+  const investedGhs = counted.some((item) => item.investedGhs === null) ? null : round(counted.reduce((sum, item) => sum + item.investedGhs!, 0));
   const kinds = new Map<InvestmentKind, number>();
   for (const item of counted) kinds.set(item.investment.kind, (kinds.get(item.investment.kind) ?? 0) + item.valueGhs!);
   return {
     items,
     totalGhs,
     investedGhs,
-    gainGhs: counted.length > 0 && investedGhs > 0 ? round(totalGhs - investedGhs) : null,
+    gainGhs: counted.length > 0 && investedGhs !== null && investedGhs > 0 ? round(totalGhs - investedGhs) : null,
     byKind: [...kinds.entries()].map(([kind, valueGhs]) => ({ kind, label: KIND_LABELS[kind], valueGhs: round(valueGhs) })).sort((a, b) => b.valueGhs - a.valueGhs),
     usdGhs,
     unconverted,

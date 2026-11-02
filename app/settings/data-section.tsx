@@ -1,10 +1,13 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
+import { useEffect, useId, useRef, useState, type FormEvent } from "react";
 
+import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
-import { Button, Card, ConfirmDialog, Field, inputClass, sendJson } from "@/app/components/ui";
+import { Button, Card, ConfirmDialog, inputClass, sendJson } from "@/app/components/ui";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { PortabilitySection } from "@/app/settings/portability-section";
+import "./password-card.css";
 
 export function DataSection() {
   const [confirmClear, setConfirmClear] = useState(false);
@@ -26,19 +29,20 @@ export function DataSection() {
 
   return (
     <div className="flex flex-col gap-4">
-      <Card title="Your data">
+      <PortabilitySection />
+      <Card title="More options">
         <div className="flex flex-col divide-y divide-line">
           <div className="flex flex-wrap items-center justify-between gap-3 pb-4">
             <div>
-              <p className="text-sm font-medium">Download transactions</p>
-              <p className="text-xs text-muted">Every active transaction as a CSV file you can open in a spreadsheet.</p>
+              <p className="text-sm font-medium">Download a spreadsheet</p>
+              <p className="text-xs text-muted">Your current transactions in a spreadsheet.</p>
             </div>
             <a
               href="/api/export"
               download
-              className="inline-flex h-10 items-center rounded-full border border-line-strong bg-surface px-4 text-sm font-medium transition hover:bg-surface-2 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent"
+              className={buttonClassName()}
             >
-              Download CSV
+              Download spreadsheet
             </a>
           </div>
           <div className="flex flex-wrap items-center justify-between gap-3 pt-4">
@@ -73,14 +77,32 @@ export function DataSection() {
 }
 
 function PasswordCard() {
+  const fieldId = useId();
+  const manageButton = useRef<HTMLButtonElement>(null);
+  const passwordInput = useRef<HTMLInputElement>(null);
+  const [editing, setEditing] = useState(false);
+  const [showPasswords, setShowPasswords] = useState(false);
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [error, setError] = useState("");
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
 
+  useEffect(() => {
+    if (editing) passwordInput.current?.focus();
+  }, [editing]);
+
+  function closeEditor() {
+    setPassword("");
+    setConfirm("");
+    setShowPasswords(false);
+    setEditing(false);
+    requestAnimationFrame(() => manageButton.current?.focus());
+  }
+
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (busy) return;
     setError("");
     setSaved(false);
     if (password !== confirm) {
@@ -95,8 +117,7 @@ function PasswordCard() {
         setError(updateError.message);
         return;
       }
-      setPassword("");
-      setConfirm("");
+      closeEditor();
       setSaved(true);
     } catch {
       setError("Alfred could not save that password.");
@@ -106,42 +127,86 @@ function PasswordCard() {
   }
 
   return (
-    <Card title="Password">
-      <form className="flex flex-col gap-4" onSubmit={onSubmit}>
-        <p className="text-sm text-muted">Optional. You can keep signing in with an email code, or set a password for next time.</p>
-        <div className="grid gap-4 sm:grid-cols-2">
-          <Field label="New password" hint="At least 8 characters.">
-            <input
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={8}
-              value={password}
-              onChange={(event) => setPassword(event.target.value)}
-              className={inputClass}
-            />
-          </Field>
-          <Field label="Confirm password">
-            <input
-              type="password"
-              autoComplete="new-password"
-              required
-              minLength={8}
-              value={confirm}
-              onChange={(event) => setConfirm(event.target.value)}
-              className={inputClass}
-            />
-          </Field>
+    <Card title="Password" className="alfred-password-card">
+      {editing ? (
+        <form id={`${fieldId}-editor`} className="alfred-password-form" onSubmit={onSubmit} aria-busy={busy} aria-label="Manage password">
+          <div className="alfred-password-formHeading">
+            <p id={`${fieldId}-hint`}>Choose a password with at least 8 characters. You can still sign in with an email code.</p>
+            <button
+              type="button"
+              className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-password-reveal" })}
+              aria-pressed={showPasswords}
+              aria-controls={`${fieldId}-password ${fieldId}-confirm`}
+              onClick={() => setShowPasswords((value) => !value)}
+              disabled={busy}
+            >
+              {showPasswords ? "Hide passwords" : "Show passwords"}
+            </button>
+          </div>
+          <div className="alfred-password-fields">
+            <label className="alfred-password-field" htmlFor={`${fieldId}-password`}>
+              <span>New password</span>
+              <input
+                ref={passwordInput}
+                id={`${fieldId}-password`}
+                name="new-password"
+                type={showPasswords ? "text" : "password"}
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={password}
+                disabled={busy}
+                aria-describedby={`${fieldId}-hint${error ? ` ${fieldId}-feedback` : ""}`}
+                aria-invalid={Boolean(error)}
+                onChange={(event) => { setPassword(event.target.value); setError(""); }}
+                className={`${inputClass} alfred-password-input`}
+              />
+            </label>
+            <label className="alfred-password-field" htmlFor={`${fieldId}-confirm`}>
+              <span>Confirm new password</span>
+              <input
+                id={`${fieldId}-confirm`}
+                name="confirm-password"
+                type={showPasswords ? "text" : "password"}
+                autoComplete="new-password"
+                required
+                minLength={8}
+                value={confirm}
+                disabled={busy}
+                aria-describedby={error ? `${fieldId}-feedback` : undefined}
+                aria-invalid={Boolean(error)}
+                onChange={(event) => { setConfirm(event.target.value); setError(""); }}
+                className={`${inputClass} alfred-password-input`}
+              />
+            </label>
+          </div>
+          <div className="alfred-password-actions">
+            <Button variant="ghost" onClick={() => { setError(""); closeEditor(); }} disabled={busy}>Cancel</Button>
+            <Button variant="primary" type="submit" disabled={busy || !password || !confirm} aria-busy={busy} aria-label="Save password">
+              {busy ? <><Spinner /> Saving…</> : "Save password"}
+            </Button>
+          </div>
+        </form>
+      ) : (
+        <div className="alfred-password-summary">
+          <span className="alfred-password-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="10" width="14" height="11" rx="3"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg></span>
+          <div className="alfred-password-summaryCopy">
+            <p>Sign in with a password</p>
+            <p>Create or update your password. Email codes stay available.</p>
+          </div>
+          <button
+            type="button"
+            className={buttonClassName({ className: "alfred-password-manage" })}
+            ref={manageButton}
+            onClick={() => { setError(""); setSaved(false); setEditing(true); }}
+          >
+            Manage password
+          </button>
         </div>
-        <div className="flex flex-wrap items-center justify-end gap-3">
-          <p className="mr-auto text-sm" role="status" aria-live="polite">
-            {error ? <span className="text-danger">{error}</span> : saved ? <span className="text-success">Password saved ✓</span> : null}
-          </p>
-          <Button variant="primary" type="submit" disabled={busy} aria-busy={busy} aria-label="Set password">
-            {busy ? <Spinner /> : "Set password"}
-          </Button>
-        </div>
-      </form>
+      )}
+      <p id={`${fieldId}-feedback`} className="alfred-password-feedback" role="status" aria-live="polite">
+        {error ? <span className="text-danger">{error}</span> : saved ? <span className="text-success">Password saved.</span> : null}
+      </p>
     </Card>
   );
 }

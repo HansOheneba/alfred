@@ -1,24 +1,15 @@
-.alfred-chat-workspace { max-width: 1440px; width: 100%; margin: 0 auto; padding: 24px 32px; font-size: 14px; line-height: 24px; }
-.alfred-chat-layout { display: grid; grid-template-columns: minmax(0,1fr) 296px; gap: 24px; align-items: start; }
-.alfred-chat-conversation { min-width: 0; border: 1px solid var(--line); border-radius: 20px; background: var(--surface); overflow: hidden; }
-.alfred-chat-conversationHeader { padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; gap: 16px; border-bottom: 1px solid var(--line); }
-.alfred-chat-identity { display: flex; align-items: center; gap: 12px; min-width: 0; }
-.alfred-chat-mark { width: 32px; height: 32px; }
-.alfred-chat-identity h2 { font-size: 16px; line-height: 24px; font-weight: 600; letter-spacing: -.02em; }
-.alfred-chat-identity p { color: var(--muted); font-size: 12px; line-height: 20px; }
-.alfred-chat-mobileStatus { display: none; }
-.alfred-chat-headerActions,.alfred-chat-headerTools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
+.alfred-chat-workspace { display:flex; flex-direction:column; flex:1; min-height:0; max-width:none; width:100%; margin:0; padding:0; overflow:hidden; font-size:14px; line-height:24px; }
+.alfred-chat-layout { display:flex; flex-direction:column; flex:1; min-height:0; gap:0; align-items:stretch; }
+.alfred-chat-conversation { display:flex; flex-direction:column; flex:1; min-width:0; min-height:0; border:0; border-radius:0; background:var(--surface); overflow:hidden; }
+.alfred-chat-headerTools { display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .alfred-chat-headerTools { gap: 8px; }
-.alfred-chat-headerTools button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-width: 44px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--muted); font-size: 12px; line-height: 20px; font-weight: 500; white-space: nowrap; }
 .alfred-chat-headerTools button svg { width: 20px; height: 20px; flex-shrink: 0; }
-.alfred-chat-headerTools button:hover,.alfred-chat-headerTools button[aria-expanded="true"] { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb,var(--accent) 32%,var(--line)); }
-.alfred-chat-headerTools button.alfred-chat-contextToggle { display: none; }
-.alfred-chat-headerTools .alfred-chat-new { color: var(--accent); background: var(--accent-soft); border-color: transparent; }
+.alfred-chat-headerTools button.alfred-chat-contextToggle { display:inline-flex; }
 .alfred-chat-workspace button:focus-visible,.alfred-chat-workspace a:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
-.alfred-chat-demoBadge { font-size: 12px; line-height: 20px; color: var(--accent); background: var(--accent-soft); border-radius: 8px; padding: 4px 8px; white-space: nowrap; font-weight: 500; }
 .alfred-chat-handoff { margin: 16px 24px 0; display: flex; align-items: center; gap: 8px; padding: 12px; border-radius: 12px; background: var(--accent-soft); color: var(--accent); font-size: 12px; line-height: 20px; }
 .alfred-chat-handoff svg { width: 16px; height: 16px; flex-shrink: 0; }
-.alfred-chat-thread { padding: 24px 24px 12px; display: flex; flex-direction: column; gap: 24px; }
+.alfred-chat-thread { flex:1; min-height:0; overflow-y:auto; overscroll-behavior:contain; padding:24px; display:flex; flex-direction:column; gap:24px; }
+.alfred-chat-thread > * { flex-shrink:0; }
 .alfred-chat-dayDivider { display: flex; align-items: center; gap: 12px; justify-content: center; font-size: 12px; line-height: 20px; color: var(--muted); margin-bottom: 4px; }
 .alfred-chat-dayDivider::before,.alfred-chat-dayDivider::after { content: ""; height: 1px; background: var(--line); width: 32px; flex-shrink: 1; }
 .alfred-chat-userTurn { display: flex; align-items: end; justify-content: end; gap: 12px; padding-left: 48px; }
@@ -46,24 +37,11 @@
 .alfred-chat-replyPoints dd { font-weight: 500; text-align: right; }
 .alfred-chat-source { display: flex; align-items: start; gap: 8px; font-size: 12px; line-height: 20px; color: var(--muted); margin-top: 12px; }
 .alfred-chat-source svg { width: 16px; height: 16px; flex-shrink: 0; margin-top: 4px; color: var(--accent); }
-.alfred-chat-suggestions { display: flex; flex-wrap: wrap; gap: 8px; padding: 8px 24px 16px; }
-.alfred-chat-suggestions button { display: inline-flex; align-items: center; justify-content: space-between; gap: 8px; min-height: 44px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; color: var(--muted); font-size: 12px; line-height: 20px; background: var(--surface); }
-.alfred-chat-suggestions button:hover { color: var(--accent); background: var(--accent-soft); border-color: color-mix(in srgb,var(--accent) 32%,var(--line)); }
-.alfred-chat-suggestions svg { width: 16px; height: 16px; flex-shrink: 0; }
-.alfred-chat-suggestions button > span { color: var(--faint); margin-left: 4px; }
-.alfred-chat-composer { scroll-margin-bottom: calc(112px + env(safe-area-inset-bottom)); scroll-margin-top: 88px; margin: 0 24px; border: 1px solid var(--line-strong); border-radius: 16px; background: var(--surface); padding: 16px; box-shadow: 0 4px 16px #17362b08; }
 .alfred-chat-composer:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
-.alfred-chat-composer > label { display: block; font-size: 12px; line-height: 20px; font-weight: 600; color: var(--ink); }
-.alfred-chat-composer textarea { width: 100%; min-height: 80px; max-height: 224px; resize: vertical; background: transparent; color: var(--ink); padding: 12px 0 8px; outline: none; font-size: 16px; line-height: 24px; }
 .alfred-chat-composer textarea::placeholder { color: var(--faint); }
-.alfred-chat-composerFooter { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.alfred-chat-composerFooter > p { display: flex; align-items: center; gap: 12px; font-size: 12px; line-height: 20px; color: var(--muted); }
-.alfred-chat-composerFooter > p > span:first-child { color: var(--muted); background: var(--surface-2); padding: 4px 8px; border-radius: 8px; white-space: nowrap; }
-.alfred-chat-composerFooter > button { display: inline-flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 8px 12px; border-radius: 12px; background: var(--accent); color: var(--accent-ink); font-size: 12px; line-height: 20px; font-weight: 600; white-space: nowrap; }
-.alfred-chat-composerFooter > button:disabled { cursor: default; opacity: .42; }
-.alfred-chat-composerFooter > button svg { width: 16px; height: 16px; }
-.alfred-chat-demoNote { font-size: 12px; line-height: 20px; color: var(--muted); text-align: center; padding: 12px 16px 16px; }
-.alfred-chat-context { position: sticky; top: 88px; display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.alfred-chat-context { position:static; display:none; grid-template-columns:repeat(3,minmax(0,1fr)); gap:16px; min-width:0; min-height:0; flex-shrink:0; max-height:min(40%,320px); overflow-y:auto; overscroll-behavior:contain; border:0; border-bottom:1px solid var(--line); padding:16px 24px; }
+.alfred-chat-context[data-open="true"] { display:grid; order:-1; }
+.alfred-chat-contextTitle,.alfred-chat-previewUtilities,.alfred-chat-reviewLink { grid-column:1 / -1; }
 .alfred-chat-contextTitle { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 12px; line-height: 20px; color: var(--muted); }
 .alfred-chat-contextTitle > span:last-child { font-size: 12px; line-height: 20px; border: 1px solid var(--line); padding: 4px 8px; border-radius: 8px; }
 .alfred-chat-context section { border-radius: 16px; padding: 20px; border: 1px solid var(--line); background: var(--surface); }
@@ -91,13 +69,9 @@
 .alfred-chat-reviewLink strong { display: block; font-size: 12px; line-height: 20px; font-weight: 600; }
 .alfred-chat-reviewLink small { display: block; font-size: 12px; line-height: 20px; margin-top: 4px; }
 @media (max-width: 1100px) {
-  .alfred-chat-layout { grid-template-columns: minmax(0,1fr) 264px; gap: 16px; }
-  .alfred-chat-headerTools button { width: 44px; height: 44px; padding: 0; }
-  .alfred-chat-actionLabel,.alfred-chat-demoBadge,.alfred-chat-desktopStatus { display: none; }
-  .alfred-chat-mobileStatus { display: inline; }
-  .alfred-chat-thread,.alfred-chat-suggestions { padding-inline: 20px; }
+  .alfred-chat-actionLabel { display: none; }
+  .alfred-chat-thread { padding-inline: 20px; }
   .alfred-chat-assistantTurn { padding-right: 0; }
-  .alfred-chat-enterHint { display: none; }
 }
 @media (max-width: 900px) {
   .alfred-chat-layout { display: flex; flex-direction: column; }
@@ -110,9 +84,6 @@
 @media (max-width: 600px) {
   .alfred-chat-workspace { padding: 16px; }
   .alfred-chat-conversation { border-radius: 16px; }
-  .alfred-chat-conversationHeader { padding: 12px; gap: 8px; }
-  .alfred-chat-identity { gap: 8px; }
-  .alfred-chat-identity h2 { font-size: 16px; line-height: 20px; }
   .alfred-chat-headerTools { gap: 4px; }
   .alfred-chat-thread { padding: 16px 16px 8px; gap: 20px; }
   .alfred-chat-userTurn { padding-left: 16px; gap: 8px; }
@@ -124,10 +95,6 @@
   .alfred-chat-replyFacts > div { padding: 12px; }
   .alfred-chat-replyFacts strong { font-size: 20px; line-height: 28px; }
   .alfred-chat-replyPoints > div { gap: 12px; }
-  .alfred-chat-suggestions { padding: 8px 16px 16px; }
-  .alfred-chat-composer { margin-inline: 12px; padding: 12px; }
-  .alfred-chat-composerFooter { gap: 8px; }
-  .alfred-chat-composerFooter > p > span:first-child { padding-inline: 4px; }
   .alfred-chat-context { grid-template-columns: 1fr; gap: 12px; }
   .alfred-chat-contextTitle { grid-column: 1; }
   .alfred-chat-handoff { margin-inline: 16px; }
@@ -136,5 +103,109 @@
   .alfred-chat-replyFacts { grid-template-columns: minmax(0,1fr); }
   .alfred-chat-dayDivider { gap: 8px; }
   .alfred-chat-dayDivider::before,.alfred-chat-dayDivider::after { width: 16px; }
-  .alfred-chat-composerFooter > p > span:first-child { max-width: 96px; white-space: normal; }
+}
+
+/* Full-viewport preview; the shared shell reserves navigation and safe areas. */
+.alfred-chat-composeArea { flex-shrink:0; min-width:0; padding-bottom:8px; background:var(--surface); }
+.alfred-chat-previewUtilities { border:1px solid var(--line); border-radius:12px; padding:12px; font-size:12px; line-height:20px; }
+.alfred-chat-previewUtilities > summary { cursor:pointer; min-height:44px; display:flex; align-items:center; font-weight:600; }
+.alfred-chat-previewUtilities > p { color:var(--muted); margin:8px 0; }
+.alfred-chat-previewUtilities .alfred-ui-previewTools { flex-wrap:wrap; gap:8px; }
+.alfred-chat-previewUtilities .alfred-ui-comparison { display:inline-flex; }
+.alfred-chat-previewUtilities .alfred-ui-demoLabel { display:inline; }
+.alfred-chat-handoff { margin:0; }
+
+@media(max-width:900px) {
+  .alfred-chat-layout { display:flex; flex-direction:column; }
+  .alfred-chat-conversation { flex:1; min-height:0; }
+  .alfred-chat-context { padding:16px; }
+}
+@media(max-width:600px) {
+  .alfred-chat-workspace { padding:0; }
+  .alfred-chat-conversation { border-radius:0; }
+  .alfred-chat-thread { padding:16px; }
+  .alfred-chat-handoff { margin:0; }
+}
+.alfred-chat-viewport[data-keyboard-open="true"] .alfred-chat-suggestions,
+.alfred-chat-viewport[data-keyboard-open="true"] .alfred-chat-demoNote,
+.alfred-chat-viewport[data-keyboard-open="true"] .alfred-chat-handoff { display:none; }
+.alfred-ui-study .alfred-chat-previewUtilities .alfred-ui-comparison { display:inline-flex; }
+
+/* Alfred's welcome keeps its character while the same composer serves every turn. */
+.alfred-chat-composeArea { width:100%; max-width:928px; margin-inline:auto; padding:16px 24px 8px; background:transparent; }
+.alfred-chat-conversation[data-empty="true"] { background:radial-gradient(ellipse 720px 480px at 50% 36%,color-mix(in srgb,var(--accent) 4%,transparent),transparent 72%),var(--surface); }
+.alfred-chat-conversation[data-empty="true"] .alfred-chat-thread { display:none; }
+.alfred-chat-conversation[data-empty="true"] .alfred-chat-composeArea { margin-block:auto; max-height:100%; overflow-y:auto; padding-block:24px; }
+.alfred-chat-welcome { margin:0 auto 28px; text-align:center; }
+.alfred-chat-welcomeEmblem { position:relative; isolation:isolate; display:grid; place-items:center; width:80px; height:80px; margin:0 auto 16px; border:1px solid color-mix(in srgb,var(--accent) 12%,var(--line)); border-radius:28px; background:color-mix(in srgb,var(--surface) 88%,transparent); box-shadow:0 12px 32px color-mix(in srgb,var(--accent) 8%,transparent); }
+.alfred-chat-welcomeEmblem::before { position:absolute; z-index:-1; inset:-28px; border-radius:50%; background:radial-gradient(circle,color-mix(in srgb,var(--accent) 18%,transparent),transparent 68%); filter:blur(12px); content:""; }
+.alfred-chat-welcomeMark { width:64px; height:64px; }
+.alfred-chat-emptyHeading { margin:0; font-size:36px; line-height:44px; font-weight:600; letter-spacing:-.04em; color:var(--ink); overflow-wrap:anywhere; }
+.alfred-chat-welcome > p { margin-top:8px; color:var(--muted); font-size:14px; line-height:24px; }
+.alfred-chat-welcomeCards { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:28px; }
+.alfred-chat-welcomeCards > button { --chat-card-color:var(--accent); display:flex; flex-direction:column; align-items:start; gap:12px; min-width:0; min-height:144px; padding:20px; border:1px solid color-mix(in srgb,var(--chat-card-color) 16%,var(--line)); border-radius:20px; color:var(--ink); background:color-mix(in srgb,var(--chat-card-color) 6%,var(--surface)); text-align:left; transition:background 150ms,border-color 150ms; }
+.alfred-chat-welcomeCards > button[data-tone="expense"] { --chat-card-color:var(--outgoing); }
+.alfred-chat-welcomeCards > button[data-tone="income"] { --chat-card-color:var(--income); }
+.alfred-chat-welcomeCards > button[data-tone="account"] { --chat-card-color:#aa8446; }
+.alfred-chat-welcomeCards > button:hover { border-color:color-mix(in srgb,var(--chat-card-color) 40%,var(--line)); background:color-mix(in srgb,var(--chat-card-color) 10%,var(--surface)); }
+.alfred-chat-welcomeCardIcon { display:grid; place-items:center; width:36px; height:36px; border-radius:12px; background:color-mix(in srgb,var(--chat-card-color) 10%,var(--surface)); color:var(--chat-card-color); }
+.alfred-chat-welcomeCardIcon svg { width:20px; height:20px; }
+.alfred-chat-welcomeCardCopy { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.alfred-chat-welcomeCardCopy strong { font-size:14px; line-height:20px; font-weight:600; }
+.alfred-chat-welcomeCardCopy > span { color:var(--muted); font-size:12px; line-height:20px; }
+.alfred-chat-composer { width:100%; min-height:112px; margin:0; padding:12px 16px; border:1px solid var(--line-strong); border-radius:24px; background:var(--surface); box-shadow:0 8px 32px color-mix(in srgb,var(--accent) 6%,transparent); scroll-margin:0; }
+.alfred-chat-composer:focus-within { border-color:color-mix(in srgb,var(--accent) 56%,var(--line)); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 8%,transparent),0 8px 32px color-mix(in srgb,var(--accent) 8%,transparent); }
+.alfred-chat-composer textarea { display:block; width:100%; min-height:40px; height:40px; max-height:min(160px,calc(var(--alfred-chat-viewport-height,100dvh) * .24)); padding:8px 4px; resize:none; overflow-y:auto; outline:none; color:var(--ink); background:transparent; font-size:16px; line-height:24px; }
+.alfred-chat-composerToolbar { display:flex; align-items:center; justify-content:space-between; gap:12px; }
+.alfred-chat-send svg { width:20px; height:20px; }
+.alfred-chat-thread > * { width:100%; max-width:880px; margin-inline:auto; }
+.alfred-chat-suggestions { display:flex; flex-wrap:wrap; gap:8px; }
+.alfred-chat-suggestions svg { width:20px; height:20px; color:var(--accent); }
+.alfred-chat-contextSuggestions { grid-column:1 / -1; width:100%; margin:0; padding:8px 0; }
+.alfred-chat-demoNote { margin:0 auto; padding:8px 0 0; font-size:12px; line-height:20px; color:var(--muted); text-align:center; }
+.alfred-chat-demoBadge { font-size:12px; line-height:20px; white-space:nowrap; }
+@media(max-width:600px) {
+  .alfred-chat-composeArea { padding:12px 16px 8px; }
+  .alfred-chat-conversation[data-empty="true"] .alfred-chat-composeArea { padding-block:20px; }
+  .alfred-chat-welcome { margin-bottom:20px; }
+  .alfred-chat-welcomeEmblem { width:72px; height:72px; margin-bottom:12px; border-radius:24px; }
+  .alfred-chat-emptyHeading { font-size:28px; line-height:36px; }
+  .alfred-chat-welcome > p { max-width:300px; margin-inline:auto; font-size:14px; line-height:20px; }
+  .alfred-chat-welcomeCards { grid-template-columns:minmax(0,1fr); gap:8px; margin-bottom:20px; }
+  .alfred-chat-welcomeCards > button { flex-direction:row; align-items:center; gap:12px; min-height:84px; padding:16px; }
+  .alfred-chat-welcomeCardIcon { flex-shrink:0; }
+  .alfred-chat-composer { padding-inline:12px; }
+}
+.alfred-chat-viewport[data-keyboard-open="true"] .alfred-chat-conversation[data-empty="true"] .alfred-chat-composeArea { margin-block:0; margin-top:auto; padding-block:8px; }
+.alfred-chat-viewport[data-keyboard-open="true"] :is(.alfred-chat-welcome,.alfred-chat-welcomeCards) { display:none; }
+@media(max-height:600px) {
+  .alfred-chat-demoNote { display:none; }
+  .alfred-chat-welcomeEmblem { display:none; }
+  .alfred-chat-welcome { margin-bottom:16px; }
+}
+
+/* Short phones keep the welcome useful without displacing the editor. */
+@media(max-width:600px) and (max-height:760px) {
+  .alfred-chat-conversation[data-empty="true"] .alfred-chat-composeArea { padding-block:12px; }
+  .alfred-chat-welcome { display:grid; grid-template-columns:64px minmax(0,1fr); align-items:center; column-gap:12px; margin-bottom:16px; text-align:left; }
+  .alfred-chat-welcomeEmblem { grid-column:1; grid-row:1 / 3; display:grid; width:64px; height:64px; margin:0; border-radius:24px; }
+  .alfred-chat-welcomeMark { width:48px; height:48px; }
+  .alfred-chat-emptyHeading { grid-column:2; font-size:24px; line-height:32px; }
+  .alfred-chat-welcome > p { grid-column:2; margin:0; font-size:12px; line-height:20px; }
+  .alfred-chat-welcomeCards { gap:8px; margin-bottom:16px; }
+  .alfred-chat-welcomeCards > button { min-height:64px; padding:12px 16px; }
+  .alfred-chat-welcomeCardCopy > span { display:none; }
+}
+@media(max-width:600px) and (max-height:640px) {
+  .alfred-chat-conversation[data-empty="true"] .alfred-chat-composeArea { padding-block:8px; }
+  .alfred-chat-welcome { margin-bottom:12px; }
+  .alfred-chat-welcome > p { display:none; }
+}
+@media(max-width:1100px) and (max-height:540px) {
+  .alfred-chat-conversation[data-empty="true"] .alfred-chat-composeArea { padding-block:8px; }
+  .alfred-chat-welcome { display:none; }
+  .alfred-chat-welcomeCards { grid-template-columns:repeat(3,minmax(0,1fr)); gap:8px; margin-bottom:12px; }
+  .alfred-chat-welcomeCards > button { flex-direction:row; align-items:center; gap:8px; min-height:64px; padding:12px; }
+  .alfred-chat-welcomeCardIcon { width:32px; height:32px; flex-shrink:0; }
+  .alfred-chat-welcomeCardCopy > span { display:none; }
 }

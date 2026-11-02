@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { buttonClassName } from "@/app/components/button-styles";
 import { useState, type FormEvent } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
@@ -10,6 +11,7 @@ import { formatMinor } from "@/lib/finance/money";
 import { INVESTMENT_KINDS, KIND_LABELS, type InvestmentKind } from "@/lib/investments/kinds";
 import type { Contribution } from "@/lib/investments/store";
 import type { InvestmentView, Portfolio } from "@/lib/investments/value";
+import "./investment-empty-state.css";
 
 export type InvestmentsData = {
   portfolio: Portfolio;
@@ -32,8 +34,8 @@ function BigMoney({ value }: { value: number }) {
   );
 }
 
-function Gain({ gain, base }: { gain: number | null; base: number }) {
-  if (gain === null || base <= 0) return <span className="text-muted">—</span>;
+function Gain({ gain, base }: { gain: number | null; base: number | null }) {
+  if (gain === null || base === null || base <= 0) return <span className="text-muted">—</span>;
   const up = gain >= 0;
   return (
     <span className={`tabular-nums ${up ? "text-income" : "text-outgoing"}`}>
@@ -65,6 +67,7 @@ async function post(body: unknown): Promise<{ ok: true; portfolio: Portfolio } |
 export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
   const [portfolio, setPortfolio] = useState(initial.portfolio);
   const [adding, setAdding] = useState(false);
+  const firstUse = portfolio.items.length === 0 && initial.cash.length === 0;
   const cash = initial.cash.reduce((sum, item) => sum + item.balance, 0);
   const maturing = portfolio.items.filter((item) => item.maturity && item.maturity.daysLeft >= -7).sort((a, b) => a.maturity!.date.localeCompare(b.maturity!.date));
 
@@ -76,12 +79,22 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">What you own, at a glance.</h1>
           <p className="mt-1 text-sm text-muted">What it&apos;s worth, what you put in, and what&apos;s coming up.</p>
         </div>
-        <Button variant="primary" onClick={() => setAdding(true)}>
+        {!firstUse ? <Button variant="primary" onClick={() => setAdding(true)}>
           Add investment
-        </Button>
+        </Button> : null}
       </header>
 
-      <section className="grid overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[1.3fr_1fr]">
+      {firstUse ? <section className="alfred-investments-firstUse" aria-labelledby="investments-start-title">
+        <span className="alfred-investments-firstUseIcon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round"><path d="m3 17 6-6 4 4 8-11m-6 0h6v6M3 21h18" /></svg></span>
+        <p className="alfred-investments-firstUseEyebrow">Start with what you own</p>
+        <h2 id="investments-start-title">Your first investment starts the picture</h2>
+        <p>Add an investment you already hold, such as a T-bill, fund or stock. This view will grow from the details you record.</p>
+        <ol><li><span>1</span><div><h3>Add what you own</h3><p>Choose a name, investment type and currency.</p></div></li><li><span>2</span><div><h3>Record its details</h3><p>Add its latest value or the holding details you have.</p></div></li><li><span>3</span><div><h3>Follow its progress</h3><p>See values, contributions and maturity dates as you build your records.</p></div></li></ol>
+        <div className="alfred-investments-firstUseActions"><Button variant="primary" onClick={() => setAdding(true)}>Add your first investment</Button><Link className={buttonClassName({ variant: "secondary", size: "md" })} href={`/chat?question=${encodeURIComponent("I'd like to add an investment.")}`}>Ask Alfred <span aria-hidden="true">↗</span></Link></div>
+        <p className="alfred-investments-firstUseNote">No investment values are recorded yet.</p>
+      </section> : null}
+
+      {!firstUse ? <section className="grid overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[1.3fr_1fr]">
         <div className="p-5 sm:p-6">
           <p className="text-sm font-medium text-muted">Net worth</p>
           <p className="mt-2">
@@ -110,7 +123,7 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
           </div>
           <div className="bg-surface p-4 sm:px-6">
             <dt className="text-xs text-muted">You put in</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">{money(portfolio.investedGhs)}</dd>
+            <dd className="mt-1 text-lg font-semibold tabular-nums">{portfolio.investedGhs === null ? "Unknown cost basis" : money(portfolio.investedGhs)}</dd>
           </div>
           <div className="col-span-2 bg-surface p-4 sm:px-6 md:col-span-1">
             <dt className="text-xs text-muted">Gain so far</dt>
@@ -119,9 +132,10 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
             </dd>
           </div>
         </dl>
-      </section>
+      </section> : null}
+      {!firstUse && portfolio.investedGhs === null ? <p className="text-xs leading-5 text-muted">Some imported investments have a reported value without a complete contribution history. Their cost basis and gains stay unknown.</p> : null}
 
-      {portfolio.items.length === 0 ? (
+      {firstUse ? null : portfolio.items.length === 0 ? (
         <Card>
           <EmptyState>
             No investments yet. Add one here, or tell Alfred in{" "}
@@ -188,11 +202,11 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
         </Card>
       ) : null}
 
-      <p className="text-xs leading-5 text-faint">
+      {!firstUse ? <p className="text-xs leading-5 text-faint">
         Money you put into investments isn&apos;t counted as spending. US prices are daily closing prices; Ghana prices come from the Ghana Stock Exchange&apos;s daily board.
         {portfolio.usdGhs ? ` Dollars are converted at ${money(portfolio.usdGhs)} per $1.` : ""}
         {portfolio.unconverted.length ? ` Not in the totals (no cedi rate): ${portfolio.unconverted.join(", ")}.` : ""}
-      </p>
+      </p> : null}
 
       <AddInvestment open={adding} onClose={() => setAdding(false)} onSaved={setPortfolio} />
     </div>
@@ -267,11 +281,12 @@ function InvestmentCard({ item, onChange }: { item: InvestmentView; onChange: (p
       <p className="mt-4 text-2xl font-semibold tracking-tight tabular-nums">{item.value === null ? "—" : money(item.value, investment.currency)}</p>
       {investment.currency !== "GHS" && item.valueGhs !== null ? <p className="text-sm text-muted tabular-nums">≈ {money(item.valueGhs)}</p> : null}
       <p className="mt-1 text-xs text-faint">{provenance(item)}</p>
+      {investment.importNotificationsPaused ? <p className="mt-2 text-xs leading-5 text-muted">Notices paused after import. <Link href="/settings#data" className="text-accent underline-offset-4 hover:underline">Review import receipt</Link> to resume them.</p> : null}
 
       <dl className="mt-4 grid grid-cols-2 gap-3 border-t border-line pt-3 text-sm">
         <div>
           <dt className="text-xs text-muted">Put in</dt>
-          <dd className="tabular-nums">{item.investedGhs > 0 ? money(item.investedGhs) : "—"}</dd>
+          <dd className="tabular-nums">{item.investedGhs === null ? "Unknown cost basis" : item.investedGhs > 0 ? money(item.investedGhs) : "—"}</dd>
         </div>
         <div>
           <dt className="text-xs text-muted">Gain</dt>

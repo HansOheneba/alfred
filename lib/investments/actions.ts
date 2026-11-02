@@ -52,7 +52,7 @@ export function investmentLine(item: InvestmentView): string {
   if (item.value === null) return `${head}: no value yet. Tell me what it's worth.`;
   const own = money(item.value, investment.currency);
   const cedis = investment.currency !== "GHS" && item.valueGhs !== null ? ` ≈ ${ghs(item.valueGhs)}` : "";
-  const gain = item.gainGhs !== null && item.source !== "invested" && item.investedGhs > 0 ? `, ${item.gainGhs >= 0 ? "up" : "down"} ${ghs(Math.abs(item.gainGhs))} (${percent(item.gainGhs, item.investedGhs)}) on ${ghs(item.investedGhs)} put in` : "";
+  const gain = item.gainGhs !== null && item.source !== "invested" && item.investedGhs !== null && item.investedGhs > 0 ? `, ${item.gainGhs >= 0 ? "up" : "down"} ${ghs(Math.abs(item.gainGhs))} (${percent(item.gainGhs, item.investedGhs)}) on ${ghs(item.investedGhs)} put in` : "";
   const matures = item.maturity
     ? item.maturity.daysLeft >= 0
       ? `. Matures ${shortDate(item.maturity.date)}${item.maturity.valueAtMaturity !== null ? ` at about ${money(item.maturity.valueAtMaturity, investment.currency)}` : ""}`
@@ -63,7 +63,7 @@ export function investmentLine(item: InvestmentView): string {
 
 function totalLine(portfolio: Portfolio): string {
   const gain =
-    portfolio.gainGhs !== null && portfolio.investedGhs > 0
+    portfolio.gainGhs !== null && portfolio.investedGhs !== null && portfolio.investedGhs > 0
       ? `, against ${ghs(portfolio.investedGhs)} put in: ${portfolio.gainGhs >= 0 ? "up" : "down"} ${ghs(Math.abs(portfolio.gainGhs))} (${percent(portfolio.gainGhs, portfolio.investedGhs)})`
       : "";
   return `Your investments are worth about ${ghs(portfolio.totalGhs)}${gain}.`;

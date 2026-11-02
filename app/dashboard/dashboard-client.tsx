@@ -1,6 +1,9 @@
 "use client";
 
 import Link from "next/link";
+import { buttonClassName } from "@/app/components/button-styles";
+import { getGettingStartedState } from "@/app/components/getting-started-state";
+import { GettingStartedDashboard } from "./getting-started";
 import { WeeklyComparison } from "@/app/dashboard/weekly-comparison";
 
 import { DashboardAccountBalance } from "@/app/dashboard/account-balance";
@@ -98,6 +101,8 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
     setSelected((current) => (current === category ? null : category));
   }
 
+  if (getGettingStartedState(ledger).canShowSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} />;
+
   return (
     <div className={styles.dashboard}>
       <div className={styles.heading}>
@@ -116,9 +121,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
                   setSelected(null);
                 }}
                 aria-pressed={preset === item}
-                className={`rounded-full px-3 py-2 text-xs transition focus-visible:outline-2 focus-visible:outline-accent ${
-                  preset === item ? "bg-accent text-accent-ink" : "text-muted hover:text-ink"
-                }`}
+                className={buttonClassName({ variant: preset === item ? "primary" : "ghost", size: "sm" })}
               >
                 {RANGE_LABELS[item]}
               </button>
@@ -126,14 +129,14 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
           </div>
           <Link
             href="/chat"
-            className={styles.talk}
+            className={buttonClassName({ variant: "primary", className: styles.talk })}
           >
             Talk to Alfred
           </Link>
         </div>
       </div>
 
-      {ledger.bank.needsLabel.length > 0 ? <div className="alfred-ui-reviewPrompt"><span>Make your overview more complete.</span><Link href="/accounts?tab=needs-attention">{ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label <span aria-hidden="true">↗</span></Link></div> : null}
+      {ledger.bank.needsLabel.length > 0 ? <div className="alfred-ui-reviewPrompt"><span>Make your overview more complete.</span><Link href="/accounts?tab=needs-attention" className={buttonClassName({ variant: "ghost", size: "sm" })}>{ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label <span aria-hidden="true">↗</span></Link></div> : null}
 
       {ledger.bank.balances.length > 0 ? (
         <details className="rounded-xl border border-line bg-surface px-4 py-3 text-xs">
@@ -153,7 +156,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
 
       {!hasAny ? (
         <EmptyState>
-          Nothing is recorded yet. Tell Alfred what you spent or earned, here in <Link href="/chat" className="text-accent underline-offset-2 hover:underline">chat</Link> or
+          No spending or income is recorded in {currency} yet. Tell Alfred what you spent or earned, here in <Link href="/chat" className="text-accent underline-offset-2 hover:underline">chat</Link> or
           on Telegram, and your charts will fill in.
         </EmptyState>
       ) : null}
@@ -186,14 +189,14 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
         <Card
           title={`Spending by day · ${rangeLabel}`}
           action={
-            <div className="flex rounded-full border border-line p-1 text-xs" role="group" aria-label="Chart mode">
+            <div className="flex rounded-xl border border-line p-1 text-sm" role="group" aria-label="Chart mode">
               {(["daily", "cumulative"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   aria-pressed={dailyMode === mode}
                   onClick={() => setDailyMode(mode)}
-                  className={`rounded-full px-3 py-1 focus-visible:outline-2 focus-visible:outline-accent ${dailyMode === mode ? "bg-surface-2 text-ink" : "text-muted"}`}
+                  className={buttonClassName({ variant: dailyMode === mode ? "soft" : "ghost", size: "sm" })}
                 >
                   {mode === "daily" ? "Daily" : "Running total"}
                 </button>
@@ -211,7 +214,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
         title={`Where the money went · ${rangeLabel}`}
         action={
           selected ? (
-            <button type="button" onClick={() => setSelected(null)} className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">
+            <button type="button" onClick={() => setSelected(null)} className={buttonClassName({ variant: "ghost", size: "sm" })}>
               Clear selection
             </button>
           ) : null
@@ -323,7 +326,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
           currency={currency}
           today={today}
         />
-        <Card title="Budgets · this month" action={<Link href="/settings" className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">Manage</Link>}>
+        <Card title="Budgets · this month" action={<Link href="/settings" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
           {budgets.length === 0 ? (
             <EmptyState>No budgets for this month. Ask Alfred, e.g. &ldquo;Set a food budget of 800&rdquo;.</EmptyState>
           ) : (
@@ -361,7 +364,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Savings goals" action={<Link href="/settings" className="text-xs text-muted underline-offset-2 hover:text-ink hover:underline">Manage</Link>}>
+        <Card title="Savings goals" action={<Link href="/settings" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
           {goals.length === 0 ? (
             <EmptyState>No savings goals yet. Ask Alfred, e.g. &ldquo;Save 3000 for a laptop by March&rdquo;.</EmptyState>
           ) : (

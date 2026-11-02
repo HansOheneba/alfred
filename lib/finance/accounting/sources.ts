@@ -59,8 +59,11 @@ export function hydrateAccountingSources(saved:AccountingState,fresh:CashMovemen
   const movements = fresh.map((source) => {
     const old=prior.get(source.id);
     if (!old) return source;
-    const accountId=old.accountId && saved.accounts.some((account) => account.id === old.accountId && account.currency === source.currency) ? old.accountId : null;
-    return {...source,accountId,...(old.sourceFingerprint===source.sourceFingerprint ? {status:old.status,category:old.category} : {})};
+    const accountId=old.accountId && saved.accounts.some((account) => account.id === old.accountId && account.currency === source.currency) ? old.accountId : source.accountId;
+    return {...source,accountId,...(old.sourceFingerprint===source.sourceFingerprint ? {status:old.status,category:old.category,
+      ...(old.categoryOrigin===undefined ? {} : {categoryOrigin:old.categoryOrigin}),
+      ...(old.appliedRuleId===undefined ? {} : {appliedRuleId:old.appliedRuleId}),
+      ...(old.ruleConflict===undefined ? {} : {ruleConflict:old.ruleConflict})} : {})};
   });
   // Removed sources remain visible as stale audit evidence, with no report or snapshot effect.
   for (const old of saved.movements) if (!freshIds.has(old.id)) movements.push({...old,status:"excluded",sourceStatus:"excluded",sourceMissing:true,sourceFingerprint:old.sourceMissing ? old.sourceFingerprint : hash({missing:old.id,previous:old.sourceFingerprint})});

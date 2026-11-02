@@ -1,19 +1,19 @@
 .alfred-accounts { width:100%; max-width:1440px; margin-inline:auto; padding:32px 32px 48px; font-size:14px; }
 .alfred-accounts * { box-sizing:border-box; }
-.alfred-accounts button, .alfred-accounts input, .alfred-accounts select { font:inherit; }
+.alfred-accounts button:not(.alfred-button), .alfred-accounts input, .alfred-accounts select { font:inherit; }
 .alfred-accounts button { cursor:pointer; }
-.alfred-accounts button:disabled { cursor:default; opacity:.48; }
+.alfred-accounts button:not(.alfred-button):disabled { cursor:default; opacity:.48; }
 .alfred-accounts button:focus-visible,.alfred-accounts summary:focus-visible,.alfred-accounts input:focus-visible,.alfred-accounts select:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
 .alfred-accounts-heading,.alfred-accounts-headingActions,.alfred-accounts-sectionHeading,.alfred-account-card header,.alfred-account-card footer,.alfred-accounts-pageFooter,.alfred-accounts-linkRow,.alfred-accounts-settlement header,.alfred-accounts-return { display:flex; align-items:center; justify-content:space-between; gap:16px; }
-.alfred-accounts-heading { margin-bottom:24px; }
+.alfred-accounts-heading { margin-bottom:24px; flex-wrap:wrap; }
+.alfred-accounts-heading > div:first-child { flex:1; min-width:0; }
+.alfred-accounts-headingActions { flex-shrink:0; max-width:100%; flex-wrap:wrap; }
 .alfred-accounts h1 { font-size:32px; letter-spacing:-1px; line-height:1.3; font-weight:650; margin:4px 0 8px; }
 .alfred-accounts p { color:var(--muted); line-height:1.7; }
 .alfred-accounts-eyebrow { color:var(--accent)!important; font-size:12px; font-weight:600; letter-spacing:.04em; }
 .alfred-accounts h2 { font-size:20px; font-weight:600; letter-spacing:-.35px; }
 .alfred-accounts h3,.alfred-accounts h4 { font-weight:600; }
-.alfred-accounts svg { width:16px; height:16px; flex-shrink:0; }
-.alfred-accounts-primary { display:inline-flex; align-items:center; justify-content:center; gap:8px; min-height:40px; border:1px solid var(--accent); border-radius:8px; padding:8px 16px; background:var(--accent); color:var(--accent-ink,#fff); font-weight:600!important; }
-.alfred-accounts-primary:not(:disabled):hover { filter:brightness(.94); }
+.alfred-accounts :where(svg) { width:16px; height:16px; flex-shrink:0; }
 .alfred-accounts-demo { font-size:12px; padding:4px 8px; border-radius:8px; color:var(--accent); background:var(--accent-soft); white-space:nowrap; }
 .alfred-accounts-summary { display:grid; grid-template-columns:minmax(0,1fr) minmax(240px,.6fr); border:1px solid var(--line); border-radius:16px; background:var(--surface); overflow:hidden; margin-bottom:24px; }
 .alfred-accounts-summary > div { padding:24px; }
@@ -24,8 +24,6 @@
 .alfred-accounts-summary p { font-size:12px; }
 .alfred-accounts-summaryDetail button { display:flex; gap:16px; align-items:center; font-size:32px; line-height:1.5; margin:4px 0; }
 .alfred-accounts-summaryDetail button svg { color:var(--accent); }
-
-
 
 .alfred-accounts-tabs { display:flex; gap:4px; border-bottom:1px solid var(--line); margin-bottom:24px; overflow-x:auto; }
 .alfred-accounts-tabs > button { flex-shrink:0; display:flex; gap:8px; align-items:center; padding:12px 16px; border-bottom:2px solid transparent; color:var(--muted); font-size:12px; }
@@ -41,7 +39,6 @@
 .alfred-account-card h3 { font-size:14px; }
 .alfred-account-card header p { font-size:12px; margin-top:4px; }
 .alfred-account-symbol { display:flex; align-items:center; justify-content:center; width:36px; height:36px; background:var(--accent-soft); color:var(--accent); border-radius:12px; }
-.alfred-accounts-textButton { font-size:12px!important; color:var(--accent); min-height:36px; padding:8px 4px; }
 .alfred-account-balance > span { font-size:12px; color:var(--muted); }
 .alfred-account-balance > strong { display:block; font-size:32px; font-weight:600; letter-spacing:-.7px; margin-top:8px; font-variant-numeric:tabular-nums; }
 .alfred-account-balance p { font-size:12px; margin:4px 0 16px; }
@@ -65,9 +62,7 @@
 .alfred-account-evidence dd { font-size:12px; margin-top:4px; }
 .alfred-account-evidence code { display:block; font-size:12px; line-height:1.7; color:var(--muted); overflow-wrap:anywhere; margin-top:4px; }
 .alfred-account-evidence p { font-size:12px; margin-top:8px; }
-.alfred-account-card footer { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); }
-.alfred-account-card footer button { min-height:32px; color:var(--accent); font-size:12px; display:flex; align-items:center; gap:4px; }
-.alfred-account-card footer button:last-child { color:var(--ink); border:1px solid var(--line); padding:8px 8px; border-radius:8px; }
+.alfred-account-card footer { margin-top:20px; padding-top:16px; border-top:1px solid var(--line); flex-wrap:wrap; }
 .alfred-accounts-note { display:flex; flex-direction:column; gap:4px; margin-top:20px; border-left:2px solid var(--line-strong); padding:4px 16px; font-size:12px; }
 .alfred-accounts-note strong { font-weight:500; }
 .alfred-accounts-note p { max-width:848px; font-size:12px; }
@@ -83,7 +78,6 @@
 .alfred-accounts-movements tr:last-child td { border-bottom:0; }
 .alfred-accounts-movements td > span:not(.alfred-accounts-status),.alfred-accounts-movements td > strong + span { display:block; color:var(--muted); font-size:12px; margin-top:4px; }
 .alfred-accounts-movements td strong { font-weight:500; }
-.alfred-accounts-movements button { display:flex; align-items:center; gap:4px; color:var(--accent); font-size:12px; min-height:32px; }
 .alfred-accounts-movements .is-numeric { text-align:right; white-space:nowrap; font-variant-numeric:tabular-nums; }
 .alfred-accounts .is-in { color:var(--accent); }
 .alfred-accounts .is-out { color:var(--danger,#b63c34); }
@@ -100,7 +94,7 @@
 .alfred-accounts-linkRow:last-child { border-bottom:0; }
 .alfred-accounts-linkRow strong { font-size:12px; font-weight:500; }
 .alfred-accounts-linkRow p { font-size:12px; margin-top:4px; max-width:648px; }
-.alfred-accounts-linkRow button,.alfred-accounts-settlement header button { font-size:12px; color:var(--accent); min-height:32px; white-space:nowrap; }
+.alfred-accounts-linkRow button,.alfred-accounts-settlement header button { white-space:nowrap; }
 .alfred-accounts-settlementForm { display:grid; grid-template-columns:1fr 1fr; gap:16px; }
 .alfred-accounts-settlementForm > p { grid-column:1/-1; }
 .alfred-accounts-settlementForm > button { justify-self:start; }
@@ -115,24 +109,22 @@
 .alfred-accounts-return { padding-block:12px; font-size:12px; border-top:1px dashed var(--line); }
 .alfred-accounts-return small { display:block; font-size:12px; color:var(--muted); margin-top:4px; }
 .alfred-accounts-pageFooter { font-size:12px; color:var(--muted); margin-top:32px; padding-top:16px; border-top:1px solid var(--line); align-items:flex-start; }
-.alfred-accounts-pageFooter > div { display:flex; gap:16px; }
-.alfred-accounts-pageFooter button { color:var(--accent); font-size:12px; min-height:32px; }
+.alfred-accounts-pageFooter > div { display:flex; flex-wrap:wrap; gap:8px; }
 .alfred-accounts-empty { text-align:center; padding:48px 24px; border:1px dashed var(--line-strong); border-radius:16px; }
 .alfred-accounts-empty > svg { width:32px; height:32px; color:var(--accent); margin:0 auto 16px; }
 .alfred-accounts-empty h3 { font-size:16px; }
 .alfred-accounts-empty p { font-size:12px; max-width:472px; margin:8px auto 16px; }
-.alfred-accounts-message { position:relative; padding:16px 40px 16px 16px; background:var(--surface); border:1px solid var(--line-strong); border-radius:8px; margin-bottom:20px; font-size:12px; line-height:1.7; }
-.alfred-accounts-message > button { position:absolute; top:8px; right:8px; width:32px; height:32px; font-size:20px; }
+.alfred-accounts-message { position:relative; padding:16px 64px 16px 16px; background:var(--surface); border:1px solid var(--line-strong); border-radius:8px; margin-bottom:20px; font-size:12px; line-height:1.7; }
+.alfred-accounts-message > button { position:absolute; top:8px; right:8px; font-size:20px; }
 .alfred-accounts-message.is-success { color:var(--accent); background:var(--accent-soft); }
 .alfred-accounts-message.is-error,.alfred-accounts-formError { color:var(--danger,#b63c34); }
 .alfred-accounts-modalBackdrop { position:fixed; inset:0; z-index:100; display:flex; align-items:center; justify-content:center; padding:20px; background:rgb(15 24 24 / .43); backdrop-filter:blur(4px); }
 .alfred-accounts-modal { width:100%; max-width:560px; max-height:90dvh; overflow-y:auto; background:var(--surface); border:1px solid var(--line); border-radius:16px; box-shadow:0 20px 70px rgb(0 0 0 / .18); padding:24px; color:var(--ink); }
 .alfred-accounts-modal > header { display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; gap:12px; }
 .alfred-accounts-modal > header h2 { font-size:20px; font-weight:600; }
-.alfred-accounts-modal > header button { width:32px; height:32px; font-size:24px; border:1px solid var(--line); border-radius:8px; }
+.alfred-accounts-modal > header button { font-size:20px; }
 .alfred-accounts-modal form { display:flex; flex-direction:column; gap:16px; }
-.alfred-accounts-modal form > footer { display:flex; align-items:center; justify-content:flex-end; gap:12px; padding-top:8px; }
-.alfred-accounts-modal form > footer > button:first-child { min-height:40px; padding:8px 12px; font-size:12px; }
+.alfred-accounts-modal form > footer { display:flex; align-items:center; justify-content:flex-end; gap:12px; padding-top:8px; flex-wrap:wrap; }
 .alfred-accounts-modal > .alfred-accounts-field { margin-bottom:16px; }
 .alfred-accounts-modal .alfred-accounts-textButton { align-self:flex-start; margin-top:-12px; }
 .alfred-accounts-modal .alfred-accounts-smallNote { margin:0; }
@@ -142,13 +134,10 @@
 .alfred-accounts-movementHero > span { font-size:32px; letter-spacing:-.8px; }
 .alfred-accounts-movementHero p { font-size:12px; }
 @media(max-width:1000px) { .alfred-accounts-summary { grid-template-columns:1.4fr 1fr; }  .alfred-accounts-linkForm { grid-template-columns:1fr 1fr; } .alfred-accounts-linkForm > span { display:none; } .alfred-accounts-linkForm > button { justify-self:start; } .alfred-accounts-movements th,.alfred-accounts-movements td { padding-inline:8px; } }
-@media(max-width:720px) { .alfred-accounts { padding-top:24px; } .alfred-accounts h1 { font-size:24px; } .alfred-accounts-heading { align-items:flex-start; gap:12px; } .alfred-accounts-headingActions { align-items:flex-end; flex-direction:column; gap:8px; } .alfred-accounts-heading p:not(.alfred-accounts-eyebrow) { max-width:220px; font-size:12px; } .alfred-accounts-primary { font-size:12px!important; min-height:40px; padding-inline:12px; } .alfred-accounts-demo { font-size:12px; } .alfred-accounts-summary { grid-template-columns:1fr; } .alfred-accounts-summary > div { padding:20px; } .alfred-accounts-total > strong { font-size:32px; } .alfred-accounts-summary > .alfred-accounts-summaryDetail { border-left:0; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr auto; gap:0 8px; padding:16px 20px; } .alfred-accounts-summaryDetail > button { grid-column:2; grid-row:1/3; margin:0; font-size:24px; } .alfred-accounts-summaryDetail p { margin-top:4px; } .alfred-accounts-tabs { margin-inline:-16px; padding-inline:12px; } .alfred-accounts-tabs > button { font-size:12px; padding-inline:8px; min-height:48px; } .alfred-accounts-grid { grid-template-columns:1fr; gap:16px; } .alfred-account-card { padding:20px; } .alfred-accounts-sectionHeading { align-items:flex-start; } .alfred-accounts-sectionHeading h2 { font-size:16px; } .alfred-accounts-sectionHeading > span { padding-top:4px; font-size:12px; } .alfred-accounts-filters { grid-template-columns:1fr 1fr; } .alfred-accounts-filters > :first-child { grid-column:1/-1; } .alfred-accounts-field input,.alfred-accounts-field select { font-size:16px; } .alfred-accounts-movements { border:0; border-radius:0; background:transparent; } .alfred-accounts-movements table { display:none; } .alfred-accounts-mobileMovements { display:flex; flex-direction:column; gap:12px; } .alfred-accounts-mobileMovements article { padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--surface); } .alfred-accounts-mobileMovements header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; } .alfred-accounts-mobileMovements header strong { font-size:12px; font-weight:500; } .alfred-accounts-mobileMovements header p { font-size:12px; margin-top:4px; } .alfred-accounts-mobileMovements header > strong { white-space:nowrap; font-variant-numeric:tabular-nums; } .alfred-accounts-mobileMovements dl { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:16px 0 8px; } .alfred-accounts-mobileMovements dt { font-size:12px; color:var(--muted); } .alfred-accounts-mobileMovements dd { font-size:12px; margin-top:4px; } .alfred-accounts-mobileMovements button { min-height:36px; padding-top:8px; } .alfred-accounts-panel { padding:16px; } .alfred-accounts-linkForm,.alfred-accounts-settlementForm { grid-template-columns:1fr; } .alfred-accounts-settlementTotals { gap:8px; } .alfred-accounts-settlementTotals dd { font-size:16px; } .alfred-accounts-pageFooter { flex-direction:column; gap:8px; } .alfred-accounts-modalBackdrop { padding:12px; } .alfred-accounts-modal { padding:20px; max-height:92dvh; } .alfred-accounts-linkRow { align-items:flex-start; gap:8px; } }
+@media(max-width:720px) { .alfred-accounts { padding-top:24px; } .alfred-accounts h1 { font-size:24px; } .alfred-accounts-heading { align-items:flex-start; gap:12px; } .alfred-accounts-headingActions { align-items:flex-end; flex-direction:column; gap:8px; } .alfred-accounts-heading p:not(.alfred-accounts-eyebrow) { max-width:220px; font-size:12px; } .alfred-accounts-demo { font-size:12px; } .alfred-accounts-summary { grid-template-columns:1fr; } .alfred-accounts-summary > div { padding:20px; } .alfred-accounts-total > strong { font-size:32px; } .alfred-accounts-summary > .alfred-accounts-summaryDetail { border-left:0; border-top:1px solid var(--line); display:grid; grid-template-columns:1fr auto; gap:0 8px; padding:16px 20px; } .alfred-accounts-summaryDetail > button { grid-column:2; grid-row:1/3; margin:0; font-size:24px; } .alfred-accounts-summaryDetail p { margin-top:4px; } .alfred-accounts-tabs { margin-inline:-16px; padding-inline:12px; } .alfred-accounts-tabs > button { font-size:12px; padding-inline:8px; min-height:48px; } .alfred-accounts-grid { grid-template-columns:1fr; gap:16px; } .alfred-account-card { padding:20px; } .alfred-accounts-sectionHeading { align-items:flex-start; } .alfred-accounts-sectionHeading h2 { font-size:16px; } .alfred-accounts-sectionHeading > span { padding-top:4px; font-size:12px; } .alfred-accounts-filters { grid-template-columns:1fr 1fr; } .alfred-accounts-filters > :first-child { grid-column:1/-1; } .alfred-accounts-field input,.alfred-accounts-field select { font-size:16px; } .alfred-accounts-movements { border:0; border-radius:0; background:transparent; } .alfred-accounts-movements table { display:none; } .alfred-accounts-mobileMovements { display:flex; flex-direction:column; gap:12px; } .alfred-accounts-mobileMovements article { padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--surface); } .alfred-accounts-mobileMovements header { display:flex; align-items:flex-start; justify-content:space-between; gap:16px; } .alfred-accounts-mobileMovements header strong { font-size:12px; font-weight:500; } .alfred-accounts-mobileMovements header p { font-size:12px; margin-top:4px; } .alfred-accounts-mobileMovements header > strong { white-space:nowrap; font-variant-numeric:tabular-nums; } .alfred-accounts-mobileMovements dl { display:grid; grid-template-columns:1fr 1fr; gap:12px; padding:16px 0 8px; } .alfred-accounts-mobileMovements dt { font-size:12px; color:var(--muted); } .alfred-accounts-mobileMovements dd { font-size:12px; margin-top:4px; } .alfred-accounts-panel { padding:16px; } .alfred-accounts-linkForm,.alfred-accounts-settlementForm { grid-template-columns:1fr; } .alfred-accounts-settlementTotals { gap:8px; } .alfred-accounts-settlementTotals dd { font-size:16px; } .alfred-accounts-pageFooter { flex-direction:column; gap:8px; } .alfred-accounts-modalBackdrop { padding:12px; } .alfred-accounts-modal { padding:20px; max-height:92dvh; } .alfred-accounts-linkRow { align-items:flex-start; gap:8px; } }
 
 .alfred-account-balance .alfred-account-freshness { margin-top:-8px; margin-bottom:12px; color:var(--accent); font-size:12px; }
 .alfred-accounts-sourceText { white-space:pre-wrap; overflow-wrap:anywhere; line-height:1.8; }
-
-
-
 
 .alfred-accounts-balanceLabel { display:flex; align-items:center; justify-content:space-between; gap:12px; color:var(--muted); font-size:12px; }
 .alfred-accounts-currencyCode { font-size:12px; font-weight:500; color:var(--accent); }
@@ -161,8 +150,7 @@
 .alfred-accounts-subscriptions h2 { font-size:16px; }
 .alfred-accounts-subscriptions dialog { max-height:calc(100dvh - 32px); overflow-y:auto; border-radius:16px; }
 .alfred-accounts-subscriptions dialog > div { padding:24px; }
-.alfred-accounts-subscriptions :is(button,input,select) { min-height:40px; }
-.alfred-accounts-subscriptions button { border-radius:8px; }
+.alfred-accounts-subscriptions :is(button:not(.alfred-button),input,select) { min-height:40px; }
 .alfred-accounts-subscriptions dialog ul > li { flex-wrap:wrap; gap:12px; border-radius:12px; }
 .alfred-accounts-subscriptions dialog ul > li > div:first-child { flex:1 1 160px; }
 .alfred-accounts-subscriptions dialog ul > li > div:last-child { flex-wrap:wrap; }
@@ -188,7 +176,7 @@
 .alfred-accounts-subscriptions > .alfred-accounts-sectionHeading h2 { font-size:20px; }
 @media(max-width:720px) { .alfred-accounts { padding:24px 16px 48px; } }
 
-@media(max-width:720px) { .alfred-accounts a { display:inline-flex; align-items:center; min-height:44px; } .alfred-accounts-message { padding-right:64px; } .alfred-accounts-message > button { width:44px; height:44px; } .alfred-accounts-subscriptions input[type=checkbox] { min-height:16px; } }
+@media(max-width:720px) { .alfred-accounts a { display:inline-flex; align-items:center; min-height:44px; } .alfred-accounts-message { padding-right:64px; } .alfred-accounts-message > button { position:absolute; top:8px; right:8px; font-size:20px; } .alfred-accounts-subscriptions input[type=checkbox] { min-height:16px; } }
 .alfred-accounts-subscriptions .alfred-preview-billsCategoryLink { font-size:12px; gap:8px; padding:8px 4px; }
 .alfred-accounts-subscriptions dialog .flex.flex-col.gap-4 > .flex.items-center.justify-between { align-items:flex-start; flex-wrap:wrap; gap:16px; }
 .alfred-accounts-subscriptions dialog .flex.flex-col.gap-4 > .flex.items-center.justify-between > p { flex:1 1 160px; }
@@ -213,3 +201,17 @@
 
 .alfred-account-card header > div, .alfred-accounts-mobileMovements header > div { min-width:0; }
 .alfred-account-card :is(h3,header p), .alfred-accounts-mobileMovements header > div { overflow-wrap:anywhere; }
+
+/* First-use guidance shares the application’s 4px spacing scale. */
+.alfred-accounts-welcome { padding:32px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.alfred-accounts-welcomeIcon { display:grid; place-items:center; width:48px; height:48px; margin-bottom:24px; border-radius:16px; background:var(--accent-soft); color:var(--accent); }
+.alfred-accounts-welcomeIcon svg { width:24px; height:24px; }
+.alfred-accounts-welcome h2 { margin-top:8px; font-size:24px; line-height:32px; letter-spacing:-.04em; }
+.alfred-accounts-welcome > p:not(.alfred-accounts-eyebrow) { max-width:608px; margin-top:12px; font-size:14px; line-height:24px; }
+.alfred-accounts-welcome ol { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; max-width:720px; margin:24px 0; }
+.alfred-accounts-welcome li { display:flex; align-items:flex-start; gap:12px; padding:16px; border:1px solid var(--line); border-radius:12px; }
+.alfred-accounts-welcome li > span { display:grid; place-items:center; width:24px; height:24px; flex-shrink:0; border-radius:8px; background:var(--accent-soft); color:var(--accent); font-size:12px; font-weight:600; line-height:16px; }
+.alfred-accounts-welcome li h3 { font-size:14px; line-height:24px; }
+.alfred-accounts-welcome li p { margin-top:4px; font-size:12px; line-height:20px; }
+.alfred-accounts-welcome > .alfred-accounts-welcomeNote { margin-top:12px; font-size:12px!important; line-height:20px!important; }
+@media(max-width:600px) { .alfred-accounts-welcome { padding:24px; } .alfred-accounts-welcome ol { grid-template-columns:minmax(0,1fr); } .alfred-accounts-welcome > .alfred-accounts-primary { width:100%; } }

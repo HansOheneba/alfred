@@ -19,7 +19,7 @@ export function typedDecision(text: string): Decision | null {
 /** The newest unexpired confirmation this user still has open, from any channel. */
 export async function latestOpenPending(store: FinanceStore, userId: string, now: Date) {
   const open = (await store.listPendingActions(userId)).filter(
-    (action) => action.status === "pending" && Date.parse(action.expiresAt) > now.getTime(),
+    (action) => action.status === "pending" && action.actionType !== "account_rule_command" && Date.parse(action.expiresAt) > now.getTime(),
   );
   return open.sort((left, right) => right.createdAt.localeCompare(left.createdAt))[0] ?? null;
 }
@@ -36,6 +36,7 @@ export async function decidePending(
   if (!pending || pending.userId !== ctx.profile.profileId || (input.chatId !== null && pending.chatId !== input.chatId)) {
     return { text: "That confirmation isn't for this chat." };
   }
+  if (pending.actionType === "account_rule_command") return { text: `Account rules require their explicit command. Use /rule confirm ${pending.actionId} or /rule cancel ${pending.actionId} in the original chat.` };
   if (Date.parse(pending.expiresAt) <= ctx.now.getTime() && pending.status === "pending") {
     await ctx.store.updatePendingAction(pending.actionId, { status: "expired" });
     return { text: "That confirmation expired. Send the request again. Nothing was changed." };

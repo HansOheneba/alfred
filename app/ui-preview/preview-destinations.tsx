@@ -1,18 +1,18 @@
 "use client";
 
 import Link from "next/link";
+import { buttonClassName } from "@/app/components/button-styles";
 import { useState, type MouseEvent, type ReactNode } from "react";
 
 import { Card } from "@/app/components/ui";
 import { InvestmentsClient } from "@/app/investments/investments-client";
-import { NotebookClient } from "@/app/notebook/notebook-client";
 import { AccountsPreview } from "./accounts-preview";
-import { previewAbout, previewInvestments, previewPeople } from "@/ui-preview/destination-fixtures";
+import { previewInvestments } from "@/ui-preview/destination-fixtures";
 
 import { PreviewFrame } from "./preview-screen";
 import { ChatPreview } from "./chat-preview";
 
-export type PreviewDestinationSection = "chat" | "accounts" | "investments" | "review" | "notebook" | "settings";
+export type PreviewDestinationSection = "chat" | "accounts" | "investments" | "review" | "settings";
 
 function ReadOnlyScreen({ children, section }: { children: ReactNode; section: PreviewDestinationSection }) {
   const [notice, setNotice] = useState("");
@@ -26,8 +26,8 @@ function ReadOnlyScreen({ children, section }: { children: ReactNode; section: P
   return (
     <div className={`alfred-preview-destination alfred-preview-${section}`} onClickCapture={keepReadOnly} onSubmitCapture={(event) => { event.preventDefault(); event.stopPropagation(); setNotice("Read-only screen preview. No records or settings were changed."); }}>
       <div className="mx-auto flex w-full max-w-5xl flex-wrap items-center justify-between gap-2 px-4 pt-5 text-xs text-muted sm:px-8">
-        <p>Synthetic data · Existing {section === "investments" ? "Investments" : section === "review" ? "Review" : "Notebook"} screen · Read-only</p>
-        <Link href="/ui-preview" className="rounded-lg px-2 py-2 text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-accent">Back to Overview</Link>
+        <p>Synthetic data · Existing Investments screen · Read-only</p>
+        <Link href="/ui-preview" className={buttonClassName({ variant: "ghost", size: "sm" })}>Back to Overview</Link>
       </div>
       {notice ? <p role="status" className="mx-auto mt-3 w-[calc(100%-2rem)] max-w-5xl rounded-xl border border-line bg-accent-soft px-4 py-3 text-sm text-accent">{notice}</p> : null}
       {children}
@@ -56,7 +56,7 @@ function SettingsPreview() {
         <dl className="grid gap-x-8 gap-y-5 sm:grid-cols-2 lg:grid-cols-3">{SETTINGS.map(([label, value]) => <div key={label}><dt className="text-sm font-medium text-ink">{label}</dt><dd className="mt-1 text-xs leading-5 text-muted">{value}</dd></div>)}</dl>
       </Card>
       <p className="text-xs leading-5 text-muted">Synthetic data only. The app&apos;s existing Settings screen and authentication are unchanged.</p>
-      <Link href="/ui-preview" className="self-start rounded-lg px-2 py-2 text-sm text-accent underline-offset-4 hover:underline focus-visible:outline-2 focus-visible:outline-accent">Back to Overview</Link>
+      <Link href="/ui-preview" className={buttonClassName({ variant: "ghost", size: "sm", className: "self-start" })}>Back to Overview</Link>
     </div>
   );
 }
@@ -66,7 +66,7 @@ export function PreviewDestination({ section }: { section: PreviewDestinationSec
     <PreviewFrame section={section}>
       {section === "chat" ? <ChatPreview /> : section === "settings" ? <SettingsPreview /> : section === "accounts" || section === "review" ? <AccountsPreview /> : (
         <ReadOnlyScreen section={section}>
-          {section === "investments" ? <InvestmentsClient initial={previewInvestments} /> : <NotebookClient people={previewPeople} about={previewAbout} />}
+          <InvestmentsClient initial={previewInvestments} />
         </ReadOnlyScreen>
       )}
     </PreviewFrame>
