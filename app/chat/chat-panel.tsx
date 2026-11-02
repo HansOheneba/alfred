@@ -5,6 +5,7 @@ import { buttonClassName } from "@/app/components/button-styles";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type ReactNode } from "react";
 
+import { followUpsFor, type Suggestion } from "@/app/chat/follow-ups";
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
@@ -26,18 +27,11 @@ type ServerMessage = {
   chart?: ChatChart | null;
 };
 
-type Suggestion = { label: string; text: string; fill?: boolean };
-
 const QUICK_ACTIONS: (Suggestion & { description: string; tone: "expense" | "income" })[] = [
   { label: "Record an expense", description: "Start with something you spent.", text: "Spent ", fill: true, tone: "expense" },
   { label: "Record income", description: "A payday, a side gig, a little extra.", text: "Received ", fill: true, tone: "income" },
 ];
 
-const FOLLOW_UPS: Suggestion[] = [
-  { label: "Break it down", text: "Break that down by category" },
-  { label: "Compare with last month", text: "How does this compare with last month?" },
-  { label: "Tips to spend less", text: "Any tips to spend less?" },
-];
 
 
 export const STATS_EVENT = "alfred:open-stats";
@@ -398,7 +392,7 @@ export function ChatPanel({
             </Link>
           </div> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
-          {showFollowUps ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{FOLLOW_UPS.map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
+          {showFollowUps ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
             <div className="alfred-production-chat-composerRow">
