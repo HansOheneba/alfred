@@ -4,10 +4,5 @@
       "path": "/api/cron/reminders",
       "schedule": "0 8 * * *"
     }
-  ],
-  "git": {
-    "deploymentEnabled": {
-      "codex/sms-payment-automations-20261103": false
-    }
-  }
+  ]
 }
