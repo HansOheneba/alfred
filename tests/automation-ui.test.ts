@@ -77,6 +77,15 @@ describe("private owner-scoped notification settings", () => {
     expect(html).not.toContain(device);
     expect(html).not.toContain("do-not-render-fixture");
   });
+  it("requires separate outgoing consent and validates its independent cutoff", () => {
+    const existing = payload(); existing.preferences.paymentMentions = true;
+    existing.preferences.paymentMentionsSince = "2026-11-03T10:00:00Z";
+    expect(parseNotificationSettings(existing, owner).preferences).toMatchObject({ paymentMentions: true, outgoingMentions: false, outgoingMentionsSince: null });
+    expect(() => parseNotificationSettings({ ...existing, preferences: { ...existing.preferences, outgoingMentions: "yes" } }, owner)).toThrow();
+    expect(() => parseNotificationSettings({ ...existing, preferences: { ...existing.preferences, outgoingMentionsSince: "not-a-time" } }, owner)).toThrow();
+    const html = renderToStaticMarkup(createElement(NotificationsSection, { initial: parseNotificationSettings(existing, owner), ownerId: owner }));
+    expect(html).toContain("Money in"); expect(html).toContain("Money out");
+  });
   it.each([null, {}, { ...payload(), preferences: { paymentMentions: true } }, { ...payload(), push: { configured: true, publicKey: "invalid" } }])("fails closed for an incomplete settings response", (input) => {
     expect(() => parseNotificationSettings(input, owner)).toThrow();
   });
@@ -94,8 +103,8 @@ describe("private owner-scoped notification settings", () => {
     const input={...payload(),push:{configured:true,publicKey,deliveryEnabled:true,schedulesEnabled:true,recoveryReady:false}};
     const html=renderToStaticMarkup(createElement(NotificationsSection,{initial:parseNotificationSettings(input,owner),ownerId:owner}));
     const switches=html.match(/<button[^>]*role="switch"[^>]*>/g)??[];
-    expect(switches).toHaveLength(4);expect(switches[0]).not.toMatch(/\sdisabled(?:=|\s|>)/);
-    expect(switches.slice(1).every(button=>/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches).toHaveLength(5);expect(switches.slice(0,2).every(button=>!/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches.slice(2).every(button=>/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
     expect(html).toContain("Scheduled push recovery is not ready");
   });
   it("shows recent check-in wording without promising actual push delivery", () => {
@@ -116,7 +125,7 @@ describe("clear inactive defaults and local preview", () => {
   it("renders all choices off and performs no permission, registration or network action during SSR", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial: parseNotificationSettings(payload(), owner), ownerId: owner }));
-    expect(html.match(/aria-checked="false"/g)).toHaveLength(4);
+    expect(html.match(/aria-checked="false"/g)).toHaveLength(5);
     expect(html).toContain("Push delivery is currently off");
     expect(html).not.toContain("Send test");
     expect(fetcher).not.toHaveBeenCalled();
@@ -143,7 +152,7 @@ describe("clear inactive defaults and local preview", () => {
     expect(html).toContain("Sample browser not linked");
     expect(html).toContain("not a bank confirmation");
     expect(html).not.toContain("payment has cleared");
-    expect(html).toContain("Prototype · not available");
+    expect(html).toContain("Mac app required");
   });
   it("uses the real message builder to distinguish known purpose, missing purpose and uncertainty", () => {
     const copies = paymentMentionPreviewCopies();
@@ -153,18 +162,29 @@ describe("clear inactive defaults and local preview", () => {
     expect(copies.unknownCopy).toContain("unlabelled");
     expect(copies.uncertainCopy).toContain("possible incoming alert");
     expect(copies.uncertainCopy.toLowerCase()).not.toMatch(/freelance|cleared|settled|filed under/);
+    expect(copies.outgoingKnownCopy).toContain("Sample Shop");
+    expect(copies.outgoingKnownCopy).toContain("Food");
+    expect(copies.outgoingUnknownCopy).toContain("What was this for?");
+    expect(copies.outgoingUncertainCopy).toMatch(/possible.*money-out alert/);
+    expect(copies.outgoingUncertainCopy.toLowerCase()).not.toMatch(/cleared|settled|filed under/);
   });
   it("does not present a forwarding key or browser choice as Mac installation or delivery", () => {
     const html = renderToStaticMarkup(createElement(MacAutomationCard));
     expect(html).toContain("cannot verify that it is installed, running or delivering");
     expect(html).toContain("GCB, generic MTN/Telecel and Achieve are not included");
-    expect(html).toContain("No historical backfill");
+    expect(html).toContain("Messages from before your first Start stay out");
+    expect(html).toContain("catches up on eligible alerts received while paused");
+    expect(html).toContain("without a new chat announcement");
     expect(html).toContain("Forwarded alerts are stored in Alfred");
     expect(html).toContain("Unfamiliar alerts may be processed by its AI provider");
   });
 });
 
 describe("fictional purpose reply demonstration", () => {
+  it("labels only a clear saved outgoing sample and never treats an incoming gift as its expense purpose", () => {
+    expect(sampleReplyReducer(EMPTY_SAMPLE_REPLY, { type: "reply", text: "It was for lunch", direction: "out" })).toMatchObject({ category: "Food", description: "lunch" });
+    expect(sampleReplyReducer(EMPTY_SAMPLE_REPLY, { type: "reply", text: "Birthday money from grandma", direction: "out" })).toMatchObject({ category: null, description: null });
+  });
   it("understands the birthday example without permission, network or real records", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     const birthday = sampleReplyReducer(EMPTY_SAMPLE_REPLY, { type: "reply", text: "Birthday money from grandma" });

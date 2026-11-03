@@ -1,6 +1,6 @@
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { Channel } from "@/lib/ai/persona";
-import type { ChatMessageRecord, MessageLog } from "@/lib/accounts/messages";
+import { isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
 import type { UserProfile } from "@/lib/config";
 import { LIMITS } from "@/lib/config";
 import { AiError } from "@/lib/errors";
@@ -59,7 +59,7 @@ export async function interpretWithContext(input: {
     }));
   // Deterministic private payment notices are not an extra source of model
   // history. The normal, user-requested ledger context remains unchanged.
-  const ownHistory = history.filter((item) => !item.paymentNotice && item.intent !== "automation:incoming-payment" && (!input.excludeClientId || item.clientId !== input.excludeClientId));
+  const ownHistory = history.filter((item) => !item.paymentNotice && !isPaymentNoticeIntent(item.intent) && (!input.excludeClientId || item.clientId !== input.excludeClientId));
   const cue: ChatCue = {
     offTopicTurn: offTopicStreak(ownHistory) + 1,
     history: ownHistory.slice(-8).map((item) => ({ role: item.role, body: item.body.slice(0, 400) })),

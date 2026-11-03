@@ -24,6 +24,14 @@ final class MessageSource {
     let db: SQLDatabase
     init(path: String) throws { db = try SQLDatabase(path: path, readOnly: true); try db.execute("pragma query_only=ON") }
     func highWaterMark() throws -> Int64 { try db.scalarInt("select coalesce(max(ROWID),0) from message") }
+    /** Validate required schema and header access without selecting any body. */
+    func checkHeaderAccess() throws -> Int64 {
+        let statement = try db.prepare("select m.ROWID,m.guid,m.date,m.service,m.is_from_me,h.id from message m left join handle h on h.ROWID=m.handle_id limit 0")
+        sqlite3_finalize(statement)
+        let bodyColumns = try db.prepare("select text,attributedBody from message limit 0")
+        sqlite3_finalize(bodyColumns)
+        return try highWaterMark()
+    }
     private struct Header {
         let rowID: Int64
         let guid: String?

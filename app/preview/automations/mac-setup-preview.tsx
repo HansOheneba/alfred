@@ -65,9 +65,9 @@ export function MacSetupPreview() {
   const canContinue = state.stage === 1 ? state.account === "expected" && state.accountReviewed : state.stage === 2 ? state.permissionReviewed : state.providers.length > 0 && state.newAlertsAcknowledged;
   return (
     <Card title="Try the fictional Mac setup" action={<span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">Sample only</span>}>
-      <p className="text-sm leading-6 text-muted">A walkthrough of the three steps, using a made-up account. Nothing here connects, grants access or starts capture.</p>
+      <p className="text-sm leading-6 text-muted">A fictional look at the three steps in Alfred Sync, using a made-up account. Real setup happens in the Mac app. Nothing here connects, grants access or starts capture.</p>
       <ol className="mt-5 grid grid-cols-3 gap-2" aria-label="Sample setup progress">
-        {["Account", "Messages", "Providers"].map((label, index) => {
+        {["Account", "Messages", "Start"].map((label, index) => {
           const current = state.stage === index + 1;
           const passed = state.stage === "complete" || state.stage > index + 1;
           return <li key={label} aria-current={current ? "step" : undefined} className={`flex min-w-0 items-center gap-2 rounded-xl border px-2.5 py-3 text-xs ${current ? "border-accent bg-accent-soft text-accent" : "border-line bg-bg text-muted"}`}><span className={`grid size-5 shrink-0 place-items-center rounded-full text-[10px] ${current || passed ? "bg-accent text-[var(--accent-ink)]" : "bg-surface-2"}`} aria-hidden="true">{passed ? "✓" : index + 1}</span><span>{label}</span></li>;

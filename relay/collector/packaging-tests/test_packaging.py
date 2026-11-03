@@ -25,6 +25,9 @@ class PackagingTests(unittest.TestCase):
         (app / "Contents/MacOS").mkdir(parents=True)
         (app / "Contents/Info.plist").write_bytes((ROOT / "Info.plist").read_bytes())
         (app / "Contents/MacOS/AlfredCollector").write_bytes(b"synthetic-not-an-executable")
+        agent = app / packaging.AGENT_RELATIVE_PATH
+        agent.parent.mkdir(parents=True)
+        agent.write_bytes((ROOT / packaging.AGENT_NAME).read_bytes())
         return app
 
     def archive(self, names):
@@ -79,13 +82,37 @@ class PackagingTests(unittest.TestCase):
     def test_exact_identity_platform_and_safe_version(self):
         app = self.app()
         self.assertEqual(packaging.validate_layout(app)["CFBundleIdentifier"], packaging.BUNDLE_ID)
-        for key, value in [("CFBundleIdentifier", "other"), ("LSMinimumSystemVersion", "13.0"),
+        for key, value in [("CFBundleIdentifier", "other"), ("CFBundleName", "Other Sync"),
+                           ("CFBundleDisplayName", "Other Sync"), ("LSMinimumSystemVersion", "13.0"),
                            ("CFBundleExecutable", "other"), ("CFBundleVersion", "1;unsafe")]:
             info = plistlib.loads((ROOT / "Info.plist").read_bytes())
             info[key] = value
             (app / "Contents/Info.plist").write_bytes(plistlib.dumps(info))
             with self.subTest(key=key), self.assertRaises(ValueError):
                 packaging.validate_layout(app)
+
+    def test_bundled_background_service_has_only_fixed_reviewed_scope(self):
+        app = self.app()
+        agent_path = app / packaging.AGENT_RELATIVE_PATH
+        packaging.validate_bundled_agent(app)
+        self.assertEqual(plistlib.loads(agent_path.read_bytes()), packaging.EXPECTED_AGENT)
+        for key, value in [("Label", "com.someone.else"), ("BundleProgram", "/tmp/other"),
+                           ("ProgramArguments", ["AlfredCollector", "--run"]),
+                           ("StartInterval", 120), ("RunAtLoad", 1),
+                           ("StandardOutPath", "/tmp/collector.log"),
+                           ("KeepAlive", True), ("EnvironmentVariables", {"KEY": "fixture"})]:
+            agent = dict(packaging.EXPECTED_AGENT)
+            agent[key] = value
+            agent_path.write_bytes(plistlib.dumps(agent))
+            with self.subTest(key=key), self.assertRaises(ValueError):
+                packaging.validate_bundled_agent(app)
+
+    def test_candidate_keeps_stable_storage_identity_and_version_advances(self):
+        info = plistlib.loads((ROOT / "Info.plist").read_bytes())
+        self.assertEqual(info["CFBundleIdentifier"], "com.hansopoku.alfred.collector")
+        self.assertEqual(info["CFBundleExecutable"], "AlfredCollector")
+        self.assertEqual(info["CFBundleVersion"], "2")
+        self.assertEqual(info["CFBundleName"], "Alfred Sync")
 
     def test_private_or_unreviewed_resources_are_not_packaged(self):
         app = self.app()

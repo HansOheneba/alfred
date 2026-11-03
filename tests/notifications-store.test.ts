@@ -29,18 +29,49 @@ describe("owner-scoped durable notification storage",()=>{
       insert into profiles values('${a}'),('${b}');`);
     await db.exec(await readFile(new URL("../supabase/migrations/20261103110000_notifications.sql",import.meta.url),"utf8"));
     await db.exec(await readFile(new URL("../supabase/migrations/20261103200000_notification_recovery.sql",import.meta.url),"utf8"));
+    await db.exec(await readFile(new URL("../supabase/migrations/20261103233000_payment_activity_notices.sql",import.meta.url),"utf8"));
     const pair=await webcrypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveBits"]);
     subscription={endpoint:"https://fcm.googleapis.com/fcm/send/synthetic-fixture",keys:{p256dh:Buffer.from(await webcrypto.subtle.exportKey("raw",pair.publicKey)).toString("base64url"),auth:Buffer.alloc(16,7).toString("base64url")}};
   });
   beforeEach(async()=>{await db.exec("truncate notification_deliveries,push_subscriptions,notification_preferences,bank_messages,bills cascade");});
   afterAll(async()=>{await db.close();});
   it("defaults off, creates fresh opt-in cutoffs and preserves omitted preferences",async()=>{
-    expect(await store().preferences(a)).toMatchObject({paymentMentions:false,paymentPush:false,billReminders:false,weeklyOverview:false});
+    expect(await store().preferences(a)).toMatchObject({paymentMentions:false,outgoingMentions:false,outgoingMentionsSince:null,paymentPush:false,billReminders:false,weeklyOverview:false});
     const first=await store().update(a,{paymentMentions:true,paymentPush:true});
     expect(first.paymentMentionsSince).not.toBeNull();expect(first.paymentPushSince).not.toBeNull();
     expect((await store().update(a,{weeklyOverview:true})).paymentPushSince).toBe(first.paymentPushSince);
     expect((await store().update(a,{paymentPush:false})).paymentPushSince).toBeNull();
     expect((await store().preferences(b)).paymentPush).toBe(false);
+  });
+  it("keeps incoming and outgoing consent windows independent and resets only explicit re-enablement",async()=>{
+    const incoming=await store().update(a,{paymentMentions:true});
+    expect(incoming.outgoingMentions).toBe(false);expect(incoming.outgoingMentionsSince).toBeNull();
+    const outgoing=await store().update(a,{outgoingMentions:true});
+    expect(outgoing.outgoingMentionsSince).not.toBeNull();expect(outgoing.paymentMentionsSince).toBe(incoming.paymentMentionsSince);
+    await db.exec("update notification_preferences set outgoing_mentions_since=now()-interval '1 day'");
+    const older=(await store().preferences(a)).outgoingMentionsSince;
+    const updated=await store().update(a,{weeklyOverview:true});
+    expect(updated.outgoingMentionsSince).toBe(older);expect(updated.paymentMentionsSince).toBe(incoming.paymentMentionsSince);
+    expect((await store().update(a,{paymentMentions:false})).outgoingMentions).toBe(true);
+    expect((await store().update(a,{outgoingMentions:false})).outgoingMentionsSince).toBeNull();
+    const enabled=await store().update(a,{outgoingMentions:true});
+    expect(Date.parse(enabled.outgoingMentionsSince!)).toBeGreaterThan(Date.parse(older!));
+    expect(enabled.paymentMentions).toBe(false);expect(enabled.paymentMentionsSince).toBeNull();
+    expect((await store().preferences(b)).outgoingMentions).toBe(false);
+  });
+  it("adds outgoing consent off to a legacy incoming-only account without changing its saved window",async()=>{
+    const legacy=new PGlite();
+    try {
+      await legacy.exec(`create role anon;create role authenticated;create schema auth;create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;
+        create table profiles(id uuid primary key);create table bank_messages(id uuid primary key,owner_id uuid,channel text,kind text,status text,amount numeric,created_at timestamptz,occurred_at timestamptz);
+        insert into profiles values('${a}');`);
+      await legacy.exec(await readFile(new URL("../supabase/migrations/20261103110000_notifications.sql",import.meta.url),"utf8"));
+      const since="2026-11-01T10:00:00.000Z";
+      await legacy.query("insert into notification_preferences(owner_id,payment_mentions,payment_mentions_since) values($1::uuid,true,$2::timestamptz)",[a,since]);
+      await legacy.exec(await readFile(new URL("../supabase/migrations/20261103233000_payment_activity_notices.sql",import.meta.url),"utf8"));
+      const legacyExecute:Execute=async<T extends Record<string,unknown>>(_s:SupabaseSettings,text:string,values:unknown[]=[]) => (await legacy.query<T>(text,values)).rows;
+      expect(await createNotificationStore(settings,legacyExecute).preferences(a)).toMatchObject({paymentMentions:true,paymentMentionsSince:since,outgoingMentions:false,outgoingMentionsSince:null});
+    } finally { await legacy.close(); }
   });
   it("subscribes privately without exposing endpoint/key in device metadata; cross-owner takeover rejected",async()=>{
     const id=await store().subscribe(a,subscription);

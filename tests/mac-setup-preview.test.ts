@@ -16,14 +16,14 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("simple Mac setup explanation", () => {
   it("uses three human steps with a separate broad OS permission disclosure", () => {
-    expect(MAC_SETUP_STEPS.map((step) => step.title)).toEqual(["Connect your Alfred account", "Allow Messages on this Mac", "Choose providers and start with new alerts"]);
+    expect(MAC_SETUP_STEPS.map((step) => step.title)).toEqual(["Open Alfred Sync", "Allow Messages on this Mac", "Start automatic sync"]);
     const html = renderToStaticMarkup(createElement(MacAutomationCard));
     for (const step of MAC_SETUP_STEPS) expect(html).toContain(step.title);
     expect(html).toContain("Full Disk Access is a broad macOS permission");
     expect(html).toContain("does not narrow that OS permission");
     expect(html).toContain("Your Mac must already receive your iPhone SMS");
-    expect(html).toContain("Prototype · not available");
-    expect(html).toContain("not ready for distribution or activation");
+    expect(html).toContain("Mac app required");
+    expect(html).toContain("opening this page does not install the app or start syncing");
     expect(html).not.toContain("Create forwarding key");
     expect(html).not.toContain("Start capture</button>");
   });
@@ -39,6 +39,14 @@ describe("simple Mac setup explanation", () => {
     expect(details).toContain("not a list of every payment provider");
     expect(details).toContain("no filter can promise");
     expect(html.slice(0, html.indexOf("<details"))).not.toContain("DeepSeek");
+  });
+  it("distinguishes pre-Start history from paused-period catch-up and older notices", () => {
+    const html = renderToStaticMarkup(createElement(MacAutomationCard));
+    expect(html).toContain("Messages from before your first Start stay out");
+    expect(html).toContain("Pausing stops automatic sending");
+    expect(html).toContain("Starting again catches up on eligible alerts received while paused and retries saved alerts");
+    expect(html).toContain("Alerts more than 24 hours old may update your records or appear in Review without a new chat announcement");
+    expect(html).not.toContain("No historical backfill");
   });
 });
 

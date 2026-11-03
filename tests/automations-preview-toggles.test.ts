@@ -5,6 +5,8 @@ import { NotificationsSection, EMPTY_NOTIFICATION_PREFERENCES, type Notification
 import { AutomationsSettingsPreview } from "@/app/preview/automations/preview";
 import { AutomationsSection } from "@/app/settings/automations-section";
 import { SettingsNavigation } from "@/app/settings/settings-navigation";
+import { SmsAutomationPreview } from "@/app/preview/sms-automation/preview";
+import { paymentMentionPreviewCopies } from "@/app/preview/sms-automation/fixtures";
 
 type Setter<T> = (next: T | ((previous: T) => T)) => void;
 type Dispatcher = {
@@ -17,6 +19,11 @@ vi.mock("react", async (load) => {
   return {
     ...react,
     useState: <T>(initial: T | (() => T)) => runtime.current ? runtime.current.state(initial) : react.useState(initial),
+    useReducer: <S, A>(reducer: (state: S, action: A) => S, initial: S) => {
+      if (!runtime.current) return react.useReducer(reducer, initial);
+      const [state, setState] = runtime.current.state(initial);
+      return [state, (action: A) => setState(previous => reducer(previous, action))];
+    },
     useEffect: (effect: () => void | (() => void), dependencies?: readonly unknown[]) => runtime.current ? runtime.current.effect(effect, dependencies) : react.useEffect(effect, dependencies),
   };
 });
@@ -72,7 +79,7 @@ function text(node: ReactNode): string {
 function sample(): NotificationSettingsData {
   return { ownerId: "00000000-0000-4000-8000-000000000001", preferences: { ...EMPTY_NOTIFICATION_PREFERENCES }, push: { configured: false, publicKey: null, deliveryEnabled: false, schedulesEnabled: false, recoveryReady: false }, devices: [] };
 }
-const choiceIds = ["payment-mentions", "payment-push", "bill-reminders", "weekly-overview"];
+const choiceIds = ["payment-mentions", "outgoing-mentions", "payment-push", "bill-reminders", "weekly-overview"];
 const mounted: { unmount(): void }[] = [];
 let fetcher: ReturnType<typeof vi.fn>, permission: ReturnType<typeof vi.fn>, register: ReturnType<typeof vi.fn>;
 beforeEach(() => {
@@ -97,34 +104,34 @@ function view() {
 describe("fictional Automations preview controls", () => {
   it.each(choiceIds)("independently toggles %s on and off while infrastructure remains unavailable", async (id) => {
     const screen = view();
-    expect(screen.checked()).toEqual([false, false, false, false]);
+    expect(screen.checked()).toEqual([false, false, false, false, false]);
     expect(screen.button("Save preview choices").props.disabled).toBe(true);
     await screen.click(screen.choice(id));
     expect(screen.checked()).toEqual(choiceIds.map((key) => key === id));
     expect(screen.button("Save preview choices").props.disabled).toBe(false);
     await screen.click(screen.choice(id));
-    expect(screen.checked()).toEqual([false, false, false, false]);
+    expect(screen.checked()).toEqual([false, false, false, false, false]);
     expect(screen.button("Save preview choices").props.disabled).toBe(true);
     expect(fetcher).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled(); expect(register).not.toHaveBeenCalled();
   });
-  it("saves all four in memory, retains saved state through re-renders, and resets saved and draft choices", async () => {
+  it("saves all five in memory, retains saved state through re-renders, and resets saved and draft choices", async () => {
     const screen = view();
     for (const id of choiceIds) await screen.click(screen.choice(id));
     await screen.click(screen.button("Save preview choices"));
-    expect(screen.checked()).toEqual([true, true, true, true]);
+    expect(screen.checked()).toEqual([true, true, true, true, true]);
     expect(screen.button("Save preview choices").props.disabled).toBe(true);
     expect(text(screen.instance.value)).toContain("No account settings were saved and nothing will be sent");
     await screen.instance.settle();
-    expect(screen.checked()).toEqual([true, true, true, true]);
+    expect(screen.checked()).toEqual([true, true, true, true, true]);
     await screen.click(screen.choice("payment-push"));
     expect(screen.button("Save preview choices").props.disabled).toBe(false);
     await screen.click(screen.button("Reset preview choices"));
-    expect(screen.checked()).toEqual([false, false, false, false]);
+    expect(screen.checked()).toEqual([false, false, false, false, false]);
     expect(screen.button("Save preview choices").props.disabled).toBe(true);
-    expect(text(screen.instance.value)).toContain("Preview reset. All four choices are off");
+    expect(text(screen.instance.value)).toContain("Preview reset. All five choices are off");
     expect(fetcher).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled(); expect(register).not.toHaveBeenCalled();
     const freshVisit = view();
-    expect(freshVisit.checked()).toEqual([false, false, false, false]);
+    expect(freshVisit.checked()).toEqual([false, false, false, false, false]);
   });
   it("keeps the same mounted Automations subtree while navigating away and back", async () => {
     vi.stubGlobal("window", { location: { hash: "" }, addEventListener: vi.fn(), removeEventListener: vi.fn(), history: { replaceState: vi.fn() } });
@@ -145,13 +152,38 @@ describe("fictional Automations preview controls", () => {
   });
 });
 
+describe("fictional money-in and money-out conversation", () => {
+  it("switches actual generated copy and resets replies without registering or filing anything", async () => {
+    const copies = paymentMentionPreviewCopies();
+    const screen = new Lifecycle(SmsAutomationPreview); mounted.push(screen); screen.render(copies);
+    const nodes = () => descendants(screen.value, false);
+    const button = (label: string) => nodes().find(node => node.type === "button" && text(node.props.children as ReactNode) === label)!;
+    const click = async (label: string) => { const target = button(label); expect(target).toBeDefined(); (target.props.onClick as () => void)(); await screen.settle(); };
+    expect(text(screen.value)).toContain(copies.knownCopy);
+    await click("Money out");
+    expect(text(screen.value)).toContain(copies.outgoingKnownCopy); expect(text(screen.value)).not.toContain(copies.knownCopy);
+    await click("Unknown purpose");
+    expect(text(screen.value)).toContain(copies.outgoingUnknownCopy);
+    expect(nodes().find(node => node.type === "input")?.props.placeholder).toBe("It was for lunch");
+    await click("Use sample reply");
+    const form = nodes().find(node => node.type === "form")!;
+    (form.props.onSubmit as (event: { preventDefault(): void }) => void)({ preventDefault: vi.fn() }); await screen.settle();
+    expect(text(screen.value)).toContain("No second expense was added"); expect(text(screen.value)).toContain("Food");
+    await click("Money in");
+    expect(text(screen.value)).toContain(copies.unknownCopy); expect(text(screen.value)).not.toContain("No second expense was added");
+    expect(nodes().find(node => node.type === "input")?.props.value).toBe("");
+    expect(button("Use birthday example")).toBeDefined();
+    expect(fetcher).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled(); expect(register).not.toHaveBeenCalled();
+  });
+});
+
 describe("production boundaries and responsive preview markup", () => {
   it.each([{}, { configured: true }, { configured: true, deliveryEnabled: true }, { configured: true, deliveryEnabled: true, recoveryReady: false }])("keeps new production device choices disabled when readiness is incomplete: %j", (push) => {
     const initial = sample(); initial.push = { ...initial.push, ...push };
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial, ownerId: initial.ownerId }));
     const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
-    expect(switches).toHaveLength(4); expect(switches[0]).not.toMatch(/\sdisabled(?:=|\s|>)/);
-    expect(switches.slice(1).every((button) => /\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches).toHaveLength(5); expect(switches.slice(0, 2).every((button) => !/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches.slice(2).every((button) => /\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
     expect(html).not.toContain("Reset preview choices"); expect(html).not.toContain("Save preview choices");
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -160,10 +192,10 @@ describe("production boundaries and responsive preview markup", () => {
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial }));
     expect(html.match(/<button[^>]*role="switch"[^>]*>/g)!.some((button) => /\sdisabled(?:=|\s|>)/.test(button))).toBe(false);
   });
-  it("renders four operable demo switches with touch targets and wrapping mobile/desktop layout", () => {
+  it("renders five operable demo switches with touch targets and wrapping mobile/desktop layout", () => {
     const html = renderToStaticMarkup(createElement(AutomationsSettingsPreview));
     const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
-    expect(switches).toHaveLength(4); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
+    expect(switches).toHaveLength(5); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
     expect(html).toContain("flex flex-col gap-6 md:flex-row md:items-start");
     expect(html).toContain("min-w-0 flex-1"); expect(html).toContain("flex flex-wrap items-center justify-end gap-3");
     expect(html).toContain("w-full sm:w-64"); expect(html).toContain("reset when you reload");

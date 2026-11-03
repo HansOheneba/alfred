@@ -22,7 +22,11 @@ class PolicyTests(unittest.TestCase):
   script=(ROOT/'scripts/build.sh').read_text()
   self.assertNotRegex(script,r'(?m)^\s*(?:open|launchctl|osascript|tccutil|installer)\b')
   self.assertNotRegex(script,r'(?m)^\s*["\']?\$APP["\']?\s*(?:$|--)')
-  self.assertNotIn('/Library/LaunchAgents',script)
+  # A bundled SMAppService plist is inert at build/install time. Only a later
+  # explicit Start registers it; build may stage Contents/Library/LaunchAgents.
+  self.assertNotIn('~/Library/LaunchAgents',script)
+  self.assertNotIn('/Users/$USER/Library/LaunchAgents',script)
+  self.assertIn('Contents/Library/LaunchAgents',script)
   self.assertIn('codesign --verify --strict',script)
  def test_app_default_is_inactive(self):
   source=(ROOT/'Sources/AppMain.swift').read_text()
@@ -56,6 +60,17 @@ class PolicyTests(unittest.TestCase):
   self.assertIn('catch { return false }',report)
  def test_build_output_is_ignored(self):
   self.assertIn('build/',(ROOT/'.gitignore').read_text().splitlines())
+ def test_setup_explains_pause_catchup_without_reclassifying_old_alerts_as_new(self):
+  source=(ROOT/'Sources/CollectorSetupWindow.swift').read_text()
+  start=source.split('@objc private func startSync()',1)[1].split('@objc private func pauseSync()',1)[0]
+  pause=source.split('@objc private func pauseSync()',1)[1].split('@objc private func refreshStatus()',1)[0]
+  for block in [start,pause]:
+   self.assertIn('eligible alerts received while paused',block)
+   self.assertIn('retries saved alerts',block)
+   self.assertIn('update your records or appear in Review without a new chat announcement',block)
+  self.assertIn('before your first Start stay out',start)
+  self.assertIn('24 hours old',start)
+  self.assertIn('already being sent may still arrive',pause)
  def test_automation_template_is_disabled_and_unresolved(self):
   job=plistlib.loads((ROOT/'LaunchAgent.plist.template').read_bytes())
   self.assertIs(job['Disabled'],True)

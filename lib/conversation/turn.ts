@@ -1,4 +1,4 @@
-import { clientTurnUpdateId, isClientMessageId, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
+import { clientTurnUpdateId, isClientMessageId, isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { Channel } from "@/lib/ai/persona";
 import { intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
@@ -36,9 +36,9 @@ import { notesForPrompt, type PeopleStore } from "@/lib/people/store";
 import type { InlineButton } from "@/lib/telegram/client";
 import { localGreeting } from "@/lib/telegram/messages";
 import { KIND_LABELS, type InvestmentStore } from "@/lib/investments/store";
-import { canonicalizeAmount } from "@/lib/finance/money";
+import { canonicalizeAmount, toMinor } from "@/lib/finance/money";
 import { normalizeCategory } from "@/lib/finance/categories";
-import { zonedYmd } from "@/lib/finance/dates";
+import { isRealDate, zonedYmd } from "@/lib/finance/dates";
 import type { PendingActionRecord } from "@/lib/finance/types";
 
 /** What a conversation turn needs, from Telegram or the website. */
@@ -70,6 +70,10 @@ type TurnOptions = { channel: Channel; excludeClientId?: string | null; replyToP
 export async function converse(text: string, ctx: ActionContext, deps: TurnDeps, options: TurnOptions): Promise<TurnReply> {
   const noticeFocus = await paymentNoticeFocus(deps.messages, ctx.profile.profileId, options);
   const closedNotice = Boolean(noticeFocus && !noticeFocus.requiresPurpose);
+  const closedSource = closedNotice && noticeFocus ? await deps.bank?.getMessage(ctx.profile.profileId, noticeFocus.bankMessageId) : null;
+  // Direction and duplicate evidence come from the owned source, never client metadata.
+  const independentExpenseAllowed = closedSource?.ownerId === ctx.profile.profileId && closedSource.direction === "in" && closedSource.status !== "needs_label";
+  const ownedOutgoing = closedSource?.ownerId === ctx.profile.profileId && closedSource.direction === "out" && closedSource.status !== "needs_label" ? closedSource : null;
   const confirmation = await confirmationAfterBoundary(deps, ctx, options);
   const currentMessageId = noticeFocus === undefined ? undefined : noticeFocus?.requiresPurpose ? noticeFocus.bankMessageId : null;
   const ordinaryReply = (reply: TurnReply): TurnReply => closedNotice || confirmation.fenced || options.newTopic ? { ...reply, newTopic: true } : reply;
@@ -93,7 +97,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   const ingest: IngestDeps | null = deps.bank
     ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }
     : null;
-  const separateExpense = noticeFocus && !noticeFocus.requiresPurpose ? independentExpenseRequest(text, ctx.profile.currency) : null;
+  const separateExpense = noticeFocus && !noticeFocus.requiresPurpose && independentExpenseAllowed ? independentExpenseRequest(text, ctx.profile.currency) : null;
   if (separateExpense) {
     // This is a new, explicit request rather than a purpose answer. The exact
     // user words supply one expense, and it always gets its own confirmation.
@@ -171,13 +175,18 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   // second transaction or silently turn into a different financial operation,
   // including when the original notice is already settled or no longer exists.
   const mutations = actions.filter((item) => NOTICE_FINANCIAL_MUTATIONS.has(item.type) || closedNotice && item.type === "label_payments");
-  const allowedIndependent = closedNotice && mutations.length > 0 && mutations.every((item) => groundedIndependentMutation(item, text, ctx));
+  const independent = closedNotice ? await Promise.all(mutations.map(async (item) => {
+    if (ownedOutgoing && item.type === "create_transaction" && item.transactions[0]?.transaction_type === "income") return groundedIndependentIncome(item, text, ctx);
+    if (!groundedIndependentMutation(item, text, ctx)) return false;
+    return item.type !== "create_transaction" || independentExpenseAllowed || Boolean(ownedOutgoing && await separateOutgoingExpense(item, ownedOutgoing, text, ctx));
+  })) : [];
+  const allowedIndependent = closedNotice && actions.length === 1 && mutations.length === 1 && independent.every(Boolean);
   if (noticeFocus !== undefined && mutations.length > 0 && !allowedIndependent) {
     if (ingest && waiting?.current) {
       const again = await askAgain(ingest, ctx.profile, waiting.current, purposeQuestionIntro(waiting.current, "I couldn't safely match that answer to the captured payment. Tell me its purpose again or choose below."));
       return keepNoticeFocus({ kind: "text", text: again.text, intent: "bank:label", buttons: again.buttons });
     }
-    return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Nothing was changed. A different transaction needs its own request.", intent: "chat:other" }, true);
+    return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Nothing was changed. For a separate transaction, choose Start a new topic or give its different amount, currency and date.", intent: "chat:other" }, true);
   }
   const focused = waiting?.exactQuestion ? waiting.current : null;
   if (ingest && focused && actions.some((item) => item.type === "label_payments" && resolvedFrom(item.answers, waiting!.listed).some((answer) => answer.messageIds.includes(focused.id) && !groundedPaymentLabel(text, focused, answer.label)))) {
@@ -214,6 +223,82 @@ async function confirmationAfterBoundary(deps: TurnDeps, ctx: ActionContext, opt
   return { fenced, pending: matching.length === 1 ? matching[0] : null };
 }
 
+/** A closed debit can share an amount with its principal, fee or fee-inclusive
+ * total. Resolve only this event's source rows; an unresolved external match
+ * needs the explicit new-topic gesture instead of a history-wide guess. */
+async function separateOutgoingExpense(action: Extract<FinanceAction, { type: "create_transaction" }>, source: BankMessage, text: string, ctx: ActionContext): Promise<boolean> {
+  const draft = action.transactions[0];
+  if (action.transactions.length !== 1 || draft.transaction_type !== "expense") return false;
+  const explicitDates = text.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? [];
+  const explicitDate = explicitDates[0];
+  if (explicitDates.length > 1 || explicitDate && (!isRealDate(explicitDate) || draft.date !== explicitDate)) return false;
+  const prose = text.replace(/\b\d{4}-\d{2}-\d{2}\b/g, "");
+  if (/[\p{Pd}\u2212+]\s*(?:(?:[a-z]{3}|GH₵|₵)\s*)?\d/iu.test(prose) || /\b(?:yesterday|tomorrow|last|next|ago)\b/i.test(prose)
+    || (prose.match(/\d[\d,]*(?:\.\d{1,2})?/g) ?? []).length !== 1) return false;
+  const sourceAmount = toMinor(source.amount), fee = toMinor(source.fee);
+  let principalAmount = sourceAmount;
+  const amounts = new Set([sourceAmount, sourceAmount + fee, sourceAmount - fee, fee].filter(value => value > 0));
+  const dates = new Set([zonedYmd(new Date(source.occurredAt), ctx.profile.timezone)]);
+  if (source.transactionId) {
+    const rows = await ctx.store.findTransactionsBySource(ctx.profile.profileId, `bank:${source.id}`);
+    const principal = rows.find(row => row.userId === ctx.profile.profileId && row.transactionId === source.transactionId && row.status === "active");
+    if (!principal || principal.type !== "expense" || principal.currency !== source.currency || toMinor(principal.amount) <= 0) return false;
+    const amount = toMinor(principal.amount);
+    principalAmount = amount;
+    amounts.add(amount); amounts.add(amount + fee);
+    if (sourceAmount > amount) amounts.add(sourceAmount - amount);
+    dates.add(principal.transactionDate);
+  }
+  if (source.feeTransactionId) {
+    const rows = await ctx.store.findTransactionsBySource(ctx.profile.profileId, `bank:${source.id}:fee`);
+    const linkedFee = rows.find(row => row.userId === ctx.profile.profileId && row.transactionId === source.feeTransactionId && row.status === "active");
+    if (!linkedFee || linkedFee.type !== "expense" || linkedFee.currency !== source.currency || toMinor(linkedFee.amount) <= 0) return false;
+    const amount = toMinor(linkedFee.amount); amounts.add(amount); amounts.add(sourceAmount + amount); amounts.add(principalAmount + amount); dates.add(linkedFee.transactionDate);
+  }
+  if (draft.currency !== source.currency) return new RegExp(`\\b${draft.currency}(?=\\b|\\d)`, "i").test(text) || draft.currency === "GHS" && /GH₵|₵/.test(text);
+  if (!amounts.has(toMinor(draft.amount))) return true;
+  // A model's default date is not evidence that the user meant a different day.
+  return Boolean(explicitDate && draft.date === explicitDate && !dates.has(explicitDate));
+}
+
+/** A captured debit cannot duplicate a separately requested income. Accept only
+ * a single explicit instruction whose financial fields are present in the user's
+ * words; borrowing, refunds and transfers retain their existing special flows. */
+function groundedIndependentIncome(action: Extract<FinanceAction, { type: "create_transaction" }>, text: string, ctx: ActionContext): boolean {
+  const instruction = /^(?:please\s+)?(?:record|log|add)\s+/i.test(text.trim());
+  const received = /^(?:i\s+)?(?:received|earned|got|made)\s+/i.test(text.trim());
+  const namedIncome = /^(?:salary|paycheck|wages?|gift|income|business\s+income|other\s+income|freelance\s+income)(?=\s|\d)/i.test(text.trim());
+  if (action.transactions.length !== 1 || !(instruction || received || namedIncome)
+    || instruction && !/\b(?:income|salary|paycheck|wages?|gift)(?=\s|\d|$)/i.test(text)
+    || /[?\n;]|\b(?:and|or|then|also|but|maybe|perhaps|probably|think|guess|not|never|loan|lent|borrow\w*|owe|owed|owing|debt|repay\w*|repaid|refund|reimbursement|return\w*|transfer|deposit|own money|my own|on behalf|pay back|to|expense|spent|paid|yesterday|tomorrow|last|next|that|this|it was)\b/i.test(text)) return false;
+  const draft = action.transactions[0];
+  if (draft.transaction_type !== "income") return false;
+  const dates = text.match(/\b\d{4}-\d{2}-\d{2}\b/g) ?? [];
+  const explicitDate = dates[0];
+  if (dates.length > 1 || explicitDate && !isRealDate(explicitDate)) return false;
+  const date = explicitDate ?? zonedYmd(ctx.now, ctx.profile.timezone);
+  if (explicitDate ? draft.date !== date : draft.date && draft.date !== date) return false;
+  const prose = explicitDate ? text.replace(explicitDate, "") : text;
+  if (/[\p{Pd}\u2212+]\s*(?:(?:[a-z]{3}|GH₵|₵)\s*)?\d/iu.test(prose)) return false;
+  const amounts = prose.match(/\d[\d,]*(?:\.\d{1,2})?/g) ?? [];
+  const amount = amounts.length === 1 ? canonicalizeAmount(amounts[0]) : null;
+  if (!amount || amount !== canonicalizeAmount(draft.amount)) return false;
+  const currencies = new Set<string>();
+  for (const match of [...prose.matchAll(/\b([a-z]{3})\s*(?=\d)/gi), ...prose.matchAll(/\d[\d,.]*\s*([a-z]{3})\b/gi)]) {
+    const currency = match[1].toUpperCase();
+    if (!["FOR", "THE", "AND", "NEW", "ADD", "LOG", "GOT"].includes(currency)) currencies.add(currency);
+  }
+  if (/GH₵|₵/.test(prose)) currencies.add("GHS");
+  if (currencies.size > 1 || draft.currency !== ([...currencies][0] ?? ctx.profile.currency)) return false;
+  const categories = new Set((prose.toLowerCase().match(/\p{L}+/gu) ?? []).map(word => normalizeCategory(word, "income")).filter(Boolean));
+  const category = normalizeCategory(draft.category, "income");
+  if (!category || category === "Refund" || categories.size !== 1 || !categories.has(category)) return false;
+  if (category === "Gift" && (!/^(?:i\s+)?(?:received|got)\s+|\bincome\b/i.test(text.trim()) || /\bfor\b/i.test(text))) return false;
+  const words = new Set(text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  const grounded = (value: string | null | undefined) => !value || (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).length > 0 && (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).every(word => words.has(word) || ["a", "an", "the", "for", "on", "income"].includes(word) || normalizeCategory(word, "income") === category);
+  return grounded(draft.description) && grounded(draft.payment_method) && grounded(draft.notes);
+}
+
 /** Closed notices allow only a separate, evidenced expense/budget request, always confirmed. */
 function groundedIndependentMutation(action: FinanceAction, text: string, ctx: ActionContext): boolean {
   if ((action.type !== "create_transaction" && action.type !== "set_budget") || /[?\n;]/.test(text) || paymentPurposeUnclear(text, "out")) return false;
@@ -223,8 +308,8 @@ function groundedIndependentMutation(action: FinanceAction, text: string, ctx: A
   const amounts = new Set((prose.match(/\d[\d,]*(?:\.\d{1,2})?/g) ?? []).map(value => canonicalizeAmount(value)).filter(Boolean));
   const currencies = new Set<string>();
   if (/(?:GH₵|₵)/i.test(text)) currencies.add("GHS");
-  for (const match of prose.matchAll(/\b([a-z]{3})\s*\d|\d(?:[\d,.]*)\s*([a-z]{3})\b/gi)) {
-    const currency = (match[1] ?? match[2]).toUpperCase();
+  for (const match of [...prose.matchAll(/\b([a-z]{3})\s*(?=\d)/gi), ...prose.matchAll(/\d[\d,.]*\s*([a-z]{3})\b/gi)]) {
+    const currency = match[1].toUpperCase();
     if (!["FOR", "THE", "AND"].includes(currency)) currencies.add(currency);
   }
   if (currencies.size > 1) return false;
@@ -241,8 +326,8 @@ function groundedIndependentMutation(action: FinanceAction, text: string, ctx: A
   if (!/\b(?:spent|paid|bought|cost|purchase|purchased)\b/i.test(text) && !normalizeCategory(entry, "expense")) return false;
   const draft = action.transactions[0];
   if (draft.transaction_type !== "expense" || !amounts.has(canonicalizeAmount(draft.amount)) || draft.currency !== currency || normalizeCategory(draft.category, "expense") !== category || draft.date && draft.date !== today && !text.includes(draft.date)) return false;
-  const words = new Set(text.toLowerCase().match(/[a-z0-9]+/g) ?? []);
-  const grounded = (value: string | null | undefined) => !value || (value.toLowerCase().match(/[a-z0-9]+/g) ?? []).every(word => words.has(word) || ["a", "an", "the", "for", "on", "expense"].includes(word) || normalizeCategory(word, "expense") === category);
+  const words = new Set(text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
+  const grounded = (value: string | null | undefined) => !value || (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).length > 0 && (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).every(word => words.has(word) || ["a", "an", "the", "for", "on", "expense"].includes(word) || normalizeCategory(word, "expense") === category);
   return grounded(draft.description) && grounded(draft.payment_method) && grounded(draft.notes);
 }
 
@@ -254,7 +339,7 @@ export async function paymentNoticeFocus(messages: MessageLog | null | undefined
   if (!messages) return undefined;
   const history = await messages.listRecent(ownerId, 3);
   const last = history.filter((item) => !options.excludeClientId || item.clientId !== options.excludeClientId).at(-1);
-  if (last?.role !== "assistant" || last.channel !== "web" || (!last.paymentNotice && last.intent !== "automation:incoming-payment")) return undefined;
+  if (last?.role !== "assistant" || last.channel !== "web" || (!last.paymentNotice && !isPaymentNoticeIntent(last.intent))) return undefined;
   // Explicit null means no proactive question was displayed. A newly arrived
   // server notice may suppress old pointers, but cannot become the reply target.
   return options.replyToPayment === null && last.paymentNotice

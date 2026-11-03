@@ -1,5 +1,9 @@
 export type ChatChannel = "web" | "telegram";
 
+export function isPaymentNoticeIntent(intent: string | null | undefined): boolean {
+  return intent === "automation:incoming-payment" || intent === "automation:outgoing-payment";
+}
+
 export type ChatChart =
   | { kind: "categories"; currency: string; items: { label: string; minor: number }[] }
   | { kind: "daily"; currency: string; items: { label: string; minor: number }[] };

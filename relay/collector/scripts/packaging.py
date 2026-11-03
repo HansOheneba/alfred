@@ -5,7 +5,6 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path, PurePosixPath
 import plistlib
 import re
@@ -17,7 +16,17 @@ from xml.sax.saxutils import escape
 
 ROOT = Path(__file__).resolve().parents[1]
 BUNDLE_ID = "com.hansopoku.alfred.collector"
-APP_NAME = "Alfred Collector.app"
+APP_NAME = "Alfred Sync.app"
+AGENT_NAME = "com.hansopoku.alfred.collector.agent.plist"
+AGENT_RELATIVE_PATH = "Contents/Library/LaunchAgents/" + AGENT_NAME
+EXPECTED_AGENT = {
+    "Label": "com.hansopoku.alfred.collector.agent",
+    "BundleProgram": "Contents/MacOS/AlfredCollector",
+    "ProgramArguments": ["AlfredCollector", "--scheduled-run"],
+    "RunAtLoad": True,
+    "StartInterval": 60,
+    "ProcessType": "Background",
+}
 EXPECTED_ENTITLEMENTS = {
     "com.apple.security.app-sandbox": True,
     "com.apple.security.network.client": True,
@@ -61,9 +70,9 @@ def extract_development_archive(archive: Path, destination: Path) -> Path:
 
 def validate_layout(app: Path) -> dict:
     if app.name != APP_NAME or app.is_symlink() or not app.is_dir():
-        raise ValueError("Expected the Alfred Collector app bundle.")
+        raise ValueError("Expected the Alfred Sync app bundle.")
     allowed_files = {"Contents/Info.plist", "Contents/MacOS/AlfredCollector",
-                     "Contents/Resources/README.md", "Contents/Resources/LaunchAgent.plist.template",
+                     "Contents/Resources/README.md", AGENT_RELATIVE_PATH,
                      "Contents/_CodeSignature/CodeResources"}
     for item in app.rglob("*"):
         if item.is_symlink() or not (item.is_file() or item.is_dir()):
@@ -74,12 +83,22 @@ def validate_layout(app: Path) -> dict:
             raise ValueError("Unexpected bundle resource; review it before packaging.")
     info = plistlib.loads((app / "Contents/Info.plist").read_bytes())
     if (info.get("CFBundleIdentifier") != BUNDLE_ID
+            or info.get("CFBundleName") != "Alfred Sync"
+            or info.get("CFBundleDisplayName") != "Alfred Sync"
             or info.get("CFBundleExecutable") != "AlfredCollector"
             or info.get("LSMinimumSystemVersion") != "27.0"
             or not re.fullmatch(r"\d+(?:\.\d+){0,2}", str(info.get("CFBundleShortVersionString", "")))
             or not re.fullmatch(r"\d+(?:\.\d+){0,2}", str(info.get("CFBundleVersion", "")))):
         raise ValueError("Unexpected bundle identity, version, or supported macOS declaration.")
+    validate_bundled_agent(app)
     return info
+
+
+def validate_bundled_agent(app: Path) -> None:
+    agent = plistlib.loads((app / AGENT_RELATIVE_PATH).read_bytes())
+    if (agent != EXPECTED_AGENT or type(agent.get("RunAtLoad")) is not bool
+            or type(agent.get("StartInterval")) is not int):
+        raise ValueError("Bundled background service differs from the reviewed fixed schedule and command.")
 
 
 def validate_signed_app(app: Path, team_id: str | None) -> dict:
@@ -126,7 +145,7 @@ def copy_bundle(source: Path, destination: Path) -> None:
 
 
 def distribution_xml(version: str, development: bool) -> str:
-    title = "Alfred Collector — inactive development preview" if development else "Alfred Collector"
+    title = "Alfred Sync — development preview" if development else "Alfred Sync"
     return f'''<?xml version="1.0" encoding="utf-8"?>
 <installer-gui-script minSpecVersion="2">
   <title>{escape(title)}</title>
@@ -184,7 +203,7 @@ def build_package(mode: str, app: Path | None, team_id: str | None, installer_id
     if output_dir.is_symlink():
         raise ValueError("Refusing a symlinked build directory.")
     output_dir.mkdir(exist_ok=True)
-    name = "Alfred Collector DEVELOPMENT.pkg" if development else "Alfred Collector RELEASE CANDIDATE.pkg"
+    name = "Alfred Sync DEVELOPMENT.pkg" if development else "Alfred Sync RELEASE CANDIDATE.pkg"
     output = output_dir / name
     manifest = output_dir / ("development-package.json" if development else "release-candidate-package.json")
     if output.exists() or output.is_symlink() or manifest.exists() or manifest.is_symlink():
@@ -210,12 +229,14 @@ def build_package(mode: str, app: Path | None, team_id: str | None, installer_id
         resources = temp / "resources"
         resources.mkdir()
         prefix = "<p><strong>Development preview: not notarized or runtime verified. Do not distribute.</strong></p>" if development else ""
-        (resources / "welcome.html").write_text("<html><body><h1>Alfred Collector</h1>" + prefix +
+        (resources / "welcome.html").write_text("<html><body><h1>Alfred Sync</h1>" + prefix +
             "<p>For Apple Silicon Macs running macOS 27 or later.</p><p>This installer only copies the app to Applications. "
             "It does not connect an account, read Messages, send alerts, enable notifications or start a background service.</p>"
             "<p>For an update, stop the collector first. Existing private pending alerts and settings are retained.</p></body></html>")
         (resources / "conclusion.html").write_text("<html><body><h1>App copied</h1>"
-            "<p>Collection remains off until you explicitly complete setup. Installing is separate from granting Messages access.</p>"
+            "<p>Open Alfred Sync in Applications to connect your Alfred account and choose the payment senders to sync. "
+            "Collection stays off until you check Messages access and explicitly choose Start. "
+            "macOS may also ask you to allow its background service.</p>"
             "<p>Do not delete the collector's private data to fix setup problems; it may contain alerts waiting for delivery.</p></body></html>")
         (temp / "Distribution.xml").write_text(distribution_xml(info["CFBundleVersion"], development))
         args = ["productbuild", "--distribution", str(temp / "Distribution.xml"), "--resources", str(resources),
@@ -239,6 +260,7 @@ def build_package(mode: str, app: Path | None, team_id: str | None, installer_id
                   "bundleID": BUNDLE_ID, "version": info["CFBundleVersion"], "architectures": ["arm64"],
                   "minimumOS": "27.0", "installationLocation": "/Applications", "installerScripts": False,
                   "copiesAppOnly": True, "signature": "unsigned development" if development else "Developer ID candidate",
+                  "embeddedAgent": AGENT_RELATIVE_PATH, "scheduleSeconds": 60, "serviceRegistrationRequired": True,
                   "notarized": False, "runtimeVerified": False, "releaseReady": False,
                   "installed": False, "launched": False, "autostartEnabled": False}
         with manifest.open("x") as handle:

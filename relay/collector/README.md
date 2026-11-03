@@ -1,4 +1,4 @@
-# Alfred collector — inactive local prototype
+# Alfred Sync — local Mac setup candidate
 
 This directory is a new native macOS collector candidate for Alfred. It does
 not modify an existing **My Money Sync** app, its Python scripts, credentials,
@@ -20,7 +20,7 @@ From this directory:
 
 `build.sh` compiles in a temporary directory, applies an ad-hoc local-development
 signature, verifies its declared entitlements, and stages
-`build/Alfred Collector.app.zip` plus a build manifest. It verifies the signature
+`build/Alfred Sync.app.zip` plus a build manifest. It verifies the signature
 again after an archive round trip, without executing the app. A ZIP avoids
 FileProvider-added Finder metadata interfering with signing of `.app` folders;
 no quarantine/security attributes are stripped.
@@ -45,12 +45,28 @@ transactions and an injected transport. `AppMain.swift` is excluded, so the app
 entry point, real Messages path, private key prompt and HTTP delivery are not
 executed. A successful fixture run is not a runtime platform-access result.
 
-The prepared installer only copies the app; no installer or autostart
-registration has been run. Opening the app without arguments shows an inactive
-notice; it does not collect, deliver or request a key. Choosing **Review saved
-alerts** explicitly opens the existing private local outbox, with no Messages
-or network access. Missing setup shows that there are no saved alerts to review.
-This app-opening and native review path remains unverified at runtime.
+The prepared installer only copies the app; no installation or background
+registration has been run. Opening the app shows its setup window and reads safe
+saved status only. Connect privately accepts an existing key and displays the
+resolved name/email for explicit confirmation; provider choices remain explicit.
+Check Messages reads headers only after a fresh owner/server-readiness check.
+Start repeats those checks, establishes a future-only baseline if safely new,
+and requests the bundled one-minute service after confirmation. Requiring macOS
+approval is shown as pending, never as running. No key, permission or service is
+created merely by opening the app.
+
+Pause revokes saved consent independently of the collector's work lock before
+unregistering its own service. It works without network/FDA and retains the
+outbox/baseline. Scheduled runs recheck consent before capture, each send and
+health reporting. An already initiated request may finish; Pause cannot recall
+an accepted alert. Starting again catches up on eligible selected-provider alerts
+received while paused and retries saved alerts; it does not start a new collection
+window. Messages from before the first Start remain excluded. Alerts more than
+24 hours old may update records or appear in Review without a new private chat
+announcement. A caught-up alert can still require review rather than create a
+financial entry automatically. Review saved alerts remains private/local-only. The native
+setup window opened in a user-approved local review. Real Messages permissions
+and service operation remain unverified at runtime.
 
 ## Architecture and the Money Dashboard comparison
 
@@ -166,6 +182,14 @@ not create a replacement baseline or trigger a historical scan.
 The window starts at explicit initialization. If a later step fails, the same
 baseline remains; a future approved retry may process eligible alerts queued
 since that original initialization rather than silently resetting the window.
+Pause likewise retains that original window and scan position: a later explicit
+Start catches up on eligible alerts received during the pause, not only alerts
+received after resuming. Pending deliveries are retained for retry. This is catch-up
+within the original collection window, not an import of pre-Start message history.
+Private chat announcements require payment and detection times within the past
+24 hours and after the relevant announcement opt-in; a later catch-up can update
+records or Review without a new announcement. Protocol-2 delivery rejects original
+received times more than 45 days old; those alerts are not silently accepted.
 
 ## Outbox, acknowledgements and sensitive data
 
@@ -197,8 +221,8 @@ alerts. Network failures, malformed receipts and failed persistence retain the
 payload. A lost response can be retried against the same durable receipt without
 repeating ingestion; a receipt still does not prove settlement or a new financial
 record. The explicit **Review saved alerts** window now shows decoded held
-alerts privately on this Mac. It is available from the inactive app-opening
-notice or `--review-held`. It never reads Messages, contacts Alfred or starts
+alerts privately on this Mac. It is available from the setup window
+or `--review-held`. It never reads Messages, contacts Alfred or starts
 collection. The saved account confirmation is clearly labelled as not freshly
 checked online. Actions recheck that local connection and the exact saved alert:
 **Try again** makes the original event eligible for a later authorized delivery;
@@ -207,8 +231,8 @@ keeps duplicate protection; **Later** keeps it saved. None changes existing
 financial records or claims an Alfred acknowledgement. Source quarantine stays
 metadata-only and uses the existing repair retries. Decisions have a private,
 content-free audit and are atomic/idempotent; a stale window cannot act on a
-changed alert or the next item. The native window is compiled and state-tested
-with fixtures, not runtime-verified by launching the app.
+changed alert or the next item. The held-alert window is compiled and
+state-tested with fixtures; its runtime interactions remain unverified.
 Protocol 2 ingests only its exact top-level text/sender/time fields; legacy
 Shortcut aliases cannot substitute another payload. The confirmed owner is also
 asserted before ingestion, so a mismatched recipient is rejected before a claim
@@ -244,7 +268,7 @@ permission or sandbox denial.
 
 | Argument | Effect |
 | --- | --- |
-| none | Show the inactive notice; optionally open saved local alerts only after choosing Review saved alerts; no setup or collection |
+| none | Show the native setup/status window; account connection, Messages check, Start/Pause and local review require explicit actions |
 | `--status` | Read safe configuration/outbox metadata only; no Messages query, network request or reset |
 | `--review-held` | Open private local held-alert review; saved account confirmation only, no Messages, network, delivery or service operation |
 | `--configure --sender ID [--sender ID ...]` | Validate senders, privately accept an existing key, check the account without SMS, show its name/email and require `CONNECT`; save private config/binding exclusively; no baseline or service enablement |
@@ -253,11 +277,13 @@ permission or sandbox denial.
 | `--collect` | Capture eligible events into the outbox, then attempt a counts-only health check-in; no SMS delivery |
 | `--deliver` | Deliver existing pending events only; no Messages read |
 | `--run` | Perform one collection/delivery cycle, then attempt a counts-only health check-in; no background registration |
+| `--scheduled-run` | Bundled service entry only: fresh account/server readiness plus saved matching activation required; recheck consent before capture/send/report |
 
 Unknown arguments fail without an operation. Existing baseline, sender scope or
 credential changes require an explicit migration decision; no command silently
 resets state. No command creates a forwarding key on the website, grants FDA,
-installs the app or enables login startup.
+installs the app or enables login startup merely by being launched. Explicit
+Start in the native window requests the bundled service through SMAppService.
 All live collection/delivery commands perform the account recheck first. Their
 new receipt contract requires the corresponding backend code and receipt migration
 to be deployed through an approved workflow. Existing outbox version-1 state is
@@ -334,7 +360,8 @@ Before a later activation plan:
    approved.
 4. Have the user grant only the reviewed macOS permissions to this app identity.
 5. Establish the explicit future-only baseline before collection. No historical
-   import is implicit. Autostart is a separate, unimplemented future feature.
+   import is implicit. Background registration is an explicit Start action,
+   separate from installation and permission review.
 6. Verify any later registration and runtime health separately. Claim delivery only from
    safe evidence for a naturally arriving approved alert, never a fabricated SMS
    or test ingestion.
@@ -343,14 +370,16 @@ No step above is performed merely by checking out, compiling or testing this
 directory. Unsupported platform access remains a blocker, not a reason to
 remove sandbox checks or widen permissions silently.
 
-## Prepared automatic operation (disabled template only)
+## Explicit automatic operation
 
-`LaunchAgent.plist.template` demonstrates the future automatic cycle: `--run` at
-login/load and every 120 seconds, with a 10-second throttle. It is explicitly
-`Disabled=true`, uses unresolved executable/log path placeholders and has a
-`.template` extension. The build includes it as a sealed app resource and stages
-`build/LaunchAgent.disabled.plist.template`; it never copies anything into
-`~/Library/LaunchAgents` or registers/starts a job.
+The app bundles `com.hansopoku.alfred.collector.agent.plist` in
+`Contents/Library/LaunchAgents`. Its fixed BundleProgram points to this app's
+stable executable with `--scheduled-run`, RunAtLoad and a 60-second interval.
+SMAppService manages registration only after explicit Start; the installer
+contains no registration script or external log paths. A pending macOS approval
+stays visibly inactive until approval and a fresh explicit Start. The older
+`LaunchAgent.plist.template` is retained as an inactive source reference only.
+Neither build nor packaging copies a job into `~/Library/LaunchAgents`.
 
 `--run` attempts existing outbox delivery even if a new capture is held. Capture
 and delivery state remain separate: incomplete source metadata is durably
@@ -358,12 +387,14 @@ quarantined with cursor progress, and a network failure does not discard pending
 Each delivery batch is limited to three requests and a 90-second elapsed budget;
 another request starts only with at least its full 40-second request window
 remaining. Unclaimed rows stay pending without changing the capture cursor or
-attempt count. This bounds network work within the planned 120-second cadence
-instead of holding the collector lock through a long backlog.
+attempt count. The work lock prevents an overlapping scheduled tick from
+capturing or delivering the same outbox; actual cadence is best effort while the
+Mac is awake. Private activation is rechecked before each send and capture, and
+Pause revokes it independently of that work lock.
 
-Before this template can become an active service, a separate approved step must
+Before the bundled agent can become an active service, a separate approved step must
 validate the signed app's actual Messages/FDA access and background launch
-context on the target OS, resolve the intended installed executable and private
-mode-600 log paths, and explicitly authorize registration/autostart. Do not use
-the template to route around the earlier runtime sandbox denial. No installer or
-registration command is provided by this prototype.
+context on the target OS and explicitly authorize registration/autostart. Do not
+use a different launcher to route around the earlier runtime sandbox denial.
+No platform access, service registration or actual delivery has been performed
+by this local build/test work.

@@ -74,32 +74,33 @@ export const MAC_PROVIDER_SENDERS = [
 ] as const;
 export type MacProviderSender = (typeof MAC_PROVIDER_SENDERS)[number]["id"];
 export const MAC_SETUP_STEPS = [
-  { title: "Connect your Alfred account", body: "Review your name and email in the Mac app before continuing. If it isn’t your account, stop and switch accounts." },
+  { title: "Open Alfred Sync", body: "After installing the Mac app, open Alfred Sync from Applications. Connect your Alfred account and confirm the name and email shown there." },
   { title: "Allow Messages on this Mac", body: "Full Disk Access is a broad macOS permission. Alfred’s sender filter limits forwarding; it does not narrow that OS permission. Your Mac must already receive your iPhone SMS." },
-  { title: "Choose providers and start with new alerts", body: "Choose the exact providers you want. Begin from setup time only; older messages stay out." },
+  { title: "Start automatic sync", body: "Review your providers, then choose Start in Alfred Sync. It checks payment alerts every minute while your Mac is awake. Messages from before your first Start stay out." },
 ] as const;
 
 export function MacAutomationCard({ preview = false, notificationsHref }: { preview?: boolean; notificationsHref?: string } = {}) {
   return (
     <Card title="Automatic SMS capture">
       <div className="flex flex-wrap items-start justify-between gap-3">
-        <p className="max-w-lg text-sm leading-6 text-muted">Bring new payment alerts from this Mac into Alfred. There are three setup steps.</p>
-        <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">Prototype · not available</span>
+        <p className="max-w-lg text-sm leading-6 text-muted">Use Alfred Sync on your Mac to bring new money-in and money-out alerts into Alfred.</p>
+        <span className="rounded-full bg-surface-2 px-2.5 py-1 text-xs font-medium text-muted">Mac app required</span>
       </div>
       <ol className="mt-5 flex flex-col gap-4 text-sm text-muted">
         {MAC_SETUP_STEPS.map((step, index) => <Step key={step.title} n={index + 1}><p className="font-medium text-ink">{step.title}</p><p className="mt-1 text-xs leading-5 text-muted">{step.body}</p></Step>)}
       </ol>
-      <p className="mt-5 rounded-xl bg-accent-soft px-3 py-3 text-xs leading-5 text-ink">This prototype is not ready for distribution or activation. Opening Settings does not connect anything, request permission or start capture.</p>
+      <p className="mt-5 rounded-xl bg-accent-soft px-3 py-3 text-xs leading-5 text-ink">Setup and Start happen in Alfred Sync. Use the choices below for Alfred’s announcements; opening this page does not install the app or start syncing.</p>
       <details className="mt-4 rounded-xl border border-line bg-bg px-3 py-1">
         <summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-ink focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Providers, privacy and setup details</summary>
         <div className="space-y-3 pb-3 text-xs leading-5 text-muted">
           <p>These sender labels have been reviewed. Choose only the ones that match your own provider alerts:</p>
           <div className="flex flex-wrap gap-1.5" aria-label="Reviewed provider senders">{MAC_PROVIDER_SENDERS.map((provider) => <span key={provider.id} className="rounded-lg border border-line bg-surface px-2 py-1 text-ink">{provider.label}</span>)}</div>
           <p>GCB, generic MTN/Telecel and Achieve are not included until their sender scope is verified. This is not a list of every payment provider.</p>
-          <p>Only selected-provider SMS are in scope. No historical backfill. Known credential-code patterns are filtered, but no filter can promise to identify every sensitive code.</p>
+          <p>Only selected-provider SMS received after your first Start are in scope. Pausing stops automatic sending. Starting again catches up on eligible alerts received while paused and retries saved alerts; it does not bring in messages from before your first Start.</p>
+          <p>Alerts more than 24 hours old may update your records or appear in Review without a new chat announcement. Known credential-code patterns are filtered, but no filter can promise to identify every sensitive code.</p>
           <p>Forwarded alerts are stored in Alfred. Unfamiliar alerts may be processed by its AI provider, DeepSeek, and recognized payments can update your records.</p>
           <p>If Telegram is already linked, Alfred’s existing payment summaries can still send payment details there, separately from the new chat and push choices. This setup does not link Telegram or change its permissions. Review that connection in <Link href={preview ? "#telegram" : "/settings#telegram"} className="font-medium text-accent underline underline-offset-4">Telegram settings</Link>.</p>
-          <p>This prototype targets Apple silicon Macs on macOS 27 only. Access and compatibility checks still need validation. This page cannot verify that it is installed, running or delivering. Your existing Money Dashboard is not changed by this setup.</p>
+          <p>The local Mac beta targets Apple silicon Macs on macOS 27 only. Installation, Messages access and compatibility still need device validation before general distribution. This page cannot verify that it is installed, running or delivering. Your existing Money Dashboard is not changed by this setup.</p>
         </div>
       </details>
       <Link href={notificationsHref ?? (preview ? "#notification-choices" : "/settings#automations")} className="mt-4 inline-flex min-h-11 items-center text-sm font-medium text-accent underline underline-offset-4">Choose how Alfred checks in <span className="ml-2" aria-hidden="true">→</span></Link>

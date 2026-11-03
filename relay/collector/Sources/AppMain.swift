@@ -66,9 +66,11 @@ struct SafeCollectorStatus: Encodable {
     let accountConfirmedAt: String?
     let outbox: OutboxStatus?
 }
-func command(_ args: [String]) throws {
+func command(_ requestedArgs: [String]) throws {
     try requireDeclaredSandbox()
     let directory = try containerSupport()
+    let scheduled = requestedArgs == ["--scheduled-run"]
+    let args = scheduled ? ["--run"] : requestedArgs
     if args == ["--review-held"] {
         // Explicit local outbox review only: no Messages access, remote account
         // lookup, delivery, health check-in, setup, or service registration.
@@ -114,16 +116,25 @@ func command(_ args: [String]) throws {
     }
     // Existing unverified configurations fail before any Messages read or send.
     // Even a previously confirmed key must still resolve to that exact owner.
-    let binding = try verifiedAccountBinding(config: config, directory: directory)
+    let binding: CollectorAccountBinding
+    if scheduled {
+        let saved = try loadAccountBinding(directory: directory, config: config)
+        guard try scheduledCollectorRunAllowed(directory: directory, config: config, binding: saved) else { print("Automatic checks are paused."); return }
+        let checked = try fetchCollectorAccountCheck(key: config.key)
+        guard checked.setupReady, checked.identity.ownerId == saved.identity.ownerId else { throw CollectorError("Alfred's account or server setup is not ready. No Messages were read or sent.") }
+        binding = saved
+    } else { binding = try verifiedAccountBinding(config: config, directory: directory) }
     try ensurePrivateDirectory(directory)
     let operationLock = try CollectorLock(directory: directory); defer { withExtendedLifetime(operationLock) {} }
+    if scheduled, try !scheduledCollectorRunAllowed(directory: directory, config: config, binding: binding) { print("Automatic checks are paused."); return }
     let store = try OutboxStore(directory: directory)
     let reportsHealth = args == ["--collect"] || args == ["--run"]
     var healthCaptureFailed = reportsHealth
     // The count-only check-in runs after capture and any outbox delivery, even
     // when those steps throw. Its failure never changes their outcome/state.
     defer {
-        if reportsHealth && !reportCollectorHealthBestEffort(store: store, config: config, binding: binding, directory: directory, captureFailed: healthCaptureFailed) {
+        let stillAllowed = !scheduled || (try? scheduledCollectorRunAllowed(directory: directory, config: config, binding: binding)) == true
+        if reportsHealth && stillAllowed && !reportCollectorHealthBestEffort(store: store, config: config, binding: binding, directory: directory, captureFailed: healthCaptureFailed) {
             FileHandle.standardError.write(Data("Mac status check-in unavailable. Captured alerts and delivery state are unchanged.\n".utf8))
         }
     }
@@ -137,8 +148,10 @@ func command(_ args: [String]) throws {
     var cycleFailed = false
     if args == ["--collect"] || args == ["--run"] {
         do {
+            if scheduled, try !scheduledCollectorRunAllowed(directory: directory, config: config, binding: binding) { return }
             let source = try MessageSource(path: actualMessagesPath())
             let batch = try source.captureBatch(baseline: baseline, config: config, retry: store.sourceQuarantine(config: config))
+            if scheduled, try !scheduledCollectorRunAllowed(directory: directory, config: config, binding: binding) { return }
             let count = try store.capture(batch, config: config)
             healthCaptureFailed = false
             let health = try store.status(config: config)
@@ -152,7 +165,9 @@ func command(_ args: [String]) throws {
         }
     }
     if args == ["--deliver"] || args == ["--run"] {
-        let count = try deliverPending(store: store, config: config, transport: { message, key in deliverHTTP(message, key: key, expectedOwnerId: binding.identity.ownerId) })
+        let count = try deliverPending(store: store, config: config,
+            maySend: { if !scheduled { return true }; return try scheduledCollectorRunAllowed(directory: directory, config: config, binding: binding) },
+            transport: { message, key in deliverHTTP(message, key: key, expectedOwnerId: binding.identity.ownerId) })
         let status = try store.status(config: config)
         print("Alfred durably acknowledged \(count) alert(s); only those raw payloads were removed. Held for review: \(status.heldForReviewCount); pending total: \(status.pendingCount). This is not proof of new financial records.")
     }
@@ -163,20 +178,12 @@ func command(_ args: [String]) throws {
         umask(0o077)
         let args = Array(CommandLine.arguments.dropFirst())
         if args.isEmpty {
-            let app = NSApplication.shared; app.setActivationPolicy(.accessory)
-            let alert = NSAlert(); alert.messageText = "Alfred Collector"
-            alert.informativeText = "Opening this window does not start collection, read Messages or send alerts. You can review alerts already saved on this Mac. Connecting this Mac and turning collection on require separate setup."
-            alert.addButton(withTitle: "Quit")
-            alert.addButton(withTitle: "Review saved alerts")
-            if alert.runModal() == .alertSecondButtonReturn {
-                do {
-                    try requireDeclaredSandbox()
-                    try runHeldAlertReview(directory: containerSupport())
-                } catch {
-                    let notice = NSAlert(); notice.messageText = "Saved alerts aren’t available"
-                    notice.informativeText = (error as? CollectorError)?.description ?? "The saved alerts could not be checked. Nothing was changed or sent."
-                    notice.addButton(withTitle: "Done"); notice.runModal()
-                }
+            do { try requireDeclaredSandbox(); runCollectorSetupWindow(directory: try containerSupport()) }
+            catch {
+                let app = NSApplication.shared; app.setActivationPolicy(.accessory)
+                let notice = NSAlert(); notice.messageText = "Alfred Sync needs a setup review"
+                notice.informativeText = "This app's required identity or file scope could not be verified. Collection stays off. Use a reviewed build; changing Mac privacy settings does not fix an altered app."
+                notice.addButton(withTitle: "Done"); notice.runModal()
             }
             return
         }

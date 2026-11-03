@@ -11,8 +11,8 @@ mkdir -p "$STAGE"
 # do not strip quarantine/security attributes or run the generated application.
 TEMP_BUILD="$(mktemp -d "${TMPDIR:-/tmp}/alfred-collector-build.XXXXXX")"
 trap 'rm -rf "$TEMP_BUILD"' EXIT
-APP="$TEMP_BUILD/Alfred Collector.app"
-mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+APP="$TEMP_BUILD/Alfred Sync.app"
+mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources" "$APP/Contents/Library/LaunchAgents"
 # Copy source bytes into new resources, rather than copying resource forks or
 # Finder/compression metadata. Original files/security attributes are untouched.
 python3 - "$HERE" "$APP" <<'PY'
@@ -20,10 +20,10 @@ import pathlib,sys
 source,app=map(pathlib.Path,sys.argv[1:])
 (app/'Contents/Info.plist').write_bytes((source/'Info.plist').read_bytes())
 (app/'Contents/Resources/README.md').write_bytes((source/'README.md').read_bytes())
-(app/'Contents/Resources/LaunchAgent.plist.template').write_bytes((source/'LaunchAgent.plist.template').read_bytes())
+(app/'Contents/Library/LaunchAgents/com.hansopoku.alfred.collector.agent.plist').write_bytes((source/'com.hansopoku.alfred.collector.agent.plist').read_bytes())
 PY
 swiftc -O -parse-as-library -module-cache-path "$TEMP_BUILD/module-cache" \
-  "$HERE/Sources/Core.swift" "$HERE/Sources/MessageSource.swift" "$HERE/Sources/Transport.swift" "$HERE/Sources/AccountIdentity.swift" "$HERE/Sources/CollectorHealth.swift" "$HERE/Sources/HeldReview.swift" "$HERE/Sources/HeldReviewWindow.swift" "$HERE/Sources/AppMain.swift" \
+  "$HERE/Sources/Core.swift" "$HERE/Sources/MessageSource.swift" "$HERE/Sources/Transport.swift" "$HERE/Sources/AccountIdentity.swift" "$HERE/Sources/CollectorHealth.swift" "$HERE/Sources/HeldReview.swift" "$HERE/Sources/HeldReviewWindow.swift" "$HERE/Sources/CollectorSetup.swift" "$HERE/Sources/CollectorSetupWindow.swift" "$HERE/Sources/AppMain.swift" \
   -o "$APP/Contents/MacOS/AlfredCollector"
 if ! codesign --force --sign - --entitlements "$HERE/Collector.entitlements" "$APP"; then
   # Diagnostic names only; no resource values, source contents or credentials.
@@ -55,8 +55,11 @@ declared_minimum=info['LSMinimumSystemVersion']
 version=lambda value:tuple(map(int,value.split('.')))
 if not architectures or not minimum_os_versions or not sdk_versions or not platforms or any(p!='MACOS' for p in platforms): raise SystemExit('Cannot establish actual build compatibility; no app executed.')
 if any(version(value)>version(declared_minimum) for value in minimum_os_versions): raise SystemExit('Declared minimum macOS understates the actual binary requirement; no app executed.')
-archive=stage/'Alfred Collector.app.zip'
-temporary=stage/'.Alfred Collector.app.zip.tmp'
+agent=plistlib.loads((app/'Contents/Library/LaunchAgents/com.hansopoku.alfred.collector.agent.plist').read_bytes())
+expected_agent={'Label':'com.hansopoku.alfred.collector.agent','BundleProgram':'Contents/MacOS/AlfredCollector','ProgramArguments':['AlfredCollector','--scheduled-run'],'RunAtLoad':True,'StartInterval':60,'ProcessType':'Background'}
+if agent!=expected_agent or type(agent.get('RunAtLoad')) is not bool or type(agent.get('StartInterval')) is not int: raise SystemExit('Bundled service scope differs from the reviewed plan; no app executed.')
+archive=stage/'Alfred Sync.app.zip'
+temporary=stage/'.Alfred Sync.app.zip.tmp'
 with zipfile.ZipFile(temporary,'w',compression=zipfile.ZIP_DEFLATED) as output:
     output.write(app,app.name+'/')
     for path in sorted(app.rglob('*')): output.write(path,str(path.relative_to(app.parent)))
@@ -65,8 +68,7 @@ with tempfile.TemporaryDirectory(prefix='archive-check-',dir=app.parent) as targ
     subprocess.run(['ditto','-x','-k',str(temporary),target],check=True)
     subprocess.run(['codesign','--verify','--strict',str(pathlib.Path(target)/app.name)],check=True)
 temporary.replace(archive)
-manifest={'bundleID':'com.hansopoku.alfred.collector','binarySHA256':hashlib.sha256(binary.read_bytes()).hexdigest(),'archiveSHA256':hashlib.sha256(archive.read_bytes()).hexdigest(),'artifact':archive.name,'appSandboxDeclared':True,'signature':'ad-hoc local development only','signatureVerified':True,'architectures':architectures,'actualMinimumOSVersions':minimum_os_versions,'sdkVersions':sdk_versions,'declaredMinimumSystemVersion':declared_minimum,'notarized':False,'installerAvailable':False,'runtimeVerified':False,'installed':False,'automaticSchedulePrepared':True,'autostartEnabled':False,'scheduleSeconds':120}
-(stage/'LaunchAgent.disabled.plist.template').write_bytes((app/'Contents/Resources/LaunchAgent.plist.template').read_bytes())
+manifest={'bundleID':'com.hansopoku.alfred.collector','displayName':'Alfred Sync','bundleVersion':info['CFBundleVersion'],'binarySHA256':hashlib.sha256(binary.read_bytes()).hexdigest(),'archiveSHA256':hashlib.sha256(archive.read_bytes()).hexdigest(),'artifact':archive.name,'appSandboxDeclared':True,'signature':'ad-hoc local development only','signatureVerified':True,'architectures':architectures,'actualMinimumOSVersions':minimum_os_versions,'sdkVersions':sdk_versions,'declaredMinimumSystemVersion':declared_minimum,'notarized':False,'installerWorkflowAvailable':True,'runtimeVerified':False,'installed':False,'embeddedAgentValidated':True,'serviceRegistrationRequired':True,'autostartEnabled':False,'scheduleSeconds':60}
 manifest_temp=stage/'.build-manifest.json.tmp'
 manifest_temp.write_text(json.dumps(manifest,indent=2)+'\n')
 manifest_temp.replace(stage/'build-manifest.json')
