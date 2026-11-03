@@ -103,16 +103,24 @@ describe("private owner-scoped notification settings", () => {
     const input={...payload(),push:{configured:true,publicKey,deliveryEnabled:true,schedulesEnabled:true,recoveryReady:false}};
     const html=renderToStaticMarkup(createElement(NotificationsSection,{initial:parseNotificationSettings(input,owner),ownerId:owner}));
     const switches=html.match(/<button[^>]*role="switch"[^>]*>/g)??[];
-    expect(switches).toHaveLength(5);expect(switches.slice(0,2).every(button=>!/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches).toHaveLength(4);expect(switches.slice(0,2).every(button=>!/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
     expect(switches.slice(2).every(button=>/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
-    expect(html).toContain("Scheduled push recovery is not ready");
+    const enable = html.match(/<button[^>]*>Enable notifications<\/button>/)?.[0];
+    expect(enable).toBeDefined(); expect(enable).toMatch(/\sdisabled(?:=|\s|>)/);
+    expect(html).toContain('aria-labelledby="bill-reminders-title"');
+    expect(html).toContain('aria-labelledby="weekly-overview-title"');
+    expect(html).toMatch(/<details(?![^>]*\bopen)[^>]*>[\s\S]*?<summary[^>]*>Reminders<\/summary>/);
+    expect(html).not.toContain('id="payment-push-title"');
+    expect(html).not.toMatch(/scheduled|recovery|VAPID|cron|schema/i);
   });
-  it("shows recent check-in wording without promising actual push delivery", () => {
+  it("shows simple device controls without exposing operator setup or promising delivery", () => {
     const input={...payload(),push:{configured:true,publicKey,deliveryEnabled:true,schedulesEnabled:true,recoveryReady:true}};
     const html=renderToStaticMarkup(createElement(NotificationsSection,{initial:parseNotificationSettings(input,owner),ownerId:owner}));
-    expect(html).toContain("Scheduled recovery has recently checked in");
-    expect(html).toContain("without waiting for another SMS");
-    expect(html).toContain("including overnight");
+    expect(html).toContain("Device notifications");
+    expect(html).toContain("Enable notifications");
+    expect(html).toContain("Get a private alert for new payments");
+    expect(html).not.toMatch(/scheduled|recovery|VAPID|cron|schema/i);
+    expect(html).not.toMatch(/notification was shown|guaranteed delivery|notification was delivered/i);
     expect(html).not.toMatch(/wait until 7am|after 7am|quiet-hour payment/i);
   });
   it("does not reflect server failure details", async () => {
@@ -125,8 +133,11 @@ describe("clear inactive defaults and local preview", () => {
   it("renders all choices off and performs no permission, registration or network action during SSR", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial: parseNotificationSettings(payload(), owner), ownerId: owner }));
-    expect(html.match(/aria-checked="false"/g)).toHaveLength(5);
-    expect(html).toContain("Push delivery is currently off");
+    expect(html.match(/aria-checked="false"/g)).toHaveLength(4);
+    expect(html).not.toContain('id="payment-push-title"');
+    const enable = html.match(/<button[^>]*>Enable notifications<\/button>/)?.[0];
+    expect(enable).toBeDefined(); expect(enable).toMatch(/\sdisabled(?:=|\s|>)/);
+    expect(html).not.toMatch(/scheduled|recovery|VAPID|cron|schema/i);
     expect(html).not.toContain("Send test");
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -149,10 +160,12 @@ describe("clear inactive defaults and local preview", () => {
     expect(html).toContain("Known purpose");
     expect(html).toContain("Unknown purpose");
     expect(html).toContain("Uncertain alert");
-    expect(html).toContain("Sample browser not linked");
+    expect(html).toContain("Not enabled on this device");
+    expect(html).toContain("Demo · sample choices only. Nothing will be sent.");
     expect(html).toContain("not a bank confirmation");
     expect(html).not.toContain("payment has cleared");
-    expect(html).toContain("Mac app required");
+    expect(html).toContain("Managed on your Mac");
+    expect(html).toContain("Manage sync");
   });
   it("uses the real message builder to distinguish known purpose, missing purpose and uncertainty", () => {
     const copies = paymentMentionPreviewCopies();

@@ -24,8 +24,11 @@ notification. Live use requires the separate setup and verification below.
   UTF-8 decoding and bounded JSON traversal. Rejection logs exclude arbitrary
   headers, message contents, field names and credentials.
 - Separate account choices for Money in chat, Money out chat, payment push,
-  bill reminders and weekly overviews. All five default off. Saving preferences
-  and granting browser permission are separate explicit actions.
+  bill reminders and weekly overviews. All five default off. Chat choices save
+  after a server acknowledgment. The explicit device-enable action requests
+  browser permission, links this device and enables payment notifications only.
+  Reminders, saved devices and Mac setup details are collapsed by default.
+  Lost responses are shown as unconfirmed, with a read-only reload action.
 - Deterministic Alfred messages in the authenticated conversation. A recognized
   incoming or outgoing alert is described as an alert, not independently verified settlement.
   Recognizing a provider alone never establishes purpose. Alfred acknowledges a
@@ -77,9 +80,21 @@ notification. Live use requires the separate setup and verification below.
   wording such as “I got paid…” may still need that explicit topic boundary.
 - Web Push subscriptions and delivery records remain server-only. Notification
   payloads contain fixed discreet copy and fixed authenticated destinations,
-  without amounts, names, balances, raw SMS or event identifiers. The existing
+  without amounts, names, balances or raw SMS. An encrypted payment payload may
+  include an opaque bank-message UUID locator for the fixed Accounts destination.
+  The authenticated page resolves only its owner's exact source; a locator is
+  never authorization. Separate payments have separate stable notification tags.
+  The existing
   service worker imports the push handlers; there are no competing root workers
   and no financial response cache is added.
+- An explicit test sends to one owned active browser, with a durable 30-second
+  cooldown using the database's canonical device UUID. It never changes a
+  financial record or account preference, and reports provider acceptance or
+  uncertainty rather than claiming the notification was displayed.
+- Newly ingested production batches commit bank evidence and financial effects
+  in one owner-serialized database transaction. External parsing finishes first.
+  A failed batch rolls back; a possibly committed transaction is never replayed
+  internally. Historical partial records are not guessed at or rewritten.
 - Owner/origin checks and displayed-account binding protect preference/device
   writes. Device endpoints cannot be reassigned between accounts. Devices are
   capped, and subscription expiry is respected.
@@ -163,6 +178,8 @@ real Automations components with fictional, inactive preferences. Other section
 buttons show read-only placeholders in this fictional preview. All five demo
 notification choices can be toggled and saved for the current visit, with a
 reset control. Reload starts with all five off; no real preferences are saved.
+The sample device-enable and test interactions are labelled simulations and do
+not request permission, register a device, write preferences or send a push.
 The three-step fictional setup is `/preview/automations/mac-setup`: it exercises
 an account mismatch, permission explanation, provider selection and future-only
 review. Completion explicitly leaves capture off; it makes no account or OS call.
@@ -179,7 +196,15 @@ under the original activation fences. Safe counts are exposed in Mac check-ins.
 Old or unverifiable browser push keys require an explicit reconnect, preserving
 the existing subscription. With payment choices off, bank automation performs
 one preference read and no notice/push/queue work. The SMS route retains its
-original 30-second maximum and original-request 25-second automation deadline.
+60-second maximum. Chat and push start independently after persistence, with
+up to 25 seconds of delivery time capped at 55 seconds from request start.
+Slow chat work cannot consume the push transport's completion budget. A later
+scheduled check recovers unfinished queue work without another SMS.
+
+Operator configuration and read-only readiness checks are documented separately
+in [automations-operations.md](automations-operations.md). Consumer Settings
+shows concise availability rather than keys, scheduler instructions or schema
+diagnostics. The readiness checker does not provision or verify live services.
 
 Payment nudges have no overnight hold: opted-in eligible alerts can dispatch
 immediately, including overnight. Transport retries and recovery remain durable;

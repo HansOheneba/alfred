@@ -24,6 +24,7 @@ vi.mock("react", async (load) => {
       const [state, setState] = runtime.current.state(initial);
       return [state, (action: A) => setState(previous => reducer(previous, action))];
     },
+    useRef: <T>(initial: T) => runtime.current ? runtime.current.state({ current: initial })[0] : react.useRef(initial),
     useEffect: (effect: () => void | (() => void), dependencies?: readonly unknown[]) => runtime.current ? runtime.current.effect(effect, dependencies) : react.useEffect(effect, dependencies),
   };
 });
@@ -91,47 +92,44 @@ beforeEach(() => {
   vi.stubGlobal("navigator", { serviceWorker: { register, getRegistration: register } });
 });
 afterEach(() => { for (const instance of mounted.splice(0)) instance.unmount(); runtime.current = null; vi.unstubAllGlobals(); });
-function view() {
+function view(props: Parameters<typeof NotificationsSection>[0] = { preview: true, initial: sample() }) {
   const instance = new Lifecycle(NotificationsSection); mounted.push(instance);
-  instance.render({ preview: true, initial: sample() });
+  instance.render(props);
   const nodes = () => descendants(instance.value);
   const choice = (id: string) => nodes().find((node) => node.props.role === "switch" && node.props["aria-labelledby"] === `${id}-title`)!;
   const button = (label: string) => nodes().find((node) => node.type === "button" && text(node.props.children as ReactNode) === label)!;
   const click = async (node: Element) => { expect(node.props.disabled).not.toBe(true); (node.props.onClick as () => void)(); await instance.settle(); };
-  return { instance, choice, button, click, checked: () => choiceIds.map((id) => choice(id).props["aria-checked"]) };
+  return { instance, choice, button, click, checked: () => choiceIds.map((id) => choice(id)?.props["aria-checked"] ?? false) };
 }
 
 describe("fictional Automations preview controls", () => {
-  it.each(choiceIds)("independently toggles %s on and off while infrastructure remains unavailable", async (id) => {
+  it.each(["payment-mentions", "outgoing-mentions", "bill-reminders", "weekly-overview"])("autosaves sample %s independently without a permission or account request", async (id) => {
     const screen = view();
     expect(screen.checked()).toEqual([false, false, false, false, false]);
-    expect(screen.button("Save preview choices").props.disabled).toBe(true);
+    expect(screen.button("Save preview choices")).toBeUndefined();
     await screen.click(screen.choice(id));
     expect(screen.checked()).toEqual(choiceIds.map((key) => key === id));
-    expect(screen.button("Save preview choices").props.disabled).toBe(false);
+    expect(text(screen.instance.value)).toContain("Sample choice updated");
     await screen.click(screen.choice(id));
     expect(screen.checked()).toEqual([false, false, false, false, false]);
-    expect(screen.button("Save preview choices").props.disabled).toBe(true);
     expect(fetcher).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled(); expect(register).not.toHaveBeenCalled();
   });
-  it("saves all five in memory, retains saved state through re-renders, and resets saved and draft choices", async () => {
+  it("enables only sample payment notifications in one action, supports a sample test, and resets the visit", async () => {
     const screen = view();
-    for (const id of choiceIds) await screen.click(screen.choice(id));
-    await screen.click(screen.button("Save preview choices"));
+    await screen.click(screen.button("Enable notifications"));
+    expect(screen.checked()).toEqual([false, false, true, false, false]);
+    await screen.click(screen.button("Send test"));
+    expect(text(screen.instance.value)).toContain("Sample test only. No notification was sent");
+    for (const id of choiceIds.filter(id => id !== "payment-push")) await screen.click(screen.choice(id));
     expect(screen.checked()).toEqual([true, true, true, true, true]);
-    expect(screen.button("Save preview choices").props.disabled).toBe(true);
-    expect(text(screen.instance.value)).toContain("No account settings were saved and nothing will be sent");
     await screen.instance.settle();
     expect(screen.checked()).toEqual([true, true, true, true, true]);
-    await screen.click(screen.choice("payment-push"));
-    expect(screen.button("Save preview choices").props.disabled).toBe(false);
-    await screen.click(screen.button("Reset preview choices"));
+    await screen.click(screen.button("Reset sample choices"));
     expect(screen.checked()).toEqual([false, false, false, false, false]);
-    expect(screen.button("Save preview choices").props.disabled).toBe(true);
-    expect(text(screen.instance.value)).toContain("Preview reset. All five choices are off");
+    expect(screen.button("Send test")).toBeUndefined();
+    expect(text(screen.instance.value)).toContain("Sample choices reset");
     expect(fetcher).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled(); expect(register).not.toHaveBeenCalled();
-    const freshVisit = view();
-    expect(freshVisit.checked()).toEqual([false, false, false, false, false]);
+    expect(view().checked()).toEqual([false, false, false, false, false]);
   });
   it("keeps the same mounted Automations subtree while navigating away and back", async () => {
     vi.stubGlobal("window", { location: { hash: "" }, addEventListener: vi.fn(), removeEventListener: vi.fn(), history: { replaceState: vi.fn() } });
@@ -149,6 +147,121 @@ describe("fictional Automations preview controls", () => {
     (navigation().props.onChoose as (id: string) => void)("automations"); await screen.settle();
     expect(automationWrapper().props.hidden).toBe(false);
     expect(fetcher).not.toHaveBeenCalled();
+  });
+});
+
+const deviceId = "00000000-0000-4000-8000-000000000002";
+function production(options: { linked?: boolean; preferences?: Partial<NotificationSettingsData["preferences"]>; recoveryReady?: boolean } = {}) {
+  const initial = sample();
+  initial.push = { configured: true, publicKey: "A".repeat(87), deliveryEnabled: true, schedulesEnabled: true, recoveryReady: options.recoveryReady ?? true };
+  initial.preferences = { ...initial.preferences, ...options.preferences };
+  const subscription = { options: { applicationServerKey: new Uint8Array(65).buffer }, toJSON: () => ({ endpoint: "https://example.invalid/fictional-current-device" }), unsubscribe: vi.fn(async () => true) };
+  const manager = { getSubscription: vi.fn(async () => options.linked ? subscription : null), subscribe: vi.fn(async () => subscription) };
+  const browserRegister = vi.fn(async () => ({ pushManager: manager }));
+  const getRegistration = vi.fn(async () => ({ pushManager: manager }));
+  const ask = vi.fn(async () => "granted" as NotificationPermission);
+  vi.stubGlobal("window", { isSecureContext: true, Notification: { requestPermission: ask }, PushManager: function PushManager() {} });
+  vi.stubGlobal("Notification", { requestPermission: ask });
+  vi.stubGlobal("navigator", { serviceWorker: { getRegistration, register: browserRegister, ready: Promise.resolve({ pushManager: manager }) } });
+  let saved = structuredClone(initial.preferences);
+  const responder = async (path: string, init?: RequestInit) => {
+    if (path === "/api/notifications" && !init?.method) return Response.json({ ok: true, ...initial, preferences: saved });
+    if (path === "/api/notifications" && init?.method === "PATCH") {
+      const patch = JSON.parse(init.body as string); saved = { ...saved, ...patch };
+      return Response.json({ ok: true, preferences: saved });
+    }
+    if (path.endsWith("/subscriptions/status")) return Response.json({ ok: true, ownerId: initial.ownerId, device: options.linked ? { id: deviceId } : null });
+    if (path.endsWith("/subscriptions") && init?.method === "POST") return Response.json({ ok: true, deviceId });
+    if (path.endsWith("/subscriptions") && init?.method === "DELETE") return Response.json({ ok: true });
+    if (path.endsWith("/test")) return Response.json({ ok: true, status: "accepted" });
+    throw new Error("Unexpected fictional request");
+  };
+  fetcher.mockImplementation(responder);
+  return { initial, responder, subscription, manager, browserRegister, ask, saved: () => saved };
+}
+
+describe("acknowledged notification actions", () => {
+  it("does not request permission, register, save or send a test when Settings opens", async () => {
+    const fixture = production(); const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
+    expect(fixture.ask).not.toHaveBeenCalled(); expect(fixture.browserRegister).not.toHaveBeenCalled();
+    expect(fetcher.mock.calls.every(([, init]) => !(init as RequestInit | undefined)?.method)).toBe(true);
+    expect(screen.checked()).toEqual([false, false, false, false, false]);
+  });
+  it("waits for server acknowledgment, ignores double clicks, and keeps the confirmed choice after failure", async () => {
+    const fixture = production(); const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>(done => { resolve = done; });
+    fetcher.mockImplementation((path, init) => (init as RequestInit | undefined)?.method === "PATCH" ? pending : fixture.responder(path as string, init as RequestInit));
+    const target = screen.choice("payment-mentions");
+    (target.props.onClick as () => void)(); (target.props.onClick as () => void)(); await screen.instance.settle();
+    expect(screen.choice("payment-mentions").props["aria-checked"]).toBe(false);
+    expect(screen.choice("payment-mentions").props.disabled).toBe(true);
+    expect(fetcher.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PATCH")).toHaveLength(1);
+    resolve(Response.json({ ok: false }, { status: 503 })); await screen.instance.settle();
+    expect(screen.choice("payment-mentions").props["aria-checked"]).toBe(false);
+    expect(text(screen.instance.value)).toContain("couldn’t be confirmed");
+    fetcher.mockImplementation(fixture.responder);
+    await screen.click(screen.choice("payment-mentions"));
+    expect(screen.checked()).toEqual([true, false, false, false, false]);
+    const patch = fetcher.mock.calls.filter(([, init]) => (init as RequestInit | undefined)?.method === "PATCH").at(-1)!;
+    expect(JSON.parse((patch[1] as RequestInit).body as string)).toEqual({ paymentMentions: true });
+    expect((patch[1] as RequestInit).headers).toMatchObject({ "x-alfred-owner": fixture.initial.ownerId });
+  });
+  it("ignores an old account's in-flight save after switching owners", async () => {
+    const fixture = production(); const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
+    const other = "00000000-0000-4000-8000-000000000003";
+    let resolve!: (response: Response) => void;
+    const pending = new Promise<Response>(done => { resolve = done; });
+    fetcher.mockImplementation((path, init) => {
+      if ((init as RequestInit | undefined)?.method === "PATCH") return pending;
+      return Promise.resolve(Response.json({ ok: true, ...fixture.initial, ownerId: other }));
+    });
+    (screen.choice("payment-mentions").props.onClick as () => void)();
+    screen.instance.render({ ownerId: other }); await screen.instance.settle();
+    resolve(Response.json({ ok: true, preferences: { ...fixture.initial.preferences, paymentMentions: true } })); await screen.instance.settle();
+    expect(screen.checked()).toEqual([false, false, false, false, false]);
+    expect(text(screen.instance.value)).not.toContain("Saved.");
+  });
+  it("Enable links this device and explicitly enables only payment notifications", async () => {
+    const fixture = production({ preferences: { paymentMentions: true, billReminders: true } });
+    const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
+    await screen.click(screen.button("Enable notifications"));
+    expect(fixture.ask).toHaveBeenCalledOnce(); expect(fixture.browserRegister).toHaveBeenCalledOnce();
+    expect(screen.checked()).toEqual([true, false, true, true, false]);
+    expect(fixture.saved()).toMatchObject({ paymentMentions: true, outgoingMentions: false, paymentPush: true, billReminders: true, weeklyOverview: false });
+    expect(text(screen.instance.value)).toContain("Payment notifications enabled on this device");
+    expect(fetcher.mock.calls.some(([path]) => String(path).endsWith("/test"))).toBe(false);
+  });
+  it("keeps honest linked-but-not-enabled state when preference saving fails", async () => {
+    const fixture = production();
+    fetcher.mockImplementation((path, init) => (init as RequestInit | undefined)?.method === "PATCH" ? Promise.resolve(Response.json({ ok: false }, { status: 503 })) : fixture.responder(path as string, init as RequestInit));
+    const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
+    await screen.click(screen.button("Enable notifications"));
+    expect(screen.choice("payment-push").props["aria-checked"]).toBe(false);
+    expect(text(screen.instance.value)).toContain("This device is connected. Payment notification settings couldn’t be confirmed");
+    expect(screen.button("Send test")).toBeDefined();
+    expect(fixture.subscription.unsubscribe).not.toHaveBeenCalled();
+  });
+  it.each(["accepted", "unconfirmed", "throttled"])("tests only the current owned device and reports %s without automatic retry", async status => {
+    const fixture = production({ linked: true, recoveryReady: false });
+    const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
+    fetcher.mockImplementation((path, init) => String(path).endsWith("/test") ? Promise.resolve(Response.json({ ok: status !== "throttled", status }, { status: status === "throttled" ? 429 : status === "unconfirmed" ? 202 : 200 })) : fixture.responder(path as string, init as RequestInit));
+    await screen.click(screen.button("Send test")); await screen.instance.settle();
+    const calls = fetcher.mock.calls.filter(([path]) => String(path).endsWith("/test"));
+    expect(calls).toHaveLength(1);
+    expect(JSON.parse((calls[0][1] as RequestInit).body as string)).toEqual({ deviceId });
+    expect((calls[0][1] as RequestInit).headers).toMatchObject({ "x-alfred-owner": fixture.initial.ownerId });
+    expect(text(screen.instance.value)).toContain(status === "accepted" ? "Test sent. Check this device" : status === "unconfirmed" ? "result couldn’t be confirmed" : "wait 30 seconds");
+    expect(text(screen.instance.value)).not.toContain("notification was shown");
+  });
+  it("can use a host-provided push manager without registering a competing worker", async () => {
+    const fixture = production();
+    vi.stubGlobal("window", { isSecureContext: true, Notification: { requestPermission: fixture.ask }, pushManager: fixture.manager });
+    vi.stubGlobal("navigator", {});
+    const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
+    await screen.click(screen.button("Enable notifications"));
+    expect(fixture.manager.subscribe).toHaveBeenCalledOnce(); expect(fixture.browserRegister).not.toHaveBeenCalled();
+    expect(screen.choice("payment-push").props["aria-checked"]).toBe(true);
   });
 });
 
@@ -182,7 +295,7 @@ describe("production boundaries and responsive preview markup", () => {
     const initial = sample(); initial.push = { ...initial.push, ...push };
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial, ownerId: initial.ownerId }));
     const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
-    expect(switches).toHaveLength(5); expect(switches.slice(0, 2).every((button) => !/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches).toHaveLength(4); expect(switches.slice(0, 2).every((button) => !/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
     expect(switches.slice(2).every((button) => /\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
     expect(html).not.toContain("Reset preview choices"); expect(html).not.toContain("Save preview choices");
     expect(fetcher).not.toHaveBeenCalled();
@@ -192,14 +305,16 @@ describe("production boundaries and responsive preview markup", () => {
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial }));
     expect(html.match(/<button[^>]*role="switch"[^>]*>/g)!.some((button) => /\sdisabled(?:=|\s|>)/.test(button))).toBe(false);
   });
-  it("renders five operable demo switches with touch targets and wrapping mobile/desktop layout", () => {
+  it("renders compact demo controls with touch targets and wrapping mobile/desktop layout", () => {
     const html = renderToStaticMarkup(createElement(AutomationsSettingsPreview));
     const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
-    expect(switches).toHaveLength(5); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
+    expect(switches).toHaveLength(4); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
     expect(html).toContain("flex flex-col gap-6 md:flex-row md:items-start");
-    expect(html).toContain("min-w-0 flex-1"); expect(html).toContain("flex flex-wrap items-center justify-end gap-3");
-    expect(html).toContain("w-full sm:w-64"); expect(html).toContain("reset when you reload");
-    expect(html).toContain("Push delivery is currently off");
+    expect(html).toContain("min-w-0 flex-1"); expect(html).toContain("flex flex-wrap items-center justify-between gap-3");
+    expect(html).toContain("Demo · sample choices only");
+    expect(html).toContain("Manage sync"); expect(html).toContain("Reminders");
+    expect(html).not.toContain("Scheduled push recovery");
+    expect(html).not.toContain("Push delivery is currently off");
     expect(html).not.toContain("Scheduled recovery has recently checked in");
     expect(fetcher).not.toHaveBeenCalled(); expect(permission).not.toHaveBeenCalled(); expect(register).not.toHaveBeenCalled();
   });

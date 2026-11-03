@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SupabaseSettings } from "@/lib/config";
 import { query } from "@/lib/supabase/connection";
-import { validateSubscription, type PushKind, type PushSubscriptionRecord } from "./push";
+import { validateSubscription, type QueuedPushKind, type PushSubscriptionRecord } from "./push";
 
 export type NotificationPreferences = {
   paymentMentions: boolean; outgoingMentions: boolean; paymentPush: boolean; billReminders: boolean; weeklyOverview: boolean;
@@ -26,10 +26,10 @@ const preferences = (row?:PreferenceRow):NotificationPreferences => row ? {
   billRemindersSince:date(row.bill_reminders_since),weeklyOverviewSince:date(row.weekly_overview_since),
 } : {...DEFAULT_NOTIFICATION_PREFERENCES};
 export type QueuedDelivery = {
-  id:string;ownerId:string;subscriptionId:string;kind:PushKind;eventKey:string;resourceId:string|null;
+  id:string;ownerId:string;subscriptionId:string;kind:QueuedPushKind;eventKey:string;resourceId:string|null;
   targetDate:string|null;attempts:number;subscription:PushSubscriptionRecord;
 };
-type DeliveryRow = {id:string;owner_id:string;subscription_id:string;kind:PushKind;event_key:string;resource_id:string|null;target_date:string|null;attempts:number;subscription:PushSubscriptionRecord};
+type DeliveryRow = {id:string;owner_id:string;subscription_id:string;kind:QueuedPushKind;event_key:string;resource_id:string|null;target_date:string|null;attempts:number;subscription:PushSubscriptionRecord};
 const fromDelivery=(r:DeliveryRow):QueuedDelivery=>({id:r.id,ownerId:r.owner_id,subscriptionId:r.subscription_id,kind:r.kind,eventKey:r.event_key,resourceId:r.resource_id,targetDate:r.target_date,attempts:r.attempts,subscription:r.subscription});
 export const PREFERENCE_COLUMNS = `payment_mentions,outgoing_mentions,payment_push,bill_reminders,weekly_overview,payment_mentions_since,outgoing_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since`;
 

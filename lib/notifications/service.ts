@@ -2,10 +2,10 @@ import type { SupabaseSettings } from "@/lib/config";
 import { nextOccurrence } from "@/lib/finance/bill-schedule";
 import { query } from "@/lib/supabase/connection";
 import { createNotificationStore, type NotificationStore, type QueuedDelivery } from "./store";
-import { PushFailure, pushConfiguration, sendWebPush, type PushConfiguration, type PushKind, type PushSubscriptionRecord } from "./push";
+import { PushFailure, pushConfiguration, sendWebPush, type PushConfiguration, type QueuedPushKind, type PushSubscriptionRecord } from "./push";
 import { loadRecoveryStatus, recoveryConfiguration } from "./recovery";
 
-type Sender=(subscription:PushSubscriptionRecord,configuration:PushConfiguration,kind:PushKind)=>Promise<Response>;
+type Sender=(subscription:PushSubscriptionRecord,configuration:PushConfiguration,kind:QueuedPushKind,targetId?:string)=>Promise<Response>;
 export type DeliveryOptions={now?:Date;store?:NotificationStore;send?:Sender;configuration?:PushConfiguration|null;deliveryEnabled?:boolean;timeZone?:string;maxAttemptsPerRun?:number;timeBudgetMs?:number;clock?:()=>number;recoveryReady?:boolean};
 export type DeliverySummary={configured:boolean;enabled:boolean;recoveryReady:boolean;attempted:number;accepted:number;retrying:number;rejected:number;unconfirmed:number;skipped:number;deferred:number};
 export function localClock(now:Date,timeZone:string):{day:string;hour:number;weekday:string} {
@@ -76,7 +76,8 @@ export async function drainOwnerNotifications(settings:SupabaseSettings,ownerId:
     result.attempted++;
     let outcome:ReturnType<typeof pushResult>;
     try {
-      const response=await (options.send??sendWebPush)(claim.subscription,configuration,claim.kind);
+      const send:Sender=options.send??((subscription,config,kind,targetId)=>sendWebPush(subscription,config,kind,undefined,targetId));
+      const response=await send(claim.subscription,configuration,claim.kind,claim.kind==="payment"?claim.resourceId??undefined:undefined);
       outcome=pushResult(response.status,claim.attempts,now);
       if(response.status===404||response.status===410)await store.unsubscribe(ownerId,{id:claim.subscriptionId});
     } catch(error) {

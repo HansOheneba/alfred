@@ -54,6 +54,17 @@ describe("bank automation avoids unrelated work", () => {
     expect(mocks.error).toHaveBeenCalledWith("bank_private_notice", expect.any(Error));
     expect(mocks.error.mock.calls[0][1].message).not.toContain("FICTIONAL_PRIVATE");
   });
+  it("starts push recovery before a slow chat query completes", async () => {
+    mocks.preferences.mockResolvedValue(preferences({ paymentMentions: true, paymentPush: true }));
+    let finishChat!: () => void;
+    mocks.mentions.mockImplementation(() => new Promise<void>((resolve) => { finishChat = resolve; }));
+    const running = deliverBankAutomation(settings, owner);
+    await vi.waitFor(() => expect(mocks.drain).toHaveBeenCalledOnce());
+    expect(mocks.mentions).toHaveBeenCalledOnce();
+    expect(mocks.enqueue).toHaveBeenCalledBefore(mocks.drain);
+    finishChat();
+    await running;
+  });
   it("does not attempt recovery when the account preference read fails", async () => {
     mocks.preferences.mockRejectedValue(new Error("FICTIONAL_PRIVATE_DATABASE_DETAIL"));
     await expect(deliverBankAutomation(settings, owner)).resolves.toBeUndefined();

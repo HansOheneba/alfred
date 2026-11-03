@@ -14,7 +14,7 @@ import "./accounts.css";
 
 type Command = AccountingAction extends infer A ? A extends AccountingAction ? Omit<A, "expectedRevision" | "requestId"> : never : never;
 type Tab = "accounts" | "activity" | "settlements" | "subscriptions" | "needs-attention";
-type Props = { state: AccountingState; dispatch: (action: AccountingAction) => Promise<unknown>; mode: "live" | "preview"; availability?: "ready" | "migration-required"; defaultCurrency?: string; now?: string; subscriptions?: ReactNode; onReset?: () => void; storageHint?: string };
+type Props = { state: AccountingState; dispatch: (action: AccountingAction) => Promise<unknown>; mode: "live" | "preview"; availability?: "ready" | "migration-required"; defaultCurrency?: string; now?: string; subscriptions?: ReactNode; onReset?: () => void; storageHint?: string; initialPaymentMovementId?: string; paymentUnavailable?: boolean };
 const reference = (movement: CashMovement) => ({ movementId: movement.id, sourceFingerprint: movement.sourceFingerprint });
 const AccountsError = createContext("");
 const id = () => crypto.randomUUID();
@@ -24,16 +24,16 @@ const date = formatAccountTime;
 function Glyph({ kind = "account" }: { kind?: "account" | "arrow" | "plus" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind === "plus" ? <path d="M12 5v14M5 12h14" /> : kind === "arrow" ? <path d="m7 17 10-10M7 7h10v10" /> : <><rect x="3" y="5" width="18" height="15" rx="3" /><path d="M3 9h18M16 14h3M7 5V3h11" /></>}</svg>; }
 function Field({ label, children }: { label: string; children: ReactNode }) { return <label className="alfred-accounts-field"><span>{label}</span>{children}</label>; }
 
-export function AccountsWorkspace({ state, dispatch, mode, availability = "ready", defaultCurrency = "GHS", now, subscriptions, onReset, storageHint }: Props) {
+export function AccountsWorkspace({ state, dispatch, mode, availability = "ready", defaultCurrency = "GHS", now, subscriptions, onReset, storageHint, initialPaymentMovementId, paymentUnavailable }: Props) {
   const [masked] = usePrivacyMask();
   const initialTab = useSyncExternalStore(subscribeTab, browserTab, () => "accounts" as Tab);
-  const [chosenTab, setTab] = useState<Tab | null>(null);
+  const [chosenTab, setTab] = useState<Tab | null>(initialPaymentMovementId || paymentUnavailable ? 'activity' : null);
   const tab = chosenTab ?? initialTab;
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
   const [accountEditor, setAccountEditor] = useState<FinancialAccount | "new" | null>(null);
   const [snapshotAccount, setSnapshotAccount] = useState<FinancialAccount | null>(null);
-  const [movementId, setMovementId] = useState<string | null>(null);
+  const [movementId, setMovementId] = useState<string | null>(initialPaymentMovementId ?? null);
   const [search, setSearch] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
@@ -72,6 +72,7 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
   const filtered = useMemo(() => tab !== "activity" ? [] : state.movements.filter((row) => (!accountFilter || row.accountId === accountFilter || accountFilter === "unassigned" && !row.accountId) && (!statusFilter || row.status === statusFilter) && `${row.description} ${row.category} ${row.sourceId}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)), [state.movements, tab, accountFilter, statusFilter, search]);
 
   return <AccountsError.Provider value={notice?.error ? notice.text : ""}><div className="alfred-accounts" aria-busy={busy}>
+    {paymentUnavailable ? <p className="alfred-accounts-smallNote" role="status">That payment isn’t available in this account. You can review your other records in Activity.</p> : null}
     <div className="alfred-accounts-heading"><div><p className="alfred-accounts-eyebrow">Your money, accounted for</p><h1>Accounts</h1><p>Balances, movements and the records that connect them.</p></div><div className="alfred-accounts-headingActions">{mode === "preview" ? <span className="alfred-accounts-demo">Demo · sample data only</span> : null}{!firstUse || tab !== "accounts" ? <button data-account-create className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary" })} onClick={() => setAccountEditor("new")} disabled={busy || availability !== "ready"}><Glyph kind="plus" /> Add account</button> : null}</div></div>
     {availability === "migration-required" ? <div className="alfred-accounts-message" role="status"><strong>Account storage is not set up yet.</strong><p>Changes cannot be saved yet. Your existing data is kept.</p></div> : null}
     {notice ? <div className={`alfred-accounts-message ${notice.error ? "is-error" : "is-success"}`} role={notice.error ? "alert" : "status"}>{notice.text}<button className={buttonClassName({ variant: "ghost", size: "icon" })} aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div> : null}

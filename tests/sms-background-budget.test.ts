@@ -37,24 +37,30 @@ async function receive(duplicate: boolean) {
   return mocks.after.mock.calls[0][0] as () => Promise<void>;
 }
 
-describe("SMS background work keeps the original request budget", () => {
-  it("retains the original thirty-second route duration", () => { expect(maxDuration).toBe(30); });
-  it.each([false, true])("delayed callback keeps the request-start deadline, duplicate=%s", async (duplicate) => {
+describe("SMS background delivery has room to finish without exceeding its invocation", () => {
+  it("reserves a sixty-second route duration for ingestion plus independent delivery", () => { expect(maxDuration).toBe(60); });
+  it.each([false, true])("delayed callback gets a bounded delivery budget, duplicate=%s", async (duplicate) => {
     const callback = await receive(duplicate);
     expect(deliverBankAutomation).not.toHaveBeenCalled();
     vi.setSystemTime(start.getTime() + 20_000);
     await callback();
-    expect(deliverBankAutomation).toHaveBeenCalledExactlyOnceWith(expect.anything(), { profileId: ownerId }, start.getTime() + 25_000);
+    expect(deliverBankAutomation).toHaveBeenCalledExactlyOnceWith(expect.anything(), { profileId: ownerId }, start.getTime() + 45_000);
     expect(mocks.preferences).toHaveBeenCalledOnce();
     expect(mocks.mentions).not.toHaveBeenCalled(); expect(mocks.recover).not.toHaveBeenCalled(); expect(mocks.drain).not.toHaveBeenCalled();
     expect(mocks.query).not.toHaveBeenCalled();
   });
-  it.each([false, true])("expired callback cannot obtain a fresh budget or start preference queries, duplicate=%s", async (duplicate) => {
+  it.each([false, true])("expired invocation cannot obtain another budget or start preference queries, duplicate=%s", async (duplicate) => {
     const callback = await receive(duplicate);
-    vi.setSystemTime(start.getTime() + 26_000);
+    vi.setSystemTime(start.getTime() + 56_000);
     await callback();
-    expect(deliverBankAutomation).toHaveBeenCalledExactlyOnceWith(expect.anything(), { profileId: ownerId }, start.getTime() + 25_000);
+    expect(deliverBankAutomation).toHaveBeenCalledExactlyOnceWith(expect.anything(), { profileId: ownerId }, start.getTime() + 55_000);
     expect(mocks.preferences).not.toHaveBeenCalled(); expect(mocks.mentions).not.toHaveBeenCalled(); expect(mocks.recover).not.toHaveBeenCalled(); expect(mocks.drain).not.toHaveBeenCalled();
     expect(mocks.query).not.toHaveBeenCalled();
+  });
+  it("caps late delivery at the original invocation deadline", async () => {
+    const callback = await receive(false);
+    vi.setSystemTime(start.getTime() + 45_000);
+    await callback();
+    expect(deliverBankAutomation).toHaveBeenCalledExactlyOnceWith(expect.anything(), { profileId: ownerId }, start.getTime() + 55_000);
   });
 });

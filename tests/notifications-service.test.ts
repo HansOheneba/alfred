@@ -24,7 +24,7 @@ describe("privacy-safe notification delivery state machine",()=>{
  it("claims before transport and records acceptance without exposing payload details",async()=>{
   const store=fakeStore(),send=vi.fn(async()=>new Response(null,{status:201}));
   const result=await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,send,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
-  expect(result.accepted).toBe(1);expect(store.claim).toHaveBeenCalledBefore(send);expect(send).toHaveBeenCalledWith(delivery.subscription,configuration,"payment");expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"accepted",reason:"provider-accepted"});
+  expect(result.accepted).toBe(1);expect(store.claim).toHaveBeenCalledBefore(send);expect(send).toHaveBeenCalledWith(delivery.subscription,configuration,"payment",delivery.resourceId);expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"accepted",reason:"provider-accepted"});
  });
  it("never blindly retries connection uncertainty and deletes gone devices",async()=>{
   const store=fakeStore();await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra",send:async()=>{throw new PushFailure("connection");}});expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"unconfirmed",reason:"connection-unconfirmed"});

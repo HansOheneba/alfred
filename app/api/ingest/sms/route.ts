@@ -9,7 +9,7 @@ import { logError, logInfo } from "@/lib/log";
 import { DbRateLimiter } from "@/lib/security/db-rate-limit";
 import { query } from "@/lib/supabase/connection";
 
-export const maxDuration = 30;
+export const maxDuration = 60;
 
 const MAX_TEXT = 4000;
 const MAX_JSON_DEPTH = 8;
@@ -203,7 +203,7 @@ export async function POST(request: Request): Promise<Response> {
     const receipts = collector ? createCollectorReceiptStore(settings) : null;
     const claim = collector && receipts ? await receipts.claim(profile.profileId, collector) : null;
     if (collector && claim?.status === "stored") {
-      after(() => deliverBankAutomation(settings, profile, startedAt + 25_000));
+      after(() => deliverBankAutomation(settings, profile, Math.min(startedAt + 55_000, Date.now() + 25_000)));
       return Response.json({ ok: true, found: 0, duplicates: 0, needsLabel: 0,
         collectorReceipt: storedCollectorReceipt(profile.profileId, collector, claim.receiptId, true) });
     }
@@ -215,7 +215,7 @@ export async function POST(request: Request): Promise<Response> {
     const result = await ingestBankMessages(settings, profile, input.text, { channel: input.source, sender: input.sender, receivedAt: input.receivedAt });
     // Includes duplicate retries: delivery recovery is separate from the ledger
     // and must not require a linked Telegram chat or a fresh insertion.
-    after(() => deliverBankAutomation(settings, profile, startedAt + 25_000));
+    after(() => deliverBankAutomation(settings, profile, Math.min(startedAt + 55_000, Date.now() + 25_000)));
     // Texts often arrive in bursts; the summary goes out once they stop.
     if (result.outcomes.length > 0) after(() => announceWhenQuiet(settings, profile).catch((error) => logError("sms_announce", error)));
     let collectorReceipt;

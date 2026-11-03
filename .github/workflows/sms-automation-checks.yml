@@ -38,8 +38,8 @@ jobs:
         run: npx --no-install next typegen
       - name: Check TypeScript
         run: npm run typecheck
-      - name: Build with Webpack
-        run: npm run build -- --webpack
+      - name: Build with the production CSS compiler
+        run: npm run build
 
   native:
     name: Pure macOS collector fixtures
