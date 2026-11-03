@@ -1,9 +1,10 @@
 import { accountingActionSchema, MAX_ACCOUNTING_COMMAND_BYTES } from "@/lib/finance/accounting/schema";
+import { browserAccountingState } from "@/lib/finance/accounting/browser-state";
 import { loadAccountingState, saveAccountingAction, type AccountingResult } from "@/lib/finance/accounting/persisted-store";
 import { AccountingError } from "@/lib/finance/accounting/types";
 import { fail, requireOwner } from "@/lib/web/api";
 
-const publicResult=(result:AccountingResult) => ({state:result.state,availability:result.availability});
+const publicResult=(result:AccountingResult) => ({state:browserAccountingState(result.state),availability:result.availability});
 
 function failure(error:unknown):Response {
   if (error instanceof AccountingError) return Response.json({ok:false,text:error.message,code:error.code},{status:error.code==="stale" || error.code==="conflict" ? 409 : error.code==="ownership" ? 403 : 400,headers:{"Cache-Control":"no-store"}});

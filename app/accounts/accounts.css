@@ -85,6 +85,9 @@
 .alfred-accounts-status.is-review,.alfred-accounts-status.is-hold { border-color:color-mix(in srgb,#c58a29 32%,var(--line)); background:color-mix(in srgb,#c58a29 7%,var(--surface)); color:#a67220; }
 .alfred-accounts-status.is-transfer { color:var(--accent); background:var(--accent-soft); }
 .alfred-accounts-mobileMovements { display:none; }
+.alfred-accounts-pagination { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-top:16px; flex-wrap:wrap; }
+.alfred-accounts-pagination p { font-size:12px; color:var(--muted); }
+.alfred-accounts-pagination > div { display:flex; gap:8px; }
 .alfred-accounts-panel { margin-top:24px; padding:24px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
 .alfred-accounts-panel > h3 { font-size:14px; margin-bottom:16px; }
 .alfred-accounts-panel .alfred-accounts-sectionHeading { align-items:flex-start; }

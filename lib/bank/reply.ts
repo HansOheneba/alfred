@@ -7,7 +7,7 @@ import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { zonedYmd } from "@/lib/finance/dates";
-import { owedBy, oweTo } from "@/lib/finance/loans";
+import { findPerson, loanBalances } from "@/lib/finance/loans";
 import type { LabelAnswer } from "@/lib/finance/schemas";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
@@ -93,9 +93,13 @@ export async function waitingPayments(deps: IngestDeps, profile: UserProfile): P
   // The most recently asked question is the one a bare reply most likely answers.
   const current = [...all].filter((item) => item.askedAt).sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0] ?? null;
   const debts = new Map<string, string>();
-  if (deps.loans) {
+  if (deps.loans && listed.some((message) => message.counterparty.trim())) {
+    const balances = loanBalances(await deps.loans.list(profile.profileId));
+    const owing = balances.filter((item) => Number(item.owe) > 0);
     for (const message of listed) {
-      const debt = await (message.direction === "in" ? owedBy : oweTo)(deps.loans, profile.profileId, message.counterparty);
+      if (!message.counterparty.trim()) continue;
+      const matched = findPerson(message.direction === "in" ? balances : owing, message.counterparty);
+      const debt = message.direction === "in" && matched && Number(matched.owed) <= 0 ? null : matched;
       if (debt) debts.set(message.id, formatAmount(message.direction === "in" ? debt.owed : debt.owe, debt.currency));
     }
   }

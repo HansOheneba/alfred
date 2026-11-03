@@ -71,8 +71,13 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   }
 
   // Waiting payments are part of the conversation, so "Mitch was business" or "who's Mitch?" both work.
-  const waiting = ingest ? await waitingPayments(ingest, ctx.profile) : null;
-  const pending = await latestOpenPending(ctx.store, ctx.profile.profileId, ctx.now);
+  const [waiting, pending, people, about, investments] = await Promise.all([
+    ingest ? waitingPayments(ingest, ctx.profile) : Promise.resolve(null),
+    latestOpenPending(ctx.store, ctx.profile.profileId, ctx.now),
+    notesForPrompt(deps.people, ctx.profile.profileId),
+    aboutForPrompt(deps.notebook, ctx.profile.profileId),
+    investmentsForPrompt(deps.investments, ctx.profile.profileId),
+  ]);
   let open: string[] = [];
   const { action, context, cue, unread } = await interpretWithContext({
     text,
@@ -84,9 +89,9 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     excludeClientId: options.excludeClientId,
     channel: options.channel,
     waiting: waiting ? { lines: waiting.lines, current: waiting.currentNumber } : null,
-    people: await notesForPrompt(deps.people, ctx.profile.profileId),
-    about: await aboutForPrompt(deps.notebook, ctx.profile.profileId),
-    investments: await investmentsForPrompt(deps.investments, ctx.profile.profileId),
+    people,
+    about,
+    investments,
     model: waiting || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
     open: (history) => (open = openThread({ history, waiting, pending, now: ctx.now })),
   });

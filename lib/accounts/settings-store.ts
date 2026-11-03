@@ -62,9 +62,20 @@ export async function openAccount(
   settings: SupabaseSettings,
   user: { id: string; email?: string | null },
 ): Promise<"ready" | "not_invited"> {
-  const existing = await query<{ id: string }>(settings, "select id from public.profiles where id = $1", [user.id]);
+  const existing = await query<{ id: string; telegram_ready: boolean; conversation_ready: boolean; reminders_ready: boolean }>(
+    settings,
+    `select p.id, t.owner_id is not null as telegram_ready,
+            c.owner_id is not null as conversation_ready, r.owner_id is not null as reminders_ready
+     from public.profiles p
+     left join public.telegram_accounts t on t.owner_id = p.id
+     left join public.conversations c on c.owner_id = p.id
+     left join public.reminder_preferences r on r.owner_id = p.id
+     where p.id = $1`,
+    [user.id],
+  );
   if (existing.length > 0) {
-    await ensureAccount(settings, user.id);
+    const row = existing[0];
+    if (!row.telegram_ready || !row.conversation_ready || !row.reminders_ready) await ensureAccount(settings, user.id);
     return "ready";
   }
   const invite = findInvite(user.email);
@@ -97,8 +108,7 @@ export async function ensureAccount(settings: SupabaseSettings, ownerId: string)
   );
 }
 
-export async function loadAccountSettings(settings: SupabaseSettings, ownerId: string): Promise<AccountSettings> {
-  await ensureAccount(settings, ownerId);
+async function readAccountSettings(settings: SupabaseSettings, ownerId: string): Promise<SettingsRow | undefined> {
   const rows = await query<SettingsRow>(
     settings,
     `select p.preferred_name, p.currency, p.timezone, p.communication_preference, p.financial_goals,
@@ -107,11 +117,22 @@ export async function loadAccountSettings(settings: SupabaseSettings, ownerId: s
             r.morning_minute, r.commute_minute, r.evening_minute
      from public.profiles p
      join public.telegram_accounts t on t.owner_id = p.id
+     join public.conversations c on c.owner_id = p.id
      join public.reminder_preferences r on r.owner_id = p.id
      where p.id = $1`,
     [ownerId],
   );
-  const row = rows[0];
+  return rows[0];
+}
+
+export async function loadAccountSettings(settings: SupabaseSettings, ownerId: string): Promise<AccountSettings> {
+  // Normal reads do not issue speculative inserts. Missing companion rows retain
+  // the existing owner-scoped repair path; failed reads never trigger a repair.
+  let row = await readAccountSettings(settings, ownerId);
+  if (!row) {
+    await ensureAccount(settings, ownerId);
+    row = await readAccountSettings(settings, ownerId);
+  }
   if (!row) throw new DatabaseError("The account profile is missing.");
   return {
     preferredName: row.preferred_name,

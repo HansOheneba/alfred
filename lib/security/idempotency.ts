@@ -8,7 +8,7 @@ export type ClaimResult =
   | { kind: "replay"; reply: string; pendingActionId?: string }
   | { kind: "in_progress" }
   | { kind: "lost_race" }
-  | { kind: "claimed"; rowNumber: number };
+  | { kind: "claimed"; rowNumber: number; recovered?: true };
 
 type ResultRef = {
   reply?: string;
@@ -70,7 +70,7 @@ export async function claimUpdate(
     if (!again || again.status !== "processing" || ref.claimToken !== token) {
       return { kind: "lost_race" };
     }
-    return { kind: "claimed", rowNumber: again.rowNumber };
+    return { kind: "claimed", rowNumber: again.rowNumber, recovered: true };
   }
 
   const created = await store.appendProcessedUpdate({

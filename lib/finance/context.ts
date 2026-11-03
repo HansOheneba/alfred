@@ -35,7 +35,14 @@ export async function interpretWithContext(input: {
   open?: (history: ChatMessageRecord[]) => string[];
 }): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** True when the model's reply couldn't be read, so `action` is a stock fallback. */ unread?: boolean }> {
   const ownerId = input.profile.profileId;
-  const transactions = await input.store.listTransactions(ownerId);
+  const [transactions, context, budgets, goals, history, reporting] = await Promise.all([
+    input.store.listTransactions(ownerId),
+    readConversation(input.store, ownerId),
+    input.store.listBudgets(ownerId),
+    input.store.listSavingsGoals(ownerId),
+    input.messages ? input.messages.listRecent(ownerId, LIMITS.maxHistory) : Promise.resolve([]),
+    readReportingTransactions(input.store, ownerId),
+  ]);
   const recent = transactions
     .filter((item) => item.status === "active")
     .sort((left, right) => right.transactionDate.localeCompare(left.transactionDate) || right.rowNumber - left.rowNumber)
@@ -49,17 +56,11 @@ export async function interpretWithContext(input: {
       category: item.category,
       description: item.description.slice(0, 80),
     }));
-  const context = await readConversation(input.store, ownerId);
-  const [budgets, goals, history] = await Promise.all([
-    input.store.listBudgets(ownerId),
-    input.store.listSavingsGoals(ownerId),
-    input.messages ? input.messages.listRecent(ownerId, LIMITS.maxHistory) : Promise.resolve([]),
-  ]);
   const ownHistory = history.filter((item) => !input.excludeClientId || item.clientId !== input.excludeClientId);
   const cue: ChatCue = {
     offTopicTurn: offTopicStreak(ownHistory) + 1,
     history: ownHistory.slice(-8).map((item) => ({ role: item.role, body: item.body.slice(0, 400) })),
-    snapshot: snapshotLine(await readReportingTransactions(input.store,ownerId), input.profile, input.now),
+    snapshot: snapshotLine(reporting, input.profile, input.now),
   };
   let interpreted: InterpretedAction;
   try {

@@ -175,10 +175,11 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     },
 
     async listReportTransactions(userId) {
-      const raw=await listRawTransactions(settings,userId);
       const { loadAccountingState }=await import("@/lib/finance/accounting/persisted-store");
-      const accounting=await loadAccountingState(settings,userId,raw);
-      if (accounting.availability !== "ready") return raw;
+      // The accounting read fetches raw rows inside its source-version boundary,
+      // and supplies the same raw fallback when the accounting schema is absent.
+      const accounting=await loadAccountingState(settings,userId);
+      if (accounting.availability !== "ready") return accounting.rawTransactions;
       const { projectAccountingTransactions }=await import("@/lib/finance/accounting/view");
       return projectAccountingTransactions(accounting.rawTransactions,accounting.state);
     },

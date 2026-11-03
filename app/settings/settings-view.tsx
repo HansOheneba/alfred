@@ -13,6 +13,7 @@ import { AccountRulesSection } from "@/app/settings/account-rules-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
 import type { HomeScreen } from "@/lib/web/home";
 import type { Ledger } from "@/lib/web/ledger";
+import { useOwnedSettingsData } from "@/app/settings/lazy-settings-data";
 
 const SECTIONS = [
   { id: "profile", label: "Profile" },
@@ -59,17 +60,23 @@ export function SettingsView({
   ledger,
   botUsername,
   home,
+  ownerId,
+  refreshKey = "provided",
 }: {
   initial: AccountSettings;
-  ledger: Ledger;
-  botUsername: string | null;
+  ledger?: Ledger;
+  botUsername?: string | null;
   home: HomeScreen;
+  ownerId?: string;
+  refreshKey?: string;
 }) {
   const [section, setSection] = useState<SectionId>("profile");
   const [form, setForm] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
   const dirty = JSON.stringify(form) !== JSON.stringify(saved);
+  const finance = useOwnedSettingsData<Ledger>("/api/settings/ledger", "ledger", ["budgets", "goals", "bank"].includes(section), ledger, ownerId, refreshKey);
+  const telegram = useOwnedSettingsData<string | null>("/api/settings/telegram", "botUsername", section === "telegram", botUsername, ownerId, refreshKey);
 
   // Deep links such as /settings#budgets open the matching section.
   useEffect(() => {
@@ -113,6 +120,7 @@ export function SettingsView({
       const next = payload.settings ?? form;
       setForm(next);
       setSaved(next);
+      finance.retry();
       setSave({ kind: "saved" });
     } catch {
       setSave({ kind: "error", text: "Alfred could not reach the server." });
@@ -222,8 +230,9 @@ export function SettingsView({
             </Card>
           ) : null}
 
-          {section === "budgets" ? <BudgetsSection ledger={ledger} /> : null}
-          {section === "goals" ? <GoalsSection ledger={ledger} /> : null}
+          {((finance.refreshing && ["budgets", "goals", "bank"].includes(section)) || (telegram.refreshing && section === "telegram")) ? <p role="status" className="flex items-center gap-2 text-sm text-muted"><Spinner />Updating…</p> : null}
+          {section === "budgets" ? finance.value ? <BudgetsSection ledger={finance.value} /> : <DeferredSection title="Budgets" error={finance.error} onRetry={finance.retry} /> : null}
+          {section === "goals" ? finance.value ? <GoalsSection ledger={finance.value} /> : <DeferredSection title="Savings goals" error={finance.error} onRetry={finance.retry} /> : null}
 
           {section === "reminders" ? (
             <Card title="Reminders">
@@ -259,10 +268,10 @@ export function SettingsView({
           ) : null}
 
           {section === "telegram" ? (
-            <TelegramSection form={form} saved={saved} botUsername={botUsername} update={update} saveBar={saveBar} />
+            telegram.value !== undefined ? <TelegramSection form={form} saved={saved} botUsername={telegram.value} update={update} saveBar={saveBar} /> : <DeferredSection title="Telegram" error={telegram.error} onRetry={telegram.retry} />
           ) : null}
 
-          {section === "bank" ? <BankSection bank={ledger.bank} currency={ledger.currency} /> : null}
+          {section === "bank" ? finance.value ? <BankSection bank={finance.value.bank} currency={finance.value.currency} /> : <DeferredSection title="Bank messages" error={finance.error} onRetry={finance.retry} /> : null}
           {section === "rules" ? <AccountRulesSection /> : null}
           {section === "app" ? <AppSection home={home} /> : null}
           {section === "data" ? <DataSection /> : null}
@@ -270,6 +279,15 @@ export function SettingsView({
       </div>
     </div>
   );
+}
+
+function DeferredSection({ title, error, onRetry }: { title: string; error?: string; onRetry: () => void }) {
+  return <Card title={title}>
+    <p role={error ? "alert" : "status"} className={`flex items-center gap-2 text-sm ${error ? "text-danger" : "text-muted"}`}>
+      {error ? null : <Spinner />}{error || "Loading this section…"}
+    </p>
+    {error ? <Button className="mt-4" onClick={onRetry}>Try again</Button> : null}
+  </Card>;
 }
 
 function SaveBar({ dirty, state, onSave, onReset }: { dirty: boolean; state: SaveState; onSave: () => void; onReset: () => void }) {

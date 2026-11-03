@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { buttonClassName } from "@/app/components/button-styles";
-import { useRouter } from "next/navigation";
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { followUpsFor, type Suggestion } from "@/app/chat/follow-ups";
+import { CHAT_CONTEXT_ERROR, CHAT_SESSION_CHANGED, invalidateAfterChatOutcome, loadOwnedChatContext } from "@/app/chat/context-data";
+import { createChatEmptyStatusRefresh } from "@/app/chat/empty-status";
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
@@ -26,6 +27,7 @@ type ServerMessage = {
   createdAt: string;
   clientId: string | null;
   chart?: ChatChart | null;
+  ledgerChanged?: boolean;
 };
 
 const QUICK_ACTIONS: (Suggestion & { description: string; tone: "expense" | "income" })[] = [
@@ -59,29 +61,122 @@ export function ChatPanel({
   name,
   initialMessages,
   initialChoices = [],
+  loadInitialChoices = false,
   ledger,
+  financialsEmpty: initialFinancialsEmpty = false,
   initialQuestion = "",
 }: {
   ownerId: string;
   name: string;
   initialMessages: ThreadMessage[];
-  /** Answer buttons for the payment Alfred is asking about, if the chat ends on that question. */
+  /** Answer buttons already supplied by a caller, with deferred refresh for saved bank questions. */
   initialChoices?: ChatChoice[][];
-  ledger: Ledger;
+  loadInitialChoices?: boolean;
+  ledger?: Ledger | null;
+  /** From the server's cheap empty-account check; the full summary loads only for the context sheet. */
+  financialsEmpty?: boolean;
   initialQuestion?: string;
 }) {
-  const router = useRouter();
   const [text, setText] = useState(initialQuestion);
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
   const [choices, setChoices] = useState<ChatChoice[][]>(initialChoices);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [statsOpen, setStatsOpen] = useState(false);
+  const [contextLedger, setContextLedger] = useState<Ledger | null>(ledger ?? null);
+  const [contextLoading, setContextLoading] = useState(false);
+  const [contextError, setContextError] = useState("");
+  const [contextVersion, setContextVersion] = useState(0);
+  // Keep the last confirmed answer during rechecks. null means status is unavailable
+  // or the owner changed; it never proves a fresh account.
+  const [knownEmpty, setKnownEmpty] = useState<boolean | null>(ledger ? getGettingStartedState(ledger).isEmpty : initialFinancialsEmpty);
+  const emptyStatus = useMemo(() => createChatEmptyStatusRefresh(ownerId, setKnownEmpty), [ownerId]);
+  const contextDirty = useRef(!ledger);
+  const contextRequest = useRef<AbortController | null>(null);
+  const contextOwner = useRef(ownerId);
   const threadRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const sending = useRef(false);
   const stickToBottom = useRef(true);
+  const observedAssistant = useRef(initialMessages.filter((message) => message.role === "assistant").at(-1)?.id);
+  const refreshQueued = useRef(false);
+  const threadRefresh = useRef<ReturnType<typeof createOwnedChatThreadRefresh> | null>(null);
+
+  const loadContext = useCallback(async () => {
+    if (!contextDirty.current || contextRequest.current) return;
+    const request = new AbortController();
+    const requestedOwner = ownerId;
+    contextRequest.current = request;
+    setContextLoading(true);
+    setContextError("");
+    try {
+      const next = await loadOwnedChatContext(requestedOwner, request.signal);
+      if (request.signal.aborted || contextOwner.current !== requestedOwner) return;
+      setContextLedger(next);
+      setKnownEmpty(getGettingStartedState(next).isEmpty);
+      contextDirty.current = false;
+    } catch (error) {
+      if (!request.signal.aborted) setContextError(error instanceof Error && error.message === CHAT_SESSION_CHANGED ? CHAT_SESSION_CHANGED : CHAT_CONTEXT_ERROR);
+    } finally {
+      if (contextRequest.current === request) {
+        contextRequest.current = null;
+        setContextLoading(false);
+      }
+    }
+  }, [ownerId]);
+
+  const invalidateContext = useCallback(() => {
+    contextDirty.current = true;
+    contextRequest.current?.abort();
+    contextRequest.current = null;
+    setContextLedger(null);
+    setContextLoading(false);
+    setContextVersion((version) => version + 1);
+  }, []);
+
+  useEffect(() => {
+    if (contextOwner.current === ownerId) return;
+    contextOwner.current = ownerId;
+    invalidateContext();
+    setKnownEmpty(null);
+    setContextError("");
+  }, [ownerId, invalidateContext]);
+
+  useEffect(() => {
+    if (!statsOpen) return;
+    let active = true;
+    // Start after the sheet renders, and ignore a sheet closed before that happens.
+    queueMicrotask(() => { if (active) void loadContext(); });
+    return () => { active = false; };
+  }, [statsOpen, contextVersion, loadContext]);
+
+  // Writes can add or remove the last record; recheck the cheap server rule in either case.
+  const afterOutcome = useCallback((ledgerChanged: boolean | undefined) => {
+    invalidateAfterChatOutcome(ledgerChanged, invalidateContext);
+    void emptyStatus.refresh(ledgerChanged);
+  }, [invalidateContext, emptyStatus]);
+
+  const publishThread = useCallback((payload: ThreadRefreshPayload) => {
+    setMessages((current) => mergeThread(current, payload.messages.map(serverMessage)));
+    setChoices(payload.choices);
+    const assistant = payload.messages.filter((message) => message.role === "assistant").at(-1);
+    if (assistant && assistant.id !== observedAssistant.current) {
+      observedAssistant.current = assistant.id;
+      afterOutcome(assistant.ledgerChanged);
+    }
+  }, [afterOutcome]);
+  const refreshThread = useCallback(() => {
+    if (sending.current) { refreshQueued.current = true; return; }
+    void threadRefresh.current?.refresh();
+  }, []);
+
+  useEffect(() => {
+    emptyStatus.activate();
+    return () => emptyStatus.dispose();
+  }, [emptyStatus]);
+
+  useEffect(() => () => { contextRequest.current?.abort(); }, []);
 
   // A dashboard question is a draft, never an automatic financial action or POST.
   useEffect(() => {
@@ -140,7 +235,7 @@ export function ChatPanel({
             channel?: string;
             created_at?: string;
             client_id?: string | null;
-            meta?: { chart?: ChatChart } | null;
+            meta?: { chart?: ChatChart; ledgerChanged?: boolean } | null;
           };
           if (!active || row.owner_id !== ownerId || !row.id || (row.role !== "user" && row.role !== "assistant")) return;
           if (row.channel !== "web" && row.channel !== "telegram") return;
@@ -156,11 +251,10 @@ export function ChatPanel({
           };
           setMessages((current) => mergeThread(current, [incoming]));
           if (row.channel === "telegram" && row.role === "assistant") {
-            router.refresh();
-            // A question asked on Telegram gets its answer buttons here too.
-            void loadChoices().then((loaded) => {
-              if (active && loaded) setChoices(loaded);
-            });
+            observedAssistant.current = row.id;
+            afterOutcome(row.meta?.ledgerChanged);
+            setChoices([]);
+            refreshThread();
           }
         },
       )
@@ -169,33 +263,20 @@ export function ChatPanel({
       active = false;
       void supabase.removeChannel(channel);
     };
-  }, [ownerId, router]);
+  }, [ownerId, afterOutcome, refreshThread]);
 
   useEffect(() => {
-    let active = true;
-    async function refresh() {
-      if (document.visibilityState !== "visible" || sending.current) return;
-      try {
-        const response = await fetch("/api/chat");
-        if (!response.ok) return;
-        const payload = (await response.json()) as { ok?: boolean; messages?: ServerMessage[]; choices?: ChatChoice[][] };
-        if (!active || !payload.ok || !payload.messages) return;
-        const history = payload.messages;
-        setMessages((current) => mergeThread(current, history.map(serverMessage)));
-        setChoices(payload.choices ?? []);
-      } catch {
-        // The thread already shows the last saved messages.
-      }
-    }
-    function onVisible() {
-      void refresh();
-    }
+    const refresh = createOwnedChatThreadRefresh(ownerId, publishThread);
+    threadRefresh.current = refresh;
+    if (loadInitialChoices) refreshThread();
+    function onVisible() { if (document.visibilityState === "visible") refreshThread(); }
     document.addEventListener("visibilitychange", onVisible);
     return () => {
-      active = false;
+      refresh.dispose();
+      if (threadRefresh.current === refresh) threadRefresh.current = null;
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, []);
+  }, [ownerId, publishThread, refreshThread, loadInitialChoices]);
 
   function onThreadScroll() {
     const node = threadRef.current;
@@ -209,6 +290,7 @@ export function ChatPanel({
     setBusy(true);
     setError("");
     const shownChoices = choices;
+    threadRefresh.current?.cancel();
     setChoices([]);
     const bodyClientId = typeof body.clientId === "string" ? body.clientId : undefined;
     const turnId = clientId ?? bodyClientId ?? (userText ? crypto.randomUUID() : undefined);
@@ -247,11 +329,13 @@ export function ChatPanel({
         actionId?: string | null;
         messages?: ServerMessage[];
         choices?: ChatChoice[][];
+        ledgerChanged?: boolean;
       };
       if (!response.ok || !payload.ok) {
+        afterOutcome(undefined);
         if (userText && turnId) markFailed(turnId);
         setError(payload.text || "Alfred could not complete that request.");
-        setChoices(shownChoices);
+        setChoices(refreshQueued.current ? [] : shownChoices);
         return;
       }
       setChoices(payload.choices ?? []);
@@ -268,15 +352,19 @@ export function ChatPanel({
           incoming,
         ),
       );
-      // Keeps the side panel in step with anything that was just recorded.
-      router.refresh();
+      const lastAssistant = incoming.filter((message) => message.role === "assistant").at(-1);
+      if (lastAssistant) observedAssistant.current = lastAssistant.id;
+      // Only a server-observed write (or an older unknown outcome) invalidates financial context.
+      afterOutcome(payload.ledgerChanged);
     } catch {
+      afterOutcome(undefined);
       if (userText && turnId) markFailed(turnId);
       setError("Alfred could not reach the server.");
-      setChoices(shownChoices);
+      setChoices(refreshQueued.current ? [] : shownChoices);
     } finally {
       sending.current = false;
       setBusy(false);
+      if (refreshQueued.current) { refreshQueued.current = false; refreshThread(); }
     }
   }
 
@@ -285,6 +373,8 @@ export function ChatPanel({
     sending.current = true;
     setBusy(true);
     setError("");
+    threadRefresh.current?.cancel();
+    setChoices([]);
     const turnId = crypto.randomUUID();
     setMessages((current) =>
       mergeThread(current, [
@@ -302,8 +392,10 @@ export function ChatPanel({
         text?: string;
         actionId?: string | null;
         messages?: ServerMessage[];
+        ledgerChanged?: boolean;
       };
       if (!response.ok || !payload.ok) {
+        afterOutcome(undefined);
         markFailed(turnId);
         setError(payload.text || "Alfred couldn't read that image.");
         return;
@@ -313,13 +405,15 @@ export function ChatPanel({
         return message.role === "assistant" && index === all.length - 1 ? { ...view, actionId: payload.actionId ?? null } : view;
       });
       setMessages((current) => mergeThread(current, incoming));
-      router.refresh();
+      afterOutcome(payload.ledgerChanged);
     } catch {
+      afterOutcome(undefined);
       markFailed(turnId);
       setError("Alfred could not reach the server.");
     } finally {
       sending.current = false;
       setBusy(false);
+      if (refreshQueued.current) { refreshQueued.current = false; refreshThread(); }
     }
   }
 
@@ -357,7 +451,7 @@ export function ChatPanel({
     return index === messages.length - 1 && !messages.slice(index + 1).some((item) => item.role === "assistant");
   }
 
-  const financialsEmpty = getGettingStartedState(ledger).isEmpty;
+  const financialsEmpty = contextLedger ? getGettingStartedState(contextLedger).isEmpty : knownEmpty === true;
   const empty = messages.length === 0;
   const last = messages.at(-1);
   const showFollowUps = !busy && last?.role === "assistant" && !(last.actionId && !last.settled) && text.length === 0;
@@ -428,7 +522,9 @@ export function ChatPanel({
         </div>
       </section>
 
-      {!financialsEmpty ? <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}><StatsPanel ledger={ledger} /></ContextSheet> : null}
+      <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}>
+        {contextLedger ? <StatsPanel ledger={contextLedger} /> : contextError ? <div role="alert"><p>{contextError}</p><button type="button" className={buttonClassName({ variant: "secondary", size: "sm" })} onClick={() => void loadContext()}>Try again</button></div> : <p role="status" aria-busy={contextLoading}>Loading your financial summary…</p>}
+      </ContextSheet>
     </div>
   );
 }
@@ -494,15 +590,32 @@ async function shrinkImage(file: File): Promise<Blob> {
   }
 }
 
-/** The answer buttons for whatever Alfred is asking about now, or null when they can't be loaded. */
-async function loadChoices(): Promise<ChatChoice[][] | null> {
-  try {
-    const response = await fetch("/api/chat");
-    const payload = (await response.json()) as { ok?: boolean; choices?: ChatChoice[][] };
-    return response.ok && payload.ok ? (payload.choices ?? []) : null;
-  } catch {
-    return null;
-  }
+type ThreadRefreshPayload = { messages: ServerMessage[]; choices: ChatChoice[][] };
+
+/** Component-local fresh reads; late requests and other owners never publish history or answers. */
+export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload: ThreadRefreshPayload) => void, request: typeof fetch = fetch) {
+  let active = true;
+  let sequence = 0;
+  let current: AbortController | null = null;
+  const cancel = () => { sequence += 1; current?.abort(); current = null; };
+  return {
+    activate() { active = true; },
+    cancel,
+    dispose() { active = false; cancel(); },
+    async refresh() {
+      if (!active) return;
+      cancel();
+      const version = sequence, controller = new AbortController();
+      current = controller;
+      try {
+        const response = await request("/api/chat", { cache: "no-store", credentials: "same-origin", signal: controller.signal });
+        const payload = await response.json() as { ok?: boolean; ownerId?: string; messages?: ServerMessage[]; choices?: ChatChoice[][] };
+        if (!active || controller.signal.aborted || sequence !== version || !response.ok || payload.ok !== true || payload.ownerId !== ownerId || !Array.isArray(payload.messages)) return;
+        publish({ messages: payload.messages, choices: payload.choices ?? [] });
+      } catch { /* Keep the saved thread; a future visibility/realtime event can retry. */ }
+      finally { if (current === controller) current = null; }
+    },
+  };
 }
 
 function serverMessage(message: ServerMessage): ThreadMessage {

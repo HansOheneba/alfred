@@ -1,3 +1,5 @@
+import { connection } from "next/server";
+
 import { chatChoiceSchema, chatDecisionSchema, chatTextSchema } from "@/lib/accounts/chat-request";
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
@@ -23,16 +25,19 @@ function present(message: ChatMessageRecord) {
     createdAt: message.createdAt,
     clientId: message.clientId,
     chart: message.chart ?? null,
+    ledgerChanged: message.ledgerChanged,
   };
 }
 
 export async function GET(): Promise<Response> {
+  await connection();
   const user = await getAuthUser();
-  if (!user) return Response.json({ ok: false, text: "Sign in to talk to Alfred." }, { status: 401 });
+  const headers = { "cache-control": "private, no-store" };
+  if (!user) return Response.json({ ok: false, text: "Sign in to talk to Alfred." }, { status: 401, headers });
   try {
     const settings = getStudioSettings();
     if ((await openAccount(settings.supabase, user)) === "not_invited") {
-      return Response.json({ ok: false, text: NOT_INVITED }, { status: 403 });
+      return Response.json({ ok: false, text: NOT_INVITED }, { status: 403, headers });
     }
     const history = await createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80);
     const profile = await createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id);
@@ -40,10 +45,10 @@ export async function GET(): Promise<Response> {
     const choices = profile
       ? await openChoices(profile, createStudioDeps(settings), history.at(-1)).catch((error) => (logError("web_chat_choices", error), []))
       : [];
-    return Response.json({ ok: true, messages: history.map(present), choices });
+    return Response.json({ ok: true, ownerId: user.id, messages: history.map(present), choices }, { headers });
   } catch (error) {
     logError("web_chat_history", error);
-    return Response.json({ ok: false, text: userFacingError(error) }, { status: 500 });
+    return Response.json({ ok: false, text: userFacingError(error) }, { status: 500, headers });
   }
 }
 
@@ -102,6 +107,7 @@ export async function POST(request: Request): Promise<Response> {
       actionId: result.actionId ?? null,
       messages: (result.messages ?? []).map(present),
       choices: result.choices ?? [],
+      ledgerChanged: result.ledgerChanged ?? true,
     });
   } catch (error) {
     logError("web_chat", error);

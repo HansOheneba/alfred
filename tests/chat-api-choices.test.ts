@@ -1,0 +1,90 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { GET, POST } from "@/app/api/chat/route";
+
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), open: vi.fn(), profile: vi.fn(), history: vi.fn(), choices: vi.fn(), turn: vi.fn(), allow: vi.fn(), network: vi.fn() }));
+vi.mock("next/server", () => ({ connection: mocks.connection }));
+vi.mock("@/lib/supabase/session", () => ({ getAuthUser: mocks.auth }));
+vi.mock("@/lib/env", () => ({ getStudioSettings: () => ({ supabase: { projectRef: "synthetic-only" } }) }));
+vi.mock("@/lib/accounts/settings-store", () => ({ openAccount: mocks.open }));
+vi.mock("@/lib/accounts/supabase-directory", () => ({ createSupabaseAccountDirectory: () => ({ loadOwner: mocks.profile }) }));
+vi.mock("@/lib/accounts/supabase-messages", () => ({ createSupabaseMessageLog: () => ({ listRecent: mocks.history }) }));
+vi.mock("@/lib/studio/handle", () => ({ createStudioDeps: () => ({ synthetic: true }), handleProfileTurn: mocks.turn, openChoices: mocks.choices }));
+vi.mock("@/lib/security/db-rate-limit", () => ({ DbRateLimiter: class { allow = mocks.allow; } }));
+vi.mock("@/lib/log", () => ({ logError: vi.fn() }));
+
+const ownerId = "00000000-0000-4000-8000-000000000001";
+const profile = { profileId: ownerId, preferredName: "Synthetic reviewer" };
+const message = { id: "synthetic-message", role: "assistant", body: "Which category?", channel: "web", createdAt: "2026-11-03T08:00:00.000Z", clientId: "synthetic-client", intent: "bank:label", ledgerChanged: true };
+const choice = { label: "Transport", choice: "b:00000000-0000-4000-8000-000000000002:c0" };
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  mocks.auth.mockResolvedValue({ id: ownerId }); mocks.connection.mockResolvedValue(undefined);
+  mocks.open.mockResolvedValue("ready"); mocks.profile.mockResolvedValue(profile);
+  mocks.history.mockResolvedValue([message]); mocks.choices.mockResolvedValue([[choice]]);
+  mocks.allow.mockResolvedValue(true);
+  mocks.turn.mockResolvedValue({ text: "Filed", messages: [message], choices: [[choice]], ledgerChanged: true });
+  mocks.network.mockImplementation(() => { throw new Error("Synthetic API tests must never request a network service"); });
+  vi.stubGlobal("fetch", mocks.network);
+});
+afterEach(() => { expect(mocks.network).not.toHaveBeenCalled(); vi.unstubAllGlobals(); });
+
+describe("owner-stamped private Chat history and payment choices", () => {
+  it("returns history and answer choices for the authenticated owner with private no-store headers", async () => {
+    const response = await GET();
+    const body = await response.json();
+    expect(response.status).toBe(200);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(body).toMatchObject({ ok: true, ownerId, choices: [[choice]], messages: [{ id: message.id, ledgerChanged: true }] });
+    expect(mocks.history).toHaveBeenCalledExactlyOnceWith(ownerId, 80);
+    expect(mocks.profile).toHaveBeenCalledExactlyOnceWith(ownerId);
+    expect(mocks.choices).toHaveBeenCalledExactlyOnceWith(profile, { synthetic: true }, message);
+  });
+
+  it("keeps history usable when optional answer-choice lookup fails", async () => {
+    mocks.choices.mockRejectedValue(new Error("Synthetic choice lookup unavailable"));
+    const response = await GET();
+    expect(await response.json()).toMatchObject({ ok: true, ownerId, choices: [], messages: [{ id: message.id }] });
+  });
+
+  it.each([401, 403])("does not load private history for a denied session (%s)", async status => {
+    if (status === 401) mocks.auth.mockResolvedValue(null);
+    else mocks.open.mockResolvedValue("not_invited");
+    const response = await GET();
+    expect(response.status).toBe(status);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).not.toHaveProperty("ownerId");
+    expect(mocks.history).not.toHaveBeenCalled(); expect(mocks.choices).not.toHaveBeenCalled();
+  });
+
+  it("preserves framework request-time cancellation before auth or error conversion", async () => {
+    const cancellation = new Error("Synthetic prerender cancellation");
+    mocks.connection.mockRejectedValue(cancellation);
+    await expect(GET()).rejects.toBe(cancellation);
+    expect(mocks.auth).not.toHaveBeenCalled();
+  });
+
+  it("keeps failed history responses private and uncached", async () => {
+    mocks.history.mockRejectedValue(new Error("Synthetic history unavailable"));
+    const response = await GET();
+    expect(response.status).toBe(500);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.json()).not.toHaveProperty("messages");
+  });
+});
+
+describe("Chat choice submission contract", () => {
+  it("preserves both next-payment choices and actual-write metadata", async () => {
+    const response = await POST(new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify({ choice: choice.choice, clientId: "synthetic-choice-submit" }) }));
+    expect(response.status).toBe(200);
+    expect(mocks.turn).toHaveBeenCalledExactlyOnceWith(profile, { choice: choice.choice, clientId: "synthetic-choice-submit" }, { synthetic: true });
+    expect(await response.json()).toMatchObject({ ok: true, choices: [[choice]], ledgerChanged: true, messages: [{ ledgerChanged: true }] });
+  });
+
+  it("forwards a no-op outcome without turning it into a financial change", async () => {
+    mocks.turn.mockResolvedValue({ text: "Already sorted", messages: [], choices: [], ledgerChanged: false });
+    const response = await POST(new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify({ choice: choice.choice, clientId: "synthetic-choice-noop" }) }));
+    expect(await response.json()).toMatchObject({ ok: true, choices: [], ledgerChanged: false });
+  });
+});
