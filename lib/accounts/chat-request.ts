@@ -19,3 +19,11 @@ export const chatDecisionSchema = z
     clientId,
   })
   .strict();
+
+/** A tapped answer button under a bank payment question. */
+export const chatChoiceSchema = z
+  .object({
+    choice: z.string().regex(/^b:[0-9a-f-]{36}:(?:c\d|t|s|r|l|b|p|i)$/i),
+    clientId,
+  })
+  .strict();

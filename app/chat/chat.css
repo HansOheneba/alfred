@@ -29,6 +29,9 @@
 .alfred-production-chat-error { max-width: 800px; margin: 16px auto 0; padding: 12px; border: 1px solid var(--danger); border-radius: 12px; color: var(--danger); font-size: 14px; line-height: 24px; }
 .alfred-production-chat-followUps { display: flex; gap: 8px; overflow-x: auto; padding: 8px 4px 12px; }
 .alfred-production-chat-followUps button { white-space: nowrap; flex-shrink: 0; }
+/* Answer buttons for a payment question: every option visible, so rows wrap rather than scroll. */
+.alfred-production-chat-choices { display: grid; gap: 6px; padding: 8px 4px 12px; }
+.alfred-production-chat-choices > div { display: flex; flex-wrap: wrap; gap: 6px; }
 .alfred-production-chat-composer:focus-within { border-color:color-mix(in srgb,var(--accent) 56%,var(--line)); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 6%,transparent),0 12px 32px color-mix(in srgb,var(--accent) 8%,transparent); }
 .alfred-production-chat-composer textarea::placeholder { color: var(--faint); }
 .alfred-production-chat-disclaimer { margin-top: 8px; text-align: center; color: var(--muted); font-size: 12px; line-height: 20px; }
@@ -119,7 +122,7 @@
   .alfred-production-chat-contextCards > .alfred-production-chat-setupContext { padding: 20px; }
 }
 
-.alfred-chat-viewport[data-keyboard-open="true"] .alfred-production-chat :is(.alfred-production-chat-followUps,.alfred-production-chat-disclaimer,.alfred-production-chat-handoff) { display:none; }
+.alfred-chat-viewport[data-keyboard-open="true"] .alfred-production-chat :is(.alfred-production-chat-followUps,.alfred-production-chat-choices,.alfred-production-chat-disclaimer,.alfred-production-chat-handoff) { display:none; }
 @media(max-width:600px) {
   .alfred-production-chat-composeArea { padding-bottom:8px; }
 }

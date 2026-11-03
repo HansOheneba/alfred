@@ -1,5 +1,5 @@
 import { applyLabel, titleCase, undoLabels, type IngestDeps, type Label } from "@/lib/bank/ingest";
-import { NATURAL_HINT, questionFor, reviewRow } from "@/lib/bank/notify";
+import { NATURAL_HINT, labelChoiceText, labelFromCode, parseLabelCallback, questionFor, reviewRow } from "@/lib/bank/notify";
 import { accountOf, payeeKey, purposeOf, sourceName } from "@/lib/bank/parse";
 import { classifyPayee } from "@/lib/bank/payees";
 import { holdFor } from "@/lib/bank/related";
@@ -289,6 +289,31 @@ export async function askAgain(deps: IngestDeps, profile: UserProfile, message: 
   const remaining = (await deps.bank.listMessages(profile.profileId, "needs_label")).length;
   const question = await questionFor(deps.loans, profile, message, deps.people, deps.bank);
   return { text: `Sorry, I didn't quite catch that.\n\n${question.text}`, next: message, buttons: [...question.buttons, ...reviewRow(remaining)] };
+}
+
+/** The payment the person was asked about last and its answer buttons, or null when none is open. */
+export async function currentQuestion(deps: IngestDeps, profile: UserProfile): Promise<{ message: BankMessage; buttons: InlineButton[][] } | null> {
+  const asked = (await deps.bank.listMessages(profile.profileId, "needs_label")).filter((item) => item.askedAt);
+  const message = asked.sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0];
+  if (!message) return null;
+  const question = await questionFor(deps.loans, profile, message, deps.people, deps.bank);
+  return { message, buttons: question.buttons };
+}
+
+/**
+ * A tapped answer button (`b:<message id>:<code>`): files that payment and asks
+ * the next one. `said` is what the tap reads as in the conversation.
+ */
+export async function chooseLabel(deps: IngestDeps, profile: UserProfile, data: string): Promise<{ said: string; reply: LabelReply } | null> {
+  const choice = parseLabelCallback(data);
+  const message = choice ? await deps.bank.getMessage(profile.profileId, choice.messageId) : null;
+  const label = message && choice ? labelFromCode(message, choice.code) : null;
+  if (!message || !label) return null;
+  const said = message.kind === "hold_settle" && label.kind === "skip" ? "Yes, same payment" : labelChoiceText(label);
+  const result = await applyLabel(deps, profile, message.id, label);
+  if (!result.ok) return { said, reply: { text: result.text, next: null } };
+  await deps.bank.saveUndo(profile.profileId, result.changes);
+  return { said, reply: await withNext(deps, profile, `✓ ${result.text}`, nextIntro) };
 }
 
 /** The next waiting payment's question with its buttons, or null when nothing is waiting. */

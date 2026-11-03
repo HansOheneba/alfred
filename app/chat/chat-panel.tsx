@@ -10,6 +10,7 @@ import { ReplyChart } from "@/app/chat/reply-chart";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
 import { getGettingStartedState } from "@/app/components/getting-started-state";
+import type { ChatChoice } from "@/lib/accounts/chat-choices";
 import type { ChatChart } from "@/lib/accounts/messages";
 import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
@@ -57,18 +58,22 @@ export function ChatPanel({
   ownerId,
   name,
   initialMessages,
+  initialChoices = [],
   ledger,
   initialQuestion = "",
 }: {
   ownerId: string;
   name: string;
   initialMessages: ThreadMessage[];
+  /** Answer buttons for the payment Alfred is asking about, if the chat ends on that question. */
+  initialChoices?: ChatChoice[][];
   ledger: Ledger;
   initialQuestion?: string;
 }) {
   const router = useRouter();
   const [text, setText] = useState(initialQuestion);
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
+  const [choices, setChoices] = useState<ChatChoice[][]>(initialChoices);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [statsOpen, setStatsOpen] = useState(false);
@@ -150,7 +155,13 @@ export function ChatPanel({
             chart: row.meta?.chart ?? null,
           };
           setMessages((current) => mergeThread(current, [incoming]));
-          if (row.channel === "telegram" && row.role === "assistant") router.refresh();
+          if (row.channel === "telegram" && row.role === "assistant") {
+            router.refresh();
+            // A question asked on Telegram gets its answer buttons here too.
+            void loadChoices().then((loaded) => {
+              if (active && loaded) setChoices(loaded);
+            });
+          }
         },
       )
       .subscribe();
@@ -167,10 +178,11 @@ export function ChatPanel({
       try {
         const response = await fetch("/api/chat");
         if (!response.ok) return;
-        const payload = (await response.json()) as { ok?: boolean; messages?: ServerMessage[] };
+        const payload = (await response.json()) as { ok?: boolean; messages?: ServerMessage[]; choices?: ChatChoice[][] };
         if (!active || !payload.ok || !payload.messages) return;
         const history = payload.messages;
         setMessages((current) => mergeThread(current, history.map(serverMessage)));
+        setChoices(payload.choices ?? []);
       } catch {
         // The thread already shows the last saved messages.
       }
@@ -196,6 +208,8 @@ export function ChatPanel({
     sending.current = true;
     setBusy(true);
     setError("");
+    const shownChoices = choices;
+    setChoices([]);
     const bodyClientId = typeof body.clientId === "string" ? body.clientId : undefined;
     const turnId = clientId ?? bodyClientId ?? (userText ? crypto.randomUUID() : undefined);
     if (userText && turnId) {
@@ -232,12 +246,15 @@ export function ChatPanel({
         text?: string;
         actionId?: string | null;
         messages?: ServerMessage[];
+        choices?: ChatChoice[][];
       };
       if (!response.ok || !payload.ok) {
         if (userText && turnId) markFailed(turnId);
         setError(payload.text || "Alfred could not complete that request.");
+        setChoices(shownChoices);
         return;
       }
+      setChoices(payload.choices ?? []);
       const incoming = (payload.messages ?? []).map((message, index, all) => {
         const view = serverMessage(message);
         const isLastAssistant = message.role === "assistant" && index === all.length - 1;
@@ -256,6 +273,7 @@ export function ChatPanel({
     } catch {
       if (userText && turnId) markFailed(turnId);
       setError("Alfred could not reach the server.");
+      setChoices(shownChoices);
     } finally {
       sending.current = false;
       setBusy(false);
@@ -392,7 +410,8 @@ export function ChatPanel({
             </Link>
           </div> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
-          {showFollowUps ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
+          {showFollowUps && choices.length ? <div className="alfred-production-chat-choices" role="group" aria-label="Answer Alfred's question">{choices.map((row, index) => <div key={index}>{row.map((item) => item.href ? <Link key={item.label} href={item.href} className={buttonClassName({ variant: "ghost", size: "sm" })}>{item.label}</Link> : <button key={item.choice} type="button" className={buttonClassName({ variant: "secondary", size: "sm" })} onClick={() => void send({ choice: item.choice }, item.label)}>{item.label}</button>)}</div>)}</div> : null}
+          {showFollowUps && !choices.length ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
             <div className="alfred-production-chat-composerRow">
@@ -472,6 +491,17 @@ async function shrinkImage(file: File): Promise<Blob> {
   } catch {
     // Some browsers can't decode HEIC; the server accepts the original if it's small enough.
     return file;
+  }
+}
+
+/** The answer buttons for whatever Alfred is asking about now, or null when they can't be loaded. */
+async function loadChoices(): Promise<ChatChoice[][] | null> {
+  try {
+    const response = await fetch("/api/chat");
+    const payload = (await response.json()) as { ok?: boolean; choices?: ChatChoice[][] };
+    return response.ok && payload.ok ? (payload.choices ?? []) : null;
+  } catch {
+    return null;
   }
 }
 

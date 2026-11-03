@@ -6,13 +6,16 @@ import { createVoice, type Voice } from "@/lib/ai/voice";
 import { createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
 import { createSupabasePeopleStore, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
-import { bankAccess } from "@/lib/bank/ingest";
+import { bankAccess, type IngestDeps } from "@/lib/bank/ingest";
+import { chooseLabel, currentQuestion } from "@/lib/bank/reply";
+import { chatChoices, type ChatChoice } from "@/lib/accounts/chat-choices";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import { type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 import { converse } from "@/lib/conversation/turn";
+import type { InlineButton } from "@/lib/telegram/client";
 import type { FinanceStore } from "@/lib/finance/store";
 import { userFacingError } from "@/lib/telegram/messages";
 import type { ConversationContext } from "@/lib/finance/conversation";
@@ -35,6 +38,8 @@ export type StudioResult = {
   context?: ConversationContext;
   messages?: ChatMessageRecord[];
   pending?: boolean;
+  /** Answer buttons for the payment Alfred just asked about. */
+  choices?: ChatChoice[][];
 };
 
 export type StudioDeps = {
@@ -74,7 +79,10 @@ export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Pro
 
 export async function handleProfileTurn(
   profile: UserProfile,
-  input: { text: string; clientId?: string } | { decision: "confirm" | "cancel"; actionId: string; clientId?: string },
+  input:
+    | { text: string; clientId?: string }
+    | { decision: "confirm" | "cancel"; actionId: string; clientId?: string }
+    | { choice: string; clientId?: string },
   deps: StudioDeps,
 ): Promise<StudioResult> {
   const now = deps.now();
@@ -133,7 +141,12 @@ export async function handleProfileTurn(
 
   let result: StudioResult;
   try {
-    result = "text" in input ? await answerText(input.text, ctx, deps, clientId) : await answerDecision(input, ctx, deps, clientId);
+    result =
+      "text" in input
+        ? await answerText(input.text, ctx, deps, clientId)
+        : "choice" in input
+          ? await answerChoice(input.choice, ctx, deps, clientId)
+          : await answerDecision(input, ctx, deps, clientId);
   } catch (error) {
     logError("studio_action", error);
     if (clientId) {
@@ -163,7 +176,7 @@ async function respond(
   ctx: ActionContext,
   deps: StudioDeps,
   clientId?: string,
-): Promise<Delivery & { intent?: string }> {
+): Promise<Delivery & { intent?: string; buttons?: InlineButton[][] }> {
   if (isAccountRuleCommand(text)) return { kind: "text", text: await handleAccountRuleBotCommand(text, ctx.profile.profileId, String(STUDIO_CHAT_ID), deps.accountRuleCommands) ?? "Use /rule help for the fixed command syntax.", intent: "account-rule:command" };
   if (isScopedAccountRuleIntent(text)) return { kind: "text", text: ACCOUNT_RULE_INTENT_GUIDANCE, intent: "account-rule:guidance" };
   return converse(text, ctx, deps, { channel: "web", excludeClientId: clientId });
@@ -212,7 +225,35 @@ async function answerText(
     clientId && deps.messages ? ordered(await deps.messages.listByClientId(ctx.profile.profileId, clientId)) : undefined;
   return delivery.kind === "confirm"
     ? { text: delivery.text, actionId: delivery.actionId, context: delivery.context, messages }
-    : { text: delivery.text, context: delivery.context, messages };
+    : { text: delivery.text, context: delivery.context, messages, choices: chatChoices(delivery.buttons) };
+}
+
+function ingestFor(deps: StudioDeps, now: Date): IngestDeps | null {
+  return deps.bank
+    ? { bank: deps.bank, ledger: deps.store, now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }
+    : null;
+}
+
+/** A tapped answer button: files the payment without a model call, then asks the next one. */
+async function answerChoice(choice: string, ctx: ActionContext, deps: StudioDeps, clientId?: string): Promise<StudioResult> {
+  const ingest = ingestFor(deps, ctx.now);
+  const chosen = ingest ? await chooseLabel(ingest, ctx.profile, choice) : null;
+  const said = chosen?.said ?? "Label";
+  const text = chosen?.reply.text ?? "That button is no longer valid.";
+  if (deps.messages) {
+    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "user", body: said, channel: "web", clientId });
+    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "assistant", body: text, channel: "web", clientId, intent: "bank:label" });
+  }
+  const messages =
+    clientId && deps.messages ? ordered(await deps.messages.listByClientId(ctx.profile.profileId, clientId)) : undefined;
+  return { text, messages, choices: chatChoices(chosen?.reply.buttons) };
+}
+
+/** Answer buttons for the payment still being asked about, when the chat ends on that question. */
+export async function openChoices(profile: UserProfile, deps: StudioDeps, last: ChatMessageRecord | undefined): Promise<ChatChoice[][]> {
+  const ingest = ingestFor(deps, deps.now());
+  if (!ingest || last?.role !== "assistant" || !last.intent?.startsWith("bank:")) return [];
+  return chatChoices((await currentQuestion(ingest, profile))?.buttons);
 }
 
 async function answerDecision(

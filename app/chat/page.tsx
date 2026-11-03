@@ -6,6 +6,8 @@ import { AlfredMark, AppShell } from "@/app/components/app-shell";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { toThreadMessage } from "@/lib/accounts/thread";
+import { logError } from "@/lib/log";
+import { createStudioDeps, openChoices } from "@/lib/studio/handle";
 import { loadLedger } from "@/lib/web/ledger";
 
 type ChatSearchParams = Promise<{ question?: string | string[] }>;
@@ -47,11 +49,14 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
   const name = account.profile.preferredName.trim();
   let history;
   let ledger;
+  let choices;
   try {
     [history, ledger] = await Promise.all([
       createSupabaseMessageLog(account.settings.supabase).listRecent(account.userId, 80),
       loadLedger(account.profile, account.settings),
     ]);
+    // Buttons are a convenience: the conversation still loads if they can't be worked out.
+    choices = await openChoices(account.profile, createStudioDeps(account.settings), history.at(-1)).catch((error) => (logError("web_chat_choices", error), []));
   } catch (error) {
     return (
       <AppShell current="chat" name={name}>
@@ -64,7 +69,7 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
 
   return (
     <AppShell current="chat" name={name} fill>
-      <ChatPanel key={question || "conversation"} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} ledger={ledger} />
+      <ChatPanel key={question || "conversation"} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} initialChoices={choices} ledger={ledger} />
     </AppShell>
   );
 }
