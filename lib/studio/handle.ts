@@ -16,6 +16,7 @@ import { newActionId, newTransactionId } from "@/lib/finance/ids";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 import { converse } from "@/lib/conversation/turn";
 import type { InlineButton } from "@/lib/telegram/client";
+import { trackTurnData } from "@/lib/conversation/turn-data";
 import type { FinanceStore } from "@/lib/finance/store";
 import { userFacingError } from "@/lib/telegram/messages";
 import type { ConversationContext } from "@/lib/finance/conversation";
@@ -40,6 +41,7 @@ export type StudioResult = {
   pending?: boolean;
   /** Answer buttons for the payment Alfred just asked about. */
   choices?: ChatChoice[][];
+  ledgerChanged?: boolean;
 };
 
 export type StudioDeps = {
@@ -85,6 +87,8 @@ export async function handleProfileTurn(
     | { choice: string; clientId?: string },
   deps: StudioDeps,
 ): Promise<StudioResult> {
+  const tracked = trackTurnData(deps);
+  deps = tracked.deps;
   const now = deps.now();
   const clientId = input.clientId;
   const updateId = clientId ? clientTurnUpdateId(clientId) : (deps.nextUpdateId?.() ?? now.getTime());
@@ -94,6 +98,8 @@ export async function handleProfileTurn(
     now,
     staleMs: LIMITS.processingStaleMs,
   });
+  // A recovered failed/stale turn may have committed a write before its reply was lost.
+  const ledgerChanged = () => tracked.changed() || (claim.kind === "claimed" && claim.recovered === true);
   const saved = async () =>
     clientId && deps.messages ? ordered(await deps.messages.listByClientId(profile.profileId, clientId)) : [];
   if (claim.kind === "replay") {
@@ -105,8 +111,8 @@ export async function handleProfileTurn(
       pending.chatId === String(STUDIO_CHAT_ID);
     const messages = await saved();
     return stillPending && pendingId
-      ? { text: claim.reply, actionId: pendingId, messages }
-      : { text: claim.reply, messages };
+      ? { text: claim.reply, actionId: pendingId, messages, ledgerChanged: messages.find((message) => message.role === "assistant")?.ledgerChanged ?? true }
+      : { text: claim.reply, messages, ledgerChanged: messages.find((message) => message.role === "assistant")?.ledgerChanged ?? true };
   }
   if (claim.kind !== "claimed") {
     return { text: "That request is already being handled. Try again in a moment.", pending: true };
@@ -118,7 +124,7 @@ export async function handleProfileTurn(
     const assistant = existing.find((message) => message.role === "assistant");
     const text = assistant?.body ?? "";
     await completeUpdate(deps.store, claim.rowNumber, { reply: text }, deps.now());
-    return { text, messages: existing };
+    return { text, messages: existing, ledgerChanged: assistant?.ledgerChanged ?? true };
   }
 
   const ctx: ActionContext = {
@@ -143,10 +149,10 @@ export async function handleProfileTurn(
   try {
     result =
       "text" in input
-        ? await answerText(input.text, ctx, deps, clientId)
+        ? await answerText(input.text, ctx, deps, clientId, ledgerChanged)
         : "choice" in input
-          ? await answerChoice(input.choice, ctx, deps, clientId)
-          : await answerDecision(input, ctx, deps, clientId);
+          ? await answerChoice(input.choice, ctx, deps, clientId, ledgerChanged)
+          : await answerDecision(input, ctx, deps, clientId, ledgerChanged);
   } catch (error) {
     logError("studio_action", error);
     if (clientId) {
@@ -168,7 +174,7 @@ export async function handleProfileTurn(
     { reply: result.text, pendingActionId: result.actionId, context: result.context },
     deps.now(),
   );
-  return result;
+  return { ...result, ledgerChanged: ledgerChanged() };
 }
 
 async function respond(
@@ -196,6 +202,7 @@ async function answerText(
   ctx: ActionContext,
   deps: StudioDeps,
   clientId?: string,
+  ledgerChanged: () => boolean = () => false,
 ): Promise<StudioResult> {
   if (deps.messages && clientId) {
     await deps.messages.append({
@@ -219,6 +226,7 @@ async function answerText(
       clientId,
       intent: delivery.intent ?? null,
       chart: delivery.chart ?? null,
+      ledgerChanged: ledgerChanged(),
     });
   }
   const messages =
@@ -235,14 +243,14 @@ function ingestFor(deps: StudioDeps, now: Date): IngestDeps | null {
 }
 
 /** A tapped answer button: files the payment without a model call, then asks the next one. */
-async function answerChoice(choice: string, ctx: ActionContext, deps: StudioDeps, clientId?: string): Promise<StudioResult> {
+async function answerChoice(choice: string, ctx: ActionContext, deps: StudioDeps, clientId?: string, ledgerChanged: () => boolean = () => false): Promise<StudioResult> {
   const ingest = ingestFor(deps, ctx.now);
   const chosen = ingest ? await chooseLabel(ingest, ctx.profile, choice) : null;
   const said = chosen?.said ?? "Label";
   const text = chosen?.reply.text ?? "That button is no longer valid.";
   if (deps.messages) {
     await deps.messages.append({ ownerId: ctx.profile.profileId, role: "user", body: said, channel: "web", clientId });
-    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "assistant", body: text, channel: "web", clientId, intent: "bank:label" });
+    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "assistant", body: text, channel: "web", clientId, intent: "bank:label", ledgerChanged: ledgerChanged() });
   }
   const messages =
     clientId && deps.messages ? ordered(await deps.messages.listByClientId(ctx.profile.profileId, clientId)) : undefined;
@@ -261,6 +269,7 @@ async function answerDecision(
   ctx: ActionContext,
   deps: StudioDeps,
   clientId?: string,
+  ledgerChanged: () => boolean = () => false,
 ): Promise<StudioResult> {
   const result = await decidePending({ ...input, chatId: String(STUDIO_CHAT_ID) }, ctx);
   if (deps.messages) {
@@ -277,6 +286,7 @@ async function answerDecision(
       body: result.text,
       channel: "web",
       clientId,
+      ledgerChanged: ledgerChanged(),
     });
   }
   const messages =

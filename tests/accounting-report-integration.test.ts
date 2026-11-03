@@ -5,7 +5,7 @@ import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { executeConfirmed, handleAction, type ActionContext } from "@/lib/finance/action-router";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { readReportingTransactions, type FinanceStore } from "@/lib/finance/store";
-import { emptyAccountingState, type AccountingState } from "@/lib/finance/accounting/types";
+import { AccountingError, emptyAccountingState, type AccountingState } from "@/lib/finance/accounting/types";
 import { sourceMovements } from "@/lib/finance/accounting/sources";
 import type { TransactionRecord } from "@/lib/finance/types";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
@@ -108,18 +108,29 @@ describe("raw source access versus financial reporting integration", () => {
     expect(await store.listTransactions(OWNER)).toEqual([stale]);
     expect(mocks.loadAccountingState).not.toHaveBeenCalled();
     const report = await readReportingTransactions(store, OWNER);
-    expect(mocks.loadAccountingState).toHaveBeenCalledWith({}, OWNER, [stale]);
+    expect(mocks.loadAccountingState).toHaveBeenCalledWith({}, OWNER);
+    expect(mocks.query).toHaveBeenCalledTimes(1); // Only the explicit raw read above; reporting does not prefetch it.
     expect(report).toHaveLength(1);
     expect(report[0]).toMatchObject({ transactionId: "accounting:transaction:fresh-original", amount: "60.00", type: "expense" });
     expect(report.some((row) => row.transactionId === "stale-original" || row.transactionId === "fresh-refund")).toBe(false);
     expect(await store.listTransactions(OWNER)).toEqual([stale]);
   });
 
+  it("propagates a failed coherent read without falling back to an independently fetched source snapshot", async () => {
+    const stale = new AccountingError("Source records changed while loading.", "stale");
+    mocks.loadAccountingState.mockRejectedValue(stale);
+    const store = createSupabaseFinanceStore({} as SupabaseSettings);
+    await expect(readReportingTransactions(store, OWNER)).rejects.toBe(stale);
+    expect(mocks.query).not.toHaveBeenCalled();
+  });
+
   it("returns legacy raw records unchanged when the accounting schema is unavailable", async () => {
     const raw = transaction();
     mocks.query.mockResolvedValue([databaseRow(raw)]);
-    mocks.loadAccountingState.mockResolvedValue({ availability: "migration-required" });
+    mocks.loadAccountingState.mockResolvedValue({ availability: "migration-required", rawTransactions: [raw] });
     const store = createSupabaseFinanceStore({} as SupabaseSettings);
     expect(await readReportingTransactions(store, OWNER)).toEqual([raw]);
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.loadAccountingState).toHaveBeenCalledWith({}, OWNER);
   });
 });

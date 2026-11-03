@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
@@ -7,9 +8,7 @@ import { Skeleton } from "@/app/components/status";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { SettingsView } from "@/app/settings/settings-view";
 import { loadAccountSettings } from "@/lib/accounts/settings-store";
-import { telegramBotUsername } from "@/lib/telegram/bot-info";
 import { HOME_COOKIE, readHome } from "@/lib/web/home";
-import { loadLedger } from "@/lib/web/ledger";
 
 export default function SettingsPage() {
   if (!publicAuthConfigured()) return <MissingAuthConfig />;
@@ -66,13 +65,7 @@ async function SettingsContent() {
 
   let data;
   try {
-    const [settings, ledger, botUsername, cookieStore] = await Promise.all([
-      loadAccountSettings(account.settings.supabase, account.userId),
-      loadLedger(account.profile, account.settings),
-      telegramBotUsername(),
-      cookies(),
-    ]);
-    data = { settings, ledger, botUsername, home: readHome(cookieStore.get(HOME_COOKIE)?.value) };
+    data = await readSettingsInputs(account.settings.supabase, account.userId);
   } catch (error) {
     return (
       <AppShell current="settings" name={account.profile.preferredName.trim()}>
@@ -87,7 +80,13 @@ async function SettingsContent() {
 
   return (
     <AppShell current="settings" name={account.profile.preferredName.trim()}>
-      <SettingsView initial={data.settings} ledger={data.ledger} botUsername={data.botUsername} home={data.home} />
+      <SettingsView key={account.userId} ownerId={account.userId} refreshKey={data.refreshKey} initial={data.settings} home={data.home} />
     </AppShell>
   );
+}
+
+/** The read stamp invalidates deferred resources after an explicit server refresh. */
+async function readSettingsInputs(database: Parameters<typeof loadAccountSettings>[0], ownerId: string) {
+  const [settings, cookieStore] = await Promise.all([loadAccountSettings(database, ownerId), cookies()]);
+  return { settings, home: readHome(cookieStore.get(HOME_COOKIE)?.value), refreshKey: randomUUID() };
 }

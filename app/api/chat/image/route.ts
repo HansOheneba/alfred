@@ -19,6 +19,7 @@ function present(message: ChatMessageRecord) {
     createdAt: message.createdAt,
     clientId: message.clientId,
     chart: message.chart ?? null,
+    ledgerChanged: message.ledgerChanged,
   };
 }
 
@@ -48,25 +49,25 @@ export async function POST(request: Request): Promise<Response> {
   const thread = async () => (await messages.listByClientId(profile.profileId, clientId)).map(present);
   try {
     const existing = await messages.listByClientId(profile.profileId, clientId);
-    if (existing.some((item) => item.role === "assistant")) return Response.json({ ok: true, messages: existing.map(present) });
+    if (existing.some((item) => item.role === "assistant")) return Response.json({ ok: true, messages: existing.map(present), ledgerChanged: existing.find((item) => item.role === "assistant")?.ledgerChanged ?? true });
     await messages.append({ ownerId: profile.profileId, role: "user", body: "📷 Screenshot", channel: "web", clientId });
 
     const read = await readImageText({ bytes: Buffer.from(await image.arrayBuffer()), mime, deepseek: settings.deepseek, google: settings.google });
     if (!read.text) {
-      await messages.append({ ownerId: profile.profileId, role: "assistant", body: "I couldn't make out any text in that image. A sharper screenshot usually does it.", channel: "web", clientId });
-      return Response.json({ ok: true, messages: await thread() });
+      await messages.append({ ownerId: profile.profileId, role: "assistant", body: "I couldn't make out any text in that image. A sharper screenshot usually does it.", channel: "web", clientId, ledgerChanged: false });
+      return Response.json({ ok: true, messages: await thread(), ledgerChanged: false });
     }
 
     const bankReply = await bankScreenshotReply(settings.supabase, profile, read);
     if (bankReply) {
-      await messages.append({ ownerId: profile.profileId, role: "assistant", body: bankReply, channel: "web", clientId, intent: "bank:screenshot" });
-      return Response.json({ ok: true, text: bankReply, messages: await thread() });
+      await messages.append({ ownerId: profile.profileId, role: "assistant", body: bankReply, channel: "web", clientId, intent: "bank:screenshot", ledgerChanged: true });
+      return Response.json({ ok: true, text: bankReply, messages: await thread(), ledgerChanged: true });
     }
 
     // A receipt or anything else: Alfred reads the text like a message, and always confirms before saving.
     const deps = createStudioDeps({ ...settings, confirmTransactions: "always" });
     const result = await handleProfileTurn(profile, { text: `📷 Screenshot\n${read.text}`.slice(0, LIMITS.maxUserTextChars), clientId }, deps);
-    return Response.json({ ok: true, text: result.text, actionId: result.actionId ?? null, messages: (result.messages ?? []).map(present) });
+    return Response.json({ ok: true, text: result.text, actionId: result.actionId ?? null, messages: (result.messages ?? []).map(present), ledgerChanged: result.ledgerChanged ?? true });
   } catch (error) {
     logError("chat_image", error);
     return fail("Alfred couldn't read that image. Try again in a moment.", 500);

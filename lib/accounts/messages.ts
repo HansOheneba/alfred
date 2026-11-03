@@ -14,6 +14,8 @@ export type ChatMessageRecord = {
   /** The action behind an assistant reply, such as get_insights or chat:other. */
   intent?: string | null;
   chart?: ChatChart | null;
+  /** A server-observed financial write, never inferred from the model's action or reply. */
+  ledgerChanged?: boolean;
 };
 
 export type NewChatMessage = {
@@ -24,6 +26,7 @@ export type NewChatMessage = {
   clientId?: string | null;
   intent?: string | null;
   chart?: ChatChart | null;
+  ledgerChanged?: boolean;
 };
 
 export interface MessageLog {
@@ -85,6 +88,7 @@ export class MemoryMessageLog implements MessageLog {
       createdAt: new Date(this.rows.length).toISOString(),
       intent: message.intent ?? null,
       chart: message.chart ?? null,
+      ledgerChanged: message.ledgerChanged,
     };
     this.rows.push(row);
     return this.publicRow(row);
@@ -100,6 +104,7 @@ export class MemoryMessageLog implements MessageLog {
       clientId: row.clientId,
       intent: row.intent ?? null,
       chart: row.chart ?? null,
+      ledgerChanged: row.ledgerChanged,
     };
   }
 }

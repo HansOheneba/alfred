@@ -1,25 +1,33 @@
 "use client";
 
-import { useEffect, useState, type ReactNode } from "react";
+import { useMemo, useState } from "react";
 import type { AccountingAction, AccountingState } from "@/lib/finance/accounting/types";
 import { AccountsWorkspace } from "./accounts-workspace";
 import { AccountsErrorState, AccountsLoading } from "./accounts-status";
+import { sendJson } from "@/app/components/ui";
+import { loadAccountSubscriptions } from "./subscriptions-actions";
+import { createSubscriptionsResource } from "./subscriptions-resource";
+import { SubscriptionsPanel } from "./subscriptions-panel";
 
-type Payload = { ok: true; state: AccountingState; availability: "ready" | "migration-required" };
-async function readResponse(response: Response): Promise<Payload> {
+export type AccountsPayload = { ok: true; state: AccountingState; availability: "ready" | "migration-required" };
+async function readResponse(response: Response): Promise<AccountsPayload> {
   const body = await response.json();
   if (!response.ok || body.ok !== true || !body.state) throw new Error(typeof body.text === "string" ? body.text : typeof body.error === "string" ? body.error : typeof body.message === "string" ? body.message : "Account records could not be loaded. Refresh and try again.");
-  return body as Payload;
+  return body as AccountsPayload;
 }
-export function AccountsClient({ defaultCurrency, subscriptions }: { defaultCurrency: string; subscriptions: ReactNode }) {
-  const [payload,setPayload] = useState<Payload | null>(null);
-  const [error,setError] = useState("");
-  const [retry,setRetry] = useState(0);
-  useEffect(() => {
-    const controller = new AbortController();
-    fetch("/api/accounting", { signal: controller.signal, cache: "no-store" }).then(readResponse).then((next) => { setPayload(next); setError(""); }).catch((error) => { if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Account records could not be loaded."); });
-    return () => controller.abort();
-  }, [retry]);
+export function AccountsClient({ defaultCurrency, initialPayload, initialError = "" }: { defaultCurrency: string; initialPayload: AccountsPayload | null; initialError?: string }) {
+  const [payload,setPayload] = useState(initialPayload);
+  const [error,setError] = useState(initialError);
+  const [loading,setLoading] = useState(false);
+  const ownerId = payload?.state.ownerId ?? "";
+  // One owner-scoped resource outlives tab panels, without a cross-user cache.
+  const subscriptions = useMemo(() => createSubscriptionsResource(ownerId, loadAccountSubscriptions, (action) => sendJson("/api/bills", "POST", action)), [ownerId]);
+  async function retry() {
+    setLoading(true); setError("");
+    try { setPayload(await readResponse(await fetch("/api/accounting", { cache: "no-store" }))); }
+    catch (error) { setError(error instanceof Error ? error.message : "Account records could not be loaded."); }
+    finally { setLoading(false); }
+  }
   async function dispatch(action: AccountingAction) {
     const response = await fetch("/api/accounting", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(action) });
     if (response.status === 409) {
@@ -28,6 +36,6 @@ export function AccountsClient({ defaultCurrency, subscriptions }: { defaultCurr
     }
     const next = await readResponse(response); setPayload(next); return next.state;
   }
-  if (!payload) return error ? <AccountsErrorState message={error} onRetry={() => { setError(""); setRetry((value) => value+1); }} /> : <AccountsLoading />;
-  return <AccountsWorkspace state={payload.state} dispatch={dispatch} mode="live" availability={payload.availability} defaultCurrency={defaultCurrency} subscriptions={subscriptions} />;
+  if (!payload) return loading ? <AccountsLoading /> : <AccountsErrorState message={error || "Account records could not be loaded. Try again shortly."} onRetry={() => { void retry(); }} />;
+  return <AccountsWorkspace state={payload.state} dispatch={dispatch} mode="live" availability={payload.availability} defaultCurrency={defaultCurrency} subscriptions={<SubscriptionsPanel key={ownerId} resource={subscriptions} accounting={payload.state} />} />;
 }

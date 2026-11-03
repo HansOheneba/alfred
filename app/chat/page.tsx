@@ -7,8 +7,7 @@ import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { toThreadMessage } from "@/lib/accounts/thread";
 import { logError } from "@/lib/log";
-import { createStudioDeps, openChoices } from "@/lib/studio/handle";
-import { loadLedger } from "@/lib/web/ledger";
+import { financeLooksEmpty } from "@/lib/web/finance-empty";
 
 type ChatSearchParams = Promise<{ question?: string | string[] }>;
 
@@ -48,15 +47,13 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
   const question = typeof params.question === "string" ? params.question.trim().slice(0, 2000) : "";
   const name = account.profile.preferredName.trim();
   let history;
-  let ledger;
-  let choices;
+  let financialsEmpty = false;
   try {
-    [history, ledger] = await Promise.all([
+    [history, financialsEmpty] = await Promise.all([
       createSupabaseMessageLog(account.settings.supabase).listRecent(account.userId, 80),
-      loadLedger(account.profile, account.settings),
+      // Optional guidance only: a failed check keeps Chat usable and simply skips Get Started.
+      financeLooksEmpty(account.settings.supabase, account.userId).catch((error) => { logError("chat_empty_check", error); return false; }),
     ]);
-    // Buttons are a convenience: the conversation still loads if they can't be worked out.
-    choices = await openChoices(account.profile, createStudioDeps(account.settings), history.at(-1)).catch((error) => (logError("web_chat_choices", error), []));
   } catch (error) {
     return (
       <AppShell current="chat" name={name}>
@@ -69,7 +66,7 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
 
   return (
     <AppShell current="chat" name={name} fill>
-      <ChatPanel key={question || "conversation"} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} initialChoices={choices} ledger={ledger} />
+      <ChatPanel key={`${account.userId}:${question || "conversation"}`} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} financialsEmpty={financialsEmpty} loadInitialChoices={history.at(-1)?.role === "assistant" && Boolean(history.at(-1)?.intent?.startsWith("bank:"))} />
     </AppShell>
   );
 }

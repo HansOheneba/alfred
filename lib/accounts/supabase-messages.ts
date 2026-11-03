@@ -11,7 +11,7 @@ type MessageRow = {
   created_at: Date;
   client_id: string | null;
   intent: string | null;
-  meta: { chart?: ChatChart } | null;
+  meta: { chart?: ChatChart; ledgerChanged?: boolean } | null;
 };
 
 function fromRow(row: MessageRow): ChatMessageRecord {
@@ -24,6 +24,7 @@ function fromRow(row: MessageRow): ChatMessageRecord {
     clientId: row.client_id,
     intent: row.intent,
     chart: row.meta?.chart ?? null,
+    ledgerChanged: row.meta?.ledgerChanged,
   };
 }
 
@@ -66,7 +67,7 @@ async function insertMessage(settings: SupabaseSettings, message: NewChatMessage
   const body = message.body.slice(0, 4000);
   const clientId = message.clientId ?? null;
   const intent = message.intent ?? null;
-  const meta = message.chart ? JSON.stringify({ chart: message.chart }) : null;
+  const meta = message.chart || message.ledgerChanged !== undefined ? JSON.stringify({ ...(message.chart ? { chart: message.chart } : {}), ...(message.ledgerChanged !== undefined ? { ledgerChanged: message.ledgerChanged } : {}) }) : null;
   if (clientId) {
     const rows = await query<MessageRow>(
       settings,
