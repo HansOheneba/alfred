@@ -390,9 +390,29 @@ const NOTICE_FINANCIAL_MUTATIONS = new Set<FinanceAction["type"]>([
   "ask_next",
 ]);
 
-/** Long or multi-part messages go to the stronger model, which reads them more carefully. */
-function actionsMayNeedCare(text: string): boolean {
-  return text.length > 160 || /\b(?:but|also|and then|plus)\b/i.test(text);
+/**
+ * Whether a message goes to the stronger model. Plain logging ("uber 35",
+ * "spent 50 on food") stays on the everyday one; questions, corrections,
+ * money between people, planning and anything long or multi-part get the
+ * model that reads more carefully.
+ */
+export function actionsMayNeedCare(text: string): boolean {
+  const lower = text.trim().toLowerCase();
+  if (lower.length > 160) return true;
+  // Several things in one message.
+  if (/\b(?:but|also|and then|plus)\b/.test(lower)) return true;
+  if ((lower.match(/\d+(?:[.,]\d+)?/g) ?? []).length >= 3) return true;
+  // Questions.
+  if (lower.includes("?")) return true;
+  if (/^(?:how|what|why|when|who|whose|which|where|did|do|does|is|are|was|were|can|could|should|have|has|show|list|compare|explain|tell me)\b/.test(lower)) return true;
+  // Corrections.
+  if (/^(?:no|nope|actually|wait|sorry)\b/.test(lower)) return true;
+  if (/\b(?:wrong|instead|meant|mistake|change|edit|fix|correct|delete|remove)\b/.test(lower)) return true;
+  // Money between people.
+  if (/\b(?:owe[sd]?|lent|lend|borrow(?:ed)?|pa(?:y|id) (?:me |him |her |them )?back|repa(?:y|id)|split|chip(?:ped)? in|on (?:his|her|their|my) behalf)\b/.test(lower)) return true;
+  // Planning.
+  if (/\b(?:budget|goal|afford|invest(?:ed|ment)?|sav(?:e|ing) (?:for|up))\b/.test(lower)) return true;
+  return false;
 }
 
 type Turn = {

@@ -8,7 +8,7 @@ import { ingestBankText } from "@/lib/bank/ingest";
 import { askNext } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { openThread } from "@/lib/conversation/thread";
-import { converse, OUTAGE_INTRO, type TurnDeps } from "@/lib/conversation/turn";
+import { actionsMayNeedCare, converse, OUTAGE_INTRO, type TurnDeps } from "@/lib/conversation/turn";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { ActionContext } from "@/lib/finance/action-router";
 import { MemoryLoanStore } from "@/lib/finance/loans";
@@ -184,5 +184,30 @@ describe("a turn", () => {
     await ingestBankText({ bank: deps.bank!, ledger: ctx.store, now, createId: deps.createId }, owner, ELLEN, { channel: "mac" });
     await converse("how are you", ctx, deps, { channel: "telegram" });
     expect(voiced[0].state?.[0]).toBe("One payment from their bank texts is waiting for them to say what it was.");
+  });
+});
+
+describe("which model reads a message", () => {
+  it("keeps plain logging on the everyday model", () => {
+    for (const text of ["uber 35", "spent 50 on food", "salary 5000", "hi", "kfc 120 momo"]) {
+      expect(actionsMayNeedCare(text), text).toBe(false);
+    }
+  });
+
+  it("sends questions, corrections, money between people and planning to the stronger model", () => {
+    for (const text of [
+      "how much did I spend on food this month",
+      "food total?",
+      "no, that was 45",
+      "change the uber to transport",
+      "Cyril owes me 200 for fibre",
+      "Grace paid me back 150",
+      "set a food budget of 800",
+      "can I afford a 3000 phone",
+      "uber 35, kfc 120 and 20 for data",
+      "spent 50 on lunch but 10 was a tip",
+    ]) {
+      expect(actionsMayNeedCare(text), text).toBe(true);
+    }
   });
 });
