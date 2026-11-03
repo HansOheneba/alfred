@@ -32,7 +32,7 @@ export function AutomationsSettingsPreview() {
   }
   const label = SETTINGS_SECTIONS.find((item) => item.id === section)!.label;
   return <main className="min-h-screen bg-bg">
-    <div className="border-b border-line bg-surface px-4 py-3 text-center text-xs leading-5 text-muted">Local preview · fictional choices only · no account changes</div>
+    <div className="border-b border-line bg-surface px-4 py-3 text-center text-xs leading-5 text-muted">Demo preview · fictional choices only · no account changes</div>
     <div className="mx-auto w-full max-w-5xl px-4 py-6 pb-20 sm:py-8">
       <header className="mb-6 flex flex-wrap items-start justify-between gap-3">
         <div><h1 className="font-display text-2xl font-medium leading-tight tracking-tight">Settings</h1><p className="mt-1 text-sm text-muted">How Alfred knows you, what he keeps track of, and where he can reach you.</p></div>

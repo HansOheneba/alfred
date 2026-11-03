@@ -118,9 +118,9 @@ chat and the backend bot is configured, existing payment summaries/questions
 can send payment details there independently of the new chat and push choices.
 This work does not link Telegram or verify production destination settings.
 
-## Local preview and checks
+## Fictional previews and checks
 
-The local-only page `/preview/sms-automation` renders fictional known-purpose,
+The demo page `/preview/sms-automation` renders fictional known-purpose,
 unknown-purpose and uncertain alerts using the actual message builder. Its
 fictional reply interaction shows a clear answer and a vague clarification.
 Its controls cannot request
@@ -130,10 +130,17 @@ permission, register a browser, write settings or send notifications.
 ALFRED_LOCAL_PREVIEW=1 npm run dev -- --hostname 127.0.0.1 --port 3117
 ```
 
-The page is unavailable without the flag or in production. The placement preview
+The three demo pages are available with the local flag in development/test and
+in Vercel preview deployments. They stay unavailable in the main production
+environment. Only GET/HEAD requests to these exact demo paths bypass the auth
+proxy; they do not read an account, refresh a session or contact configured
+services. Real app routes retain their normal authentication and data behavior.
+The placement preview
 is `/preview/automations#automations`, using the shared Settings navigation and
 real Automations components with fictional, inactive preferences. Other section
-buttons show read-only placeholders in this local preview.
+buttons show read-only placeholders in this fictional preview. All four demo
+notification choices can be toggled and saved for the current visit, with a
+reset control. Reload starts with all four off; no real preferences are saved.
 The three-step fictional setup is `/preview/automations/mac-setup`: it exercises
 an account mismatch, permission explanation, provider selection and future-only
 review. Completion explicitly leaves capture off; it makes no account or OS call.

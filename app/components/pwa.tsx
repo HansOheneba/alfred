@@ -1,6 +1,8 @@
 "use client";
 
-import { useEffect, useSyncExternalStore } from "react";
+import { Suspense, useEffect, useSyncExternalStore } from "react";
+import { usePathname } from "next/navigation";
+import { isAutomationPreviewPath } from "@/lib/preview/access";
 
 /** Chrome's install event, which isn't in the DOM typings yet. */
 type InstallPromptEvent = Event & {
@@ -28,12 +30,19 @@ if (typeof window !== "undefined") {
 
 /** Registers the service worker once, in production builds only. */
 export function PwaRegister() {
+  // Cache Components can suspend pathname reads on fallback dynamic routes.
+  return <Suspense fallback={null}><RegisterForPath /></Suspense>;
+}
+
+function RegisterForPath() {
+  const pathname = usePathname();
+  const skipRegistration = pathname === null || isAutomationPreviewPath(pathname);
   useEffect(() => {
-    if (process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
+    if (skipRegistration || process.env.NODE_ENV !== "production" || !("serviceWorker" in navigator)) return;
     navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" }).catch(() => {
       // Without a service worker Alfred still works; it just loses offline support.
     });
-  }, []);
+  }, [skipRegistration]);
   return null;
 }
 

@@ -1,8 +1,9 @@
 // Server-side fictional examples. This file never opens a database or sends an update.
 import { incomingPaymentMention, type MentionCandidate } from "@/lib/bank/notices";
+import { automationPreviewAllowed } from "@/lib/preview/access";
 
 export function localAutomationPreviewAllowed(environment: Record<string, string | undefined>): boolean {
-  return environment.NODE_ENV !== "production" && environment.ALFRED_LOCAL_PREVIEW === "1";
+  return automationPreviewAllowed(environment);
 }
 
 export function paymentMentionPreviewCopies(): { knownCopy: string; unknownCopy: string; uncertainCopy: string } {

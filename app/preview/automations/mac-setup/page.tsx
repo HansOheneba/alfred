@@ -16,5 +16,5 @@ export default function FictionalMacSetupPage() {
 async function LocalPreview() {
   await connection();
   if (!localAutomationPreviewAllowed(process.env)) notFound();
-  return <main className="min-h-screen bg-bg"><div className="border-b border-line bg-surface px-4 py-3 text-center text-xs leading-5 text-muted">Local preview · fictional Mac setup · no account or permission changes</div><div className="mx-auto max-w-2xl px-4 py-6 sm:py-10"><Link href="/preview/automations#automations" className="mb-5 inline-flex min-h-11 items-center text-sm font-medium text-accent underline underline-offset-4">← Back to Automations preview</Link><MacSetupPreview /></div></main>;
+  return <main className="min-h-screen bg-bg"><div className="border-b border-line bg-surface px-4 py-3 text-center text-xs leading-5 text-muted">Demo preview · fictional Mac setup · no account or permission changes</div><div className="mx-auto max-w-2xl px-4 py-6 sm:py-10"><Link href="/preview/automations#automations" className="mb-5 inline-flex min-h-11 items-center text-sm font-medium text-accent underline underline-offset-4">← Back to Automations preview</Link><MacSetupPreview /></div></main>;
 }

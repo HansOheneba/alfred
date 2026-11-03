@@ -41,7 +41,7 @@ export function SmsAutomationPreview({ knownCopy, unknownCopy, uncertainCopy }: 
       <header className="border-b border-line bg-surface">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-4 px-5 py-4 sm:px-8">
           <div className="flex items-center gap-3"><AlfredAvatar sizeClass="size-9" sizes="36px" loading="eager" /><div><p className="font-display text-lg font-medium tracking-tight">Alfred</p><p className="text-xs text-muted">Payment alerts, with a personal follow-up</p></div></div>
-          <span className="rounded-full border border-line bg-bg px-3 py-1.5 text-xs font-medium text-muted">Local preview · no live delivery</span>
+          <span className="rounded-full border border-line bg-bg px-3 py-1.5 text-xs font-medium text-muted">Demo preview · no live delivery</span>
         </div>
       </header>
       <div className="mx-auto max-w-6xl px-5 py-8 sm:px-8 sm:py-12">
@@ -111,7 +111,7 @@ export function SmsAutomationPreview({ knownCopy, unknownCopy, uncertainCopy }: 
             <NotificationsSection preview initial={previewSettings} />
           </section>
         </div>
-        <p className="mt-8 border-t border-line pt-5 text-xs leading-6 text-faint">This local preview uses fictional records. It does not read Messages, create credentials, request browser permission, register a device, change your settings or send notifications. Mac capture and live delivery remain off pending the required setup checks.</p>
+        <p className="mt-8 border-t border-line pt-5 text-xs leading-6 text-faint">This demo preview uses fictional records. It does not read Messages, create credentials, request browser permission, register a device, change your settings or send notifications. Mac capture and live delivery remain off pending the required setup checks.</p>
       </div>
     </main>
   );

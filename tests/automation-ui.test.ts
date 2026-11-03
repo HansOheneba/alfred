@@ -126,14 +126,16 @@ describe("clear inactive defaults and local preview", () => {
     expect(html).toContain("There’s a private update for you");
     expect(html).not.toMatch(/GH₵|GHS|Sample Sender|250/);
   });
-  it("never permits the fixture page in production, even with its local flag", () => {
+  it("keeps production deployments closed while permitting local and hosted fictional previews", () => {
     expect(localAutomationPreviewAllowed({ NODE_ENV: "production", ALFRED_LOCAL_PREVIEW: "1" })).toBe(false);
+    expect(localAutomationPreviewAllowed({ NODE_ENV: "production", VERCEL_ENV: "production", ALFRED_LOCAL_PREVIEW: "1" })).toBe(false);
+    expect(localAutomationPreviewAllowed({ NODE_ENV: "production", VERCEL_ENV: "preview" })).toBe(true);
     expect(localAutomationPreviewAllowed({ NODE_ENV: "development" })).toBe(false);
     expect(localAutomationPreviewAllowed({ NODE_ENV: "development", ALFRED_LOCAL_PREVIEW: "1" })).toBe(true);
   });
   it("clearly distinguishes fictional incoming alerts from live confirmed funds", () => {
     const html = renderToStaticMarkup(createElement(SmsAutomationPreview, paymentMentionPreviewCopies()));
-    expect(html).toContain("Local preview · no live delivery");
+    expect(html).toContain("Demo preview · no live delivery");
     expect(html).toContain("Fictional example");
     expect(html).toContain("Known purpose");
     expect(html).toContain("Unknown purpose");
