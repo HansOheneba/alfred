@@ -97,11 +97,35 @@ export async function interpretMessage(
         },
       ]
     : messages;
-  const second = await chatCompletion(turnSettings, retryMessages, {}, fetchImpl);
-  const retry = parseModelOutput(second, { today });
+  // JSON mode now and then returns nothing at all; the identical request at temperature 0
+  // tends to come back empty again, so an empty retry is nudged off that path.
+  const retry = await attempt(turnSettings, retryMessages, { temperature: first ? 0 : 0.3 }, today, fetchImpl);
+  if (retry.success) return retry.data;
+  // A last try on the everyday model, when this turn asked for a different one.
+  if (turnSettings.model !== settings.model) {
+    const fallback = await attempt(settings, messages, {}, today, fetchImpl);
+    if (fallback.success) return fallback.data;
+  }
   // The schema issue (field paths and messages, never the user's words) is what the logs need to explain a fallback.
-  if (!retry.success) throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);
-  return retry.data;
+  throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);
+}
+
+/** One completion read as a finance action; an unreadable reply comes back as an issue instead of throwing. */
+async function attempt(
+  settings: DeepSeekSettings,
+  messages: ChatMessage[],
+  options: { temperature?: number },
+  today: string,
+  fetchImpl: typeof fetch,
+): Promise<{ success: true; data: InterpretedAction } | { success: false; issue: string }> {
+  let content: string;
+  try {
+    content = await chatCompletion(settings, messages, options, fetchImpl);
+  } catch (error) {
+    if (error instanceof AiError && error.code === "invalid") return { success: false, issue: error.message };
+    throw error;
+  }
+  return parseModelOutput(content, { today });
 }
 
 export type ContentPart = { type: "text"; text: string } | { type: "image_url"; image_url: { url: string } };

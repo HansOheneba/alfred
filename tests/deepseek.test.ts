@@ -49,6 +49,35 @@ describe("DeepSeek client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("retries an empty reply with a little temperature", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(""))
+      .mockResolvedValueOnce(jsonResponse(JSON.stringify({ type: "help" })));
+    const action = await interpretMessage(settings, request, fetchImpl as typeof fetch);
+    expect(action.type).toBe("help");
+    const retry = JSON.parse(String(fetchImpl.mock.calls[1][1].body)) as { temperature: number };
+    expect(retry.temperature).toBeGreaterThan(0);
+  });
+
+  it("falls back to the everyday model when the turn's model keeps coming back empty", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(jsonResponse(""))
+      .mockResolvedValueOnce(jsonResponse(""))
+      .mockResolvedValueOnce(jsonResponse(JSON.stringify({ type: "help" })));
+    const action = await interpretMessage(settings, { ...request, model: "deepseek-pro" }, fetchImpl as typeof fetch);
+    expect(action.type).toBe("help");
+    const models = fetchImpl.mock.calls.map((call) => (JSON.parse(String(call[1].body)) as { model: string }).model);
+    expect(models).toEqual(["deepseek-pro", "deepseek-pro", "deepseek-flash"]);
+  });
+
+  it("gives up after two empty replies on the everyday model", async () => {
+    const fetchImpl = vi.fn(async () => jsonResponse(""));
+    await expect(interpretMessage(settings, request, fetchImpl as typeof fetch)).rejects.toMatchObject({ code: "invalid" });
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
   it("does not retry a rate limit", async () => {
     const fetchImpl = vi.fn(async () => new Response("{}", { status: 429 }));
     await expect(interpretMessage(settings, request, fetchImpl as typeof fetch)).rejects.toBeInstanceOf(AiError);
