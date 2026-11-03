@@ -39,7 +39,7 @@ source updates. Device notifications remain a separate choice.
 - Eight-file automation migration rehearsal: 40 in-memory assertions passed.
   Catalog-only readiness also tested old-schema refusal, new-schema acceptance,
   missing-function refusal and no financial/preference creation.
-- Native: 473 synthetic assertions, nine policy tests and 13 packaging tests
+- Native: 497 synthetic assertions, nine policy tests and 13 packaging tests
   passed. Optimized compilation, declared entitlements, ad-hoc signing, archive
   round trip, copy-only installer contents and bundled service scope passed.
 - Desktop and 390-pixel mobile previews showed both announcement directions,
@@ -51,9 +51,9 @@ source updates. Device notifications remain a separate choice.
 Generated artifacts are ignored and are not part of the source change:
 
 - `relay/collector/build/Alfred Sync.app.zip`
-  SHA-256 `c6d23a7818fbf31d965e3eba5eb6b7756db7ee4b380502966011c8a3fc824e61`
+  SHA-256 `5d779651ef5a5ca4f96232f4067c13f9f5669a9abdfe93b376a8a61c54486956`
 - `relay/collector/build/Alfred Sync DEVELOPMENT.pkg`
-  SHA-256 `642b755d9822cf0517245b61b5b909af5e731f242d40f1cf4a005f4c71f4b49b`
+  SHA-256 `0f75975f7ea20daaf26cc434a060b22206dbd15643f212f64782b10d39600da3`
 - Build evidence: `relay/collector/build/final-verification-summary.json`.
 
 The app is an ad-hoc development candidate. Developer ID signing, notarization,
@@ -61,10 +61,11 @@ Gatekeeper behavior and general distribution are not verified.
 
 ## Remaining runtime and server work
 
-No app installation/launch, Full Disk Access grant, service registration, real
-Messages access, forwarding-key entry, real alert forwarding or notification
-delivery was performed. Native window layout and service behavior on this Mac
-remain runtime checks requiring the user's specific approval.
+At the initial build checkpoint, no app installation/launch, Full Disk Access
+grant, service registration, real Messages access, forwarding-key entry, real
+alert forwarding or notification delivery had been performed. The approved
+window-opening check below happened afterward; actual service behavior and
+permissions still require their own review and approval.
 
 The live Settings reads still returned unavailable errors for notification
 settings and Mac status. Those generic responses do not identify a particular
@@ -81,3 +82,33 @@ recovery scheduling are separate from private chat capture.
 Nothing from this follow-up has been pushed, proposed in a new PR, deployed or
 applied to the live database. Publication and activation remain separate review
 steps.
+
+## Approved opening: runtime follow-up
+
+After the user specifically approved opening the development app, the verified
+archive was extracted to a temporary review location and opened through the
+normal macOS app API. The control tool timed out, but the user's screenshot
+confirmed that the actual native setup window opened. No alternate launcher or
+security bypass was used. Nothing was installed into Applications.
+
+The screenshot showed no confirmed account/access and a stopped background
+status. The bundled service file is present and signed; the UI had incorrectly
+treated the OS's `notFound` result as proof of a missing/corrupt package. That
+result alone does not establish the reason for the unresolved service status.
+The temporary review location and development signing are unverified possible
+contributors. The local correction distinguishes an unresolved OS registration
+from an actually invalid embedded service. One normal registration attempt is
+available only behind the existing explicit Start/account/server/access checks.
+Missing/changed resources remain blocked, and failed or still-unconfirmed
+registration keeps the durable activation disabled. Pause revokes consent before
+attempting to stop Alfred's own service even if OS status is unresolved. Blank
+Connect now prompts for a key before clearing the input. Twenty-four additional
+synthetic assertions cover these cases; the complete native suite now has 497.
+The corrected candidate was rebuilt and its signatures, archive round trip and
+copy-only installer contents reverified. The hashes above refer to that corrected
+candidate, which has not been opened or installed; the screenshot came from the
+preserved earlier review copy.
+
+No service registration, permission grant, actual Messages read, forwarding-key
+entry or delivery was performed by the agent. Actual automatic operation is
+still unverified; the UI screenshot is evidence of the window opening only.

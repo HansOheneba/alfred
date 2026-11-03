@@ -3,7 +3,53 @@ import Darwin
 import SQLite3
 
 let collectorAgentPlistName = "com.hansopoku.alfred.collector.agent.plist"
-enum CollectorServiceStatus: Equatable { case notRegistered, enabled, requiresApproval, unavailable }
+enum CollectorServiceStatus: Equatable { case notRegistered, enabled, requiresApproval, registrationUnknown, unavailable }
+enum CollectorServiceLookup { case notRegistered, enabled, requiresApproval, notFound, unknown }
+func collectorServiceStatus(lookup: CollectorServiceLookup, bundledAgentValid: Bool) -> CollectorServiceStatus {
+    guard bundledAgentValid else { return .unavailable }
+    switch lookup {
+    case .notRegistered: return .notRegistered
+    case .enabled: return .enabled
+    case .requiresApproval: return .requiresApproval
+    // An OS lookup error does not establish that the embedded file is absent,
+    // nor does a valid embedded file establish successful registration.
+    case .notFound, .unknown: return .registrationUnknown
+    }
+}
+func requireCollectorBundledAgent(at bundle: URL) throws {
+    let contents = bundle.appendingPathComponent("Contents", isDirectory: true)
+    let library = contents.appendingPathComponent("Library", isDirectory: true)
+    let agents = library.appendingPathComponent("LaunchAgents", isDirectory: true)
+    let macOS = contents.appendingPathComponent("MacOS", isDirectory: true)
+    for directory in [contents, library, agents, macOS] {
+        var info = stat()
+        guard lstat(directory.path, &info) == 0, info.st_mode & S_IFMT == S_IFDIR else {
+            throw CollectorError("This copy of Alfred Sync cannot start automatic checks. Use a complete, reviewed copy of the app.")
+        }
+    }
+    let plist = agents.appendingPathComponent(collectorAgentPlistName)
+    let executable = macOS.appendingPathComponent("AlfredCollector")
+    var plistInfo = stat(), executableInfo = stat()
+    guard lstat(plist.path, &plistInfo) == 0, plistInfo.st_mode & S_IFMT == S_IFREG,
+          plistInfo.st_size > 0, plistInfo.st_size <= 65_536,
+          lstat(executable.path, &executableInfo) == 0, executableInfo.st_mode & S_IFMT == S_IFREG,
+          executableInfo.st_mode & 0o111 != 0,
+          let dictionary = try PropertyListSerialization.propertyList(from: Data(contentsOf: plist), format: nil) as? [String: Any],
+          Set(dictionary.keys) == Set(["Label", "BundleProgram", "ProgramArguments", "RunAtLoad", "StartInterval", "ProcessType"]),
+          dictionary["Label"] as? String == "com.hansopoku.alfred.collector.agent",
+          dictionary["BundleProgram"] as? String == "Contents/MacOS/AlfredCollector",
+          dictionary["ProgramArguments"] as? [String] == ["AlfredCollector", "--scheduled-run"],
+          dictionary["RunAtLoad"] as? Bool == true,
+          dictionary["StartInterval"] as? Int == 60,
+          dictionary["ProcessType"] as? String == "Background" else {
+        throw CollectorError("This copy of Alfred Sync cannot start automatic checks. Use a complete, reviewed copy of the app.")
+    }
+}
+func collectorConnectionKey(_ input: String) throws -> String {
+    let value = input.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !value.isEmpty else { throw CollectorError("Paste your Alfred connection key before connecting.") }
+    return value
+}
 protocol CollectorBackgroundService: AnyObject {
     var status: CollectorServiceStatus { get }
     func register() throws
@@ -224,7 +270,7 @@ final class CollectorSetupCoordinator {
     @discardableResult func start(confirmedIdentity: CollectorAccountIdentity, consent: Bool) throws -> CollectorServiceStatus {
         guard consent else { throw CollectorError("Start cancelled. Collection stays off.") }
         try validateApp(); try ensurePrivateDirectory(directory)
-        guard service.status != .unavailable else { throw CollectorError("The bundled background item is unavailable. Use a reviewed build before Start.") }
+        guard service.status != .unavailable else { throw CollectorError("This copy of Alfred Sync cannot start automatic checks. Use a complete, reviewed copy of the app.") }
         let control = try CollectorSetupControlLock(directory: directory); defer { withExtendedLifetime(control) {} }
         let lock = try CollectorLock(directory: directory); defer { withExtendedLifetime(lock) {} }
         guard let checked = accessCheck, checked.identity == confirmedIdentity,
@@ -252,7 +298,7 @@ final class CollectorSetupCoordinator {
             senderScope: scopeJSON(config), baselineAt: baseline.initializedAt, enabled: false, decidedAt: stamp(clock()))
         try saveCollectorActivation(paused, directory: directory, config: config, binding: binding)
         do {
-            if service.status == .notRegistered { try service.register() }
+            if service.status == .notRegistered || service.status == .registrationUnknown { try service.register() }
         } catch {
             // A system-approval result is not active collection. Its helper is
             // gated by the paused file until the user returns and chooses Start.
@@ -284,7 +330,7 @@ final class CollectorSetupCoordinator {
         // stop our own registered service even if saved setup needs repair.
         // It need not wait for an in-flight capture lock; an already accepted
         // server request may still complete after this local pause choice.
-        do { if service.status == .enabled || service.status == .requiresApproval { try service.unregister() } }
+        do { if service.status == .enabled || service.status == .requiresApproval || service.status == .registrationUnknown { try service.unregister() } }
         catch { throw CollectorError("Automatic checks need a pause review in Login Items. Saved alerts and the collection window were kept.") }
         if stateFailure { throw CollectorError("Background registration was stopped, but saved setup needs review before restarting. Saved alerts were kept.") }
     }

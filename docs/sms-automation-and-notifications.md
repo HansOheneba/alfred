@@ -245,7 +245,9 @@ confirmation. It must resolve only unresolved parts, never “record the whole
 alert” again, and cannot blindly reuse Review when the matching record is absent.
 No manual financial resolution or new server mutation is added by Mac review.
 Native window compilation and synthetic state tests are separate from a real
-Mac runtime/UI verification; the app has not been launched or installed here.
+Mac runtime/UI verification. The user approved opening the setup window and
+confirmed it in a screenshot. Installation, held-alert interactions, permission
+grants, service registration and actual delivery remain unverified.
 
 ## Activation remains a separate operation
 

@@ -122,7 +122,13 @@ the same signed executable with `--scheduled-run` every 60 seconds, and that pat
 rechecks saved owner/scope consent before collection. A macOS background-approval
 prompt or denied Messages access is a stopped setup state, not success.
 
-Apple documents [bundled agent placement](https://developer.apple.com/documentation/servicemanagement/smappservice/agent(plistname:)) and [user-controlled service registration](https://developer.apple.com/documentation/servicemanagement/updating-your-app-package-installer-to-use-the-new-service-management-api). SDK compilation is preparation evidence only. No real registration, app opening, Full Disk Access grant or delivery has been performed.
+Apple documents [bundled agent placement](https://developer.apple.com/documentation/servicemanagement/smappservice/agent(plistname:)) and [user-controlled service registration](https://developer.apple.com/documentation/servicemanagement/updating-your-app-package-installer-to-use-the-new-service-management-api).
+SDK compilation is preparation evidence only. Opening the GUI from a temporary
+review copy has been observed after user approval. It has not been installed or
+registered; Full Disk Access, Messages access and delivery remain unverified.
+The observed Service Management lookup error does not establish that the signed
+embedded agent file is missing, or that registration would succeed. Those are
+separate checks; a lookup error must never be presented as active collection.
 
 The display name changes from the never-installed development candidate Alfred
 Collector to Alfred Sync. Bundle ID, executable name and private-container

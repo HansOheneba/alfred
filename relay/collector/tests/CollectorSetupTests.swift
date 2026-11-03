@@ -231,10 +231,75 @@ private func testCapabilityProtocol() throws {
     try check(!decodeCollectorAccountCheck(status: 200, data: old, networkError: false).setupReady, "old identity-only response cannot permit setup")
     try check(decodeAccountIdentity(status: 200, data: old, networkError: false) == account, "explicit legacy identity checks retain compatibility")
 }
+private func testUnknownRegistrationAndBundleValidation() throws {
+    try check(collectorServiceStatus(lookup: .notFound, bundledAgentValid: true) == .registrationUnknown, "OS notFound does not imply a missing bundled item")
+    try check(collectorServiceStatus(lookup: .unknown, bundledAgentValid: true) == .registrationUnknown, "unknown OS status never implies active registration")
+    try check(collectorServiceStatus(lookup: .enabled, bundledAgentValid: false) == .unavailable, "missing or invalid resources remain unavailable even if OS reports enabled")
+    try check(collectorServiceStatus(lookup: .notRegistered, bundledAgentValid: true) == .notRegistered, "known unregistered state remains distinct")
+    for input in ["", " \n\t "] {
+        do { _ = try collectorConnectionKey(input); throw SetupFailure(message: "empty key accepted") }
+        catch let error as CollectorError { try check(error.description == "Paste your Alfred connection key before connecting.", "blank key has clear feedback") }
+    }
+    try check(collectorConnectionKey("  synthetic-key\n") == "synthetic-key", "nonblank input is trimmed without retaining UI contents")
+    let bundle = FileManager.default.temporaryDirectory.appendingPathComponent("alfred-agent-resource-fixture-" + UUID().uuidString)
+    defer { try? FileManager.default.removeItem(at: bundle) }
+    let agents = bundle.appendingPathComponent("Contents/Library/LaunchAgents", isDirectory: true)
+    let macOS = bundle.appendingPathComponent("Contents/MacOS", isDirectory: true)
+    try FileManager.default.createDirectory(at: agents, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: macOS, withIntermediateDirectories: true)
+    let executable = macOS.appendingPathComponent("AlfredCollector")
+    try Data("fixture only; never execute".utf8).write(to: executable)
+    try FileManager.default.setAttributes([.posixPermissions: 0o700], ofItemAtPath: executable.path)
+    let plist = agents.appendingPathComponent(collectorAgentPlistName)
+    var dictionary: [String: Any] = ["Label": "com.hansopoku.alfred.collector.agent", "BundleProgram": "Contents/MacOS/AlfredCollector",
+        "ProgramArguments": ["AlfredCollector", "--scheduled-run"], "RunAtLoad": true, "StartInterval": 60, "ProcessType": "Background"]
+    func save() throws { try PropertyListSerialization.data(fromPropertyList: dictionary, format: .xml, options: 0).write(to: plist) }
+    try rejects("missing agent is unavailable") { try requireCollectorBundledAgent(at: bundle) }
+    try save(); try requireCollectorBundledAgent(at: bundle)
+    try check(true, "exact bundled resources validate without any service operation")
+    dictionary["ProgramArguments"] = ["AlfredCollector", "--run"]; try save()
+    try rejects("unguarded manual worker cannot replace scheduled agent") { try requireCollectorBundledAgent(at: bundle) }
+    dictionary["ProgramArguments"] = ["AlfredCollector", "--scheduled-run"]; try save()
+    let target = agents.appendingPathComponent("fixture-agent.plist")
+    try FileManager.default.moveItem(at: plist, to: target)
+    try FileManager.default.createSymbolicLink(at: plist, withDestinationURL: target)
+    try rejects("symlinked agent is not an exact bundled resource") { try requireCollectorBundledAgent(at: bundle) }
+    try fixture { f in
+        f.service.status = .registrationUnknown
+        let state = try f.coordinator.snapshot()
+        try check(state.service == .registrationUnknown && !state.explicitlyEnabled && f.service.registered == 0, "opening unknown registration stays inactive and never registers")
+        try f.connect()
+        try rejects("unknown status still requires a fresh access check") { _ = try f.coordinator.start(confirmedIdentity: account, consent: true) }
+        try check(f.service.registered == 0 && f.headerReads == 0, "unknown status cannot bypass setup gates")
+        _ = try f.coordinator.checkMessagesAccess()
+        try check(f.coordinator.start(confirmedIdentity: account, consent: true) == .enabled, "explicit Start can attempt normal registration after all checks")
+        try check(f.service.registered == 1, "unknown status performs exactly one registration attempt")
+        f.service.status = .registrationUnknown; f.service.unregisterFails = true
+        try rejects("unknown OS status still reports unregister failure") { try f.coordinator.pause() }
+        try check(f.service.unregistered == 1 && !scheduledCollectorRunAllowed(directory: f.directory, config: f.config, binding: f.binding()), "Pause durably revokes before unregistering an unknown service")
+    }
+    try fixture { f in
+        try f.connect(); _ = try f.coordinator.checkMessagesAccess()
+        f.service.status = .registrationUnknown; f.service.registrationFails = true
+        try rejects("unknown status registration error remains reported") { _ = try f.coordinator.start(confirmedIdentity: account, consent: true) }
+        try check(f.service.registered == 1 && !scheduledCollectorRunAllowed(directory: f.directory, config: f.config, binding: f.binding()), "failed unknown registration remains paused without retry")
+    }
+    try fixture { f in
+        try f.connect(); _ = try f.coordinator.checkMessagesAccess()
+        f.service.status = .registrationUnknown; f.service.registrationResult = .registrationUnknown
+        try check(f.coordinator.start(confirmedIdentity: account, consent: true) == .registrationUnknown, "unconfirmed registration result is not upgraded to enabled")
+        try check(!scheduledCollectorRunAllowed(directory: f.directory, config: f.config, binding: f.binding()), "unconfirmed result retains disabled durable consent")
+    }
+    try fixture { f in
+        try f.connect(); _ = try f.coordinator.checkMessagesAccess(); f.service.status = .unavailable
+        try rejects("invalid bundled resources continue to block Start") { _ = try f.coordinator.start(confirmedIdentity: account, consent: true) }
+        try check(f.service.registered == 0 && !pathExists(f.directory.appendingPathComponent("outbox.sqlite")), "unavailable resources create no collection window or registration")
+    }
+}
 @main private struct CollectorSetupTests {
     static func main() throws {
         try testInactiveAndConnection(); try testReadinessAndFreshAccess(); try testStartPauseAndOriginalWindow()
-        try testRegistrationAndInterruptedSetup(); try testPerSendPauseAndHeaderOnlyCheck(); try testCapabilityProtocol()
+        try testRegistrationAndInterruptedSetup(); try testPerSendPauseAndHeaderOnlyCheck(); try testCapabilityProtocol(); try testUnknownRegistrationAndBundleValidation()
         print("PASS: \(checks) synthetic native setup assertions; no real Messages, HTTP, app launch, credentials or service registration.")
     }
 }

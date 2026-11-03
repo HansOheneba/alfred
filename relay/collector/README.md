@@ -60,7 +60,8 @@ unregistering its own service. It works without network/FDA and retains the
 outbox/baseline. Scheduled runs recheck consent before capture, each send and
 health reporting. An already initiated request may finish; Pause cannot recall
 an accepted alert. Review saved alerts remains private/local-only. The native
-window, real permissions and service operation remain unverified at runtime.
+setup window opened in a user-approved local review. Real Messages permissions
+and service operation remain unverified at runtime.
 
 ## Architecture and the Money Dashboard comparison
 
@@ -207,8 +208,8 @@ alerts. Network failures, malformed receipts and failed persistence retain the
 payload. A lost response can be retried against the same durable receipt without
 repeating ingestion; a receipt still does not prove settlement or a new financial
 record. The explicit **Review saved alerts** window now shows decoded held
-alerts privately on this Mac. It is available from the inactive app-opening
-notice or `--review-held`. It never reads Messages, contacts Alfred or starts
+alerts privately on this Mac. It is available from the setup window
+or `--review-held`. It never reads Messages, contacts Alfred or starts
 collection. The saved account confirmation is clearly labelled as not freshly
 checked online. Actions recheck that local connection and the exact saved alert:
 **Try again** makes the original event eligible for a later authorized delivery;
@@ -217,8 +218,8 @@ keeps duplicate protection; **Later** keeps it saved. None changes existing
 financial records or claims an Alfred acknowledgement. Source quarantine stays
 metadata-only and uses the existing repair retries. Decisions have a private,
 content-free audit and are atomic/idempotent; a stale window cannot act on a
-changed alert or the next item. The native window is compiled and state-tested
-with fixtures, not runtime-verified by launching the app.
+changed alert or the next item. The held-alert window is compiled and
+state-tested with fixtures; its runtime interactions remain unverified.
 Protocol 2 ingests only its exact top-level text/sender/time fields; legacy
 Shortcut aliases cannot substitute another payload. The confirmed owner is also
 asserted before ingestion, so a mismatched recipient is rejected before a claim

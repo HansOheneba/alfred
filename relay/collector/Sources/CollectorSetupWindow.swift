@@ -5,15 +5,21 @@ import ServiceManagement
 final class SystemCollectorBackgroundService: CollectorBackgroundService {
     private let service = SMAppService.agent(plistName: collectorAgentPlistName)
     var status: CollectorServiceStatus {
+        let lookup: CollectorServiceLookup
         switch service.status {
-        case .notRegistered: return .notRegistered
-        case .enabled: return .enabled
-        case .requiresApproval: return .requiresApproval
-        case .notFound: return .unavailable
-        @unknown default: return .unavailable
+        case .notRegistered: lookup = .notRegistered
+        case .enabled: lookup = .enabled
+        case .requiresApproval: lookup = .requiresApproval
+        case .notFound: lookup = .notFound
+        @unknown default: lookup = .unknown
         }
+        return collectorServiceStatus(lookup: lookup, bundledAgentValid: (try? requireCollectorBundledAgent(at: Bundle.main.bundleURL)) != nil)
     }
-    func register() throws { try service.register() }
+    func register() throws {
+        try requireDeclaredSandbox()
+        try requireCollectorBundledAgent(at: Bundle.main.bundleURL)
+        try service.register()
+    }
     func unregister() throws { try service.unregister() }
 }
 
@@ -72,7 +78,7 @@ final class CollectorSetupWindow: NSObject, NSWindowDelegate, @unchecked Sendabl
         allProviders.target = self; allProviders.action = #selector(selectProviders)
         privacy.target = self; privacy.action = #selector(openPrivacy)
         checkAccess.target = self; checkAccess.action = #selector(checkMessages)
-        let permission = NSTextField(wrappingLabelWithString: "If macOS asks, allow Alfred Sync in Privacy & Security → Full Disk Access. That permission is broad; Alfred filters forwarding to the providers you select. Your iPhone SMS must already arrive in Messages on this Mac. The access check reads only schema and message headers, not alert text.")
+        let permission = NSTextField(wrappingLabelWithString: "If macOS asks, allow Alfred Sync in Privacy & Security → Full Disk Access. That permission is broad; Alfred filters forwarding to the providers you select. Your iPhone SMS must already arrive in Messages on this Mac. This check doesn’t read payment-message text.")
         permission.textColor = .secondaryLabelColor
         start.target = self; start.action = #selector(startSync)
         pause.target = self; pause.action = #selector(pauseSync)
@@ -134,7 +140,8 @@ final class CollectorSetupWindow: NSObject, NSWindowDelegate, @unchecked Sendabl
             syncState.stringValue = value.explicitlyEnabled ? "Automatic checks are on: once a minute while logged in and awake. This is schedule status, not proof that an alert was accepted." : "Background registration exists, but collection is paused. Review setup and choose Start."
         case .requiresApproval: syncState.stringValue = "macOS needs background approval. Open Background settings, review Alfred Sync, then return here and choose Start. Collection stays off until then."
         case .notRegistered: syncState.stringValue = "Automatic checks are off. Choose Start after checking access."
-        case .unavailable: syncState.stringValue = "The bundled background item could not be found. This copy needs a packaging review; automatic checks are off."
+        case .registrationUnknown: syncState.stringValue = "Automatic checks are not yet confirmed. After checking access, choose Start to ask macOS to enable them."
+        case .unavailable: syncState.stringValue = "This copy of Alfred Sync cannot start automatic checks. Use a complete, reviewed copy of the app."
         }
         if let status = value.outbox {
             syncState.stringValue += " \(status.pendingCount) saved alert(s) await acceptance; \(status.heldForReviewCount) need review."
@@ -149,7 +156,7 @@ final class CollectorSetupWindow: NSObject, NSWindowDelegate, @unchecked Sendabl
         for item in providers { item.button.isEnabled = !busy && !configured }
         privacy.isEnabled = !busy; checkAccess.isEnabled = !busy && snapshot?.identity != nil
         start.isEnabled = !busy && snapshot?.identity != nil && snapshot?.accessCheckedAt != nil && snapshot?.service != .unavailable && !(snapshot?.explicitlyEnabled == true && snapshot?.service == .enabled)
-        pause.isEnabled = !busy && (snapshot?.explicitlyEnabled == true || snapshot?.service == .enabled || snapshot?.service == .requiresApproval)
+        pause.isEnabled = !busy && (snapshot?.explicitlyEnabled == true || snapshot?.service == .enabled || snapshot?.service == .requiresApproval || snapshot?.service == .registrationUnknown)
         loginItems.isEnabled = !busy; refresh.isEnabled = !busy; done.isEnabled = !busy
         review.isEnabled = !busy && snapshot?.outbox != nil
     }
@@ -187,7 +194,9 @@ final class CollectorSetupWindow: NSObject, NSWindowDelegate, @unchecked Sendabl
                 try self.coordinator.confirmSavedAccount(confirm: self.confirm)
             }; return
         }
-        let secret = key.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        let secret: String
+        do { secret = try collectorConnectionKey(key.stringValue) }
+        catch { feedback.stringValue = String(describing: error); return }
         key.stringValue = ""
         let selected = providers.filter { $0.button.state == .on }.map(\.id)
         perform("Checking your Alfred account…", success: "Account connected. No Messages were read and collection is still off.") {
