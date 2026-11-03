@@ -29,9 +29,24 @@
 .alfred-production-chat-error { max-width: 800px; margin: 16px auto 0; padding: 12px; border: 1px solid var(--danger); border-radius: 12px; color: var(--danger); font-size: 14px; line-height: 24px; }
 .alfred-production-chat-followUps { display: flex; gap: 8px; overflow-x: auto; padding: 8px 4px 12px; }
 .alfred-production-chat-followUps button { white-space: nowrap; flex-shrink: 0; }
-/* Answer buttons for a payment question: every option visible, so rows wrap rather than scroll. */
-.alfred-production-chat-choices { display: grid; gap: 6px; padding: 8px 4px 12px; }
-.alfred-production-chat-choices > div { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Tap-to-answer chips inside Alfred's payment question: every option visible, so they wrap rather than scroll. */
+.alfred-chat-answers { display: grid; gap: 10px; margin-top: 16px; }
+.alfred-chat-answers-chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.alfred-chat-answers-chips button { min-height: 36px; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 13px; line-height: 20px; font-weight: 500; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s; }
+.alfred-chat-answers-chips button:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--accent-soft); color: var(--accent-strong); }
+.alfred-chat-answers-chips button:active { transform: translateY(1px); }
+.alfred-chat-answers-chips button[data-kind="suggested"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
+.alfred-chat-answers-chips button[data-kind="suggested"]:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
+.alfred-chat-answers-more { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 16px; font-size: 13px; line-height: 20px; }
+.alfred-chat-answers-more :is(button,a) { padding: 4px 0; border: 0; background: none; color: var(--muted); font: inherit; cursor: pointer; text-decoration: underline; text-decoration-color: var(--line-strong); text-underline-offset: 4px; }
+.alfred-chat-answers-more :is(button,a):hover { color: var(--accent); text-decoration-color: currentColor; }
+.alfred-chat-answers-more a { margin-left: auto; text-decoration: none; }
+@media (max-width: 600px) {
+  .alfred-chat-answers { margin-top: 12px; }
+  .alfred-chat-answers-chips { gap: 6px; }
+  .alfred-chat-answers-chips button { min-height: 40px; padding: 8px 14px; }
+  .alfred-chat-answers-more a { margin-left: 0; }
+}
 .alfred-production-chat-composer:focus-within { border-color:color-mix(in srgb,var(--accent) 56%,var(--line)); box-shadow:0 0 0 4px color-mix(in srgb,var(--accent) 6%,transparent),0 12px 32px color-mix(in srgb,var(--accent) 8%,transparent); }
 .alfred-production-chat-composer textarea::placeholder { color: var(--faint); }
 .alfred-production-chat-disclaimer { margin-top: 8px; text-align: center; color: var(--muted); font-size: 12px; line-height: 20px; }
@@ -122,7 +137,7 @@
   .alfred-production-chat-contextCards > .alfred-production-chat-setupContext { padding: 20px; }
 }
 
-.alfred-chat-viewport[data-keyboard-open="true"] .alfred-production-chat :is(.alfred-production-chat-followUps,.alfred-production-chat-choices,.alfred-production-chat-disclaimer,.alfred-production-chat-handoff) { display:none; }
+.alfred-chat-viewport[data-keyboard-open="true"] .alfred-production-chat :is(.alfred-production-chat-followUps,.alfred-production-chat-disclaimer,.alfred-production-chat-handoff) { display:none; }
 @media(max-width:600px) {
   .alfred-production-chat-composeArea { padding-bottom:8px; }
 }

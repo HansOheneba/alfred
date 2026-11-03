@@ -470,6 +470,7 @@ export function ChatPanel({
                   <div className="alfred-production-chat-assistantContent">
                     <p>{message.text}</p>
                     {message.chart ? <ReplyChart chart={message.chart} /> : null}
+                    {message === last && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
                     {message.actionId && !message.settled ? <div className="alfred-production-chat-decisions"><button type="button" disabled={busy} className={buttonClassName({ variant: "primary", size: "sm", className: "is-primary" })} onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}>Confirm</button><button className={buttonClassName({ variant: "secondary", size: "sm" })} type="button" disabled={busy} onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}>Cancel</button></div> : null}
                   </div>
                 </article>
@@ -504,7 +505,6 @@ export function ChatPanel({
             </Link>
           </div> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
-          {showFollowUps && choices.length ? <div className="alfred-production-chat-choices" role="group" aria-label="Answer Alfred's question">{choices.map((row, index) => <div key={index}>{row.map((item) => item.href ? <Link key={item.label} href={item.href} className={buttonClassName({ variant: "ghost", size: "sm" })}>{item.label}</Link> : <button key={item.choice} type="button" className={buttonClassName({ variant: "secondary", size: "sm" })} onClick={() => void send({ choice: item.choice }, item.label)}>{item.label}</button>)}</div>)}</div> : null}
           {showFollowUps && !choices.length ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
@@ -529,6 +529,37 @@ export function ChatPanel({
   );
 }
 
+
+/** Where a choice belongs: the likely answer, a category, another kind of answer, or a link. */
+function choiceGroup(item: ChatChoice): "suggested" | "category" | "other" | "link" {
+  if (item.href !== undefined) return "link";
+  if (/:c\d+$/.test(item.choice)) return "category";
+  return /:[rp]$/.test(item.choice) || item.label.startsWith("Yes") || item.label.startsWith("My own") ? "suggested" : "other";
+}
+
+/** Tap-to-answer chips under Alfred's question about a bank payment. */
+function AnswerChoices({ choices, onChoose }: { choices: ChatChoice[][]; onChoose: (item: Extract<ChatChoice, { choice: string }>) => void }) {
+  const items = choices.flat();
+  const tap = (item: ChatChoice) => (item.choice ? () => onChoose(item) : undefined);
+  const group = (name: ReturnType<typeof choiceGroup>) => items.filter((item) => choiceGroup(item) === name);
+  const suggested = group("suggested");
+  const other = group("other");
+  const link = group("link")[0];
+  return (
+    <div className="alfred-chat-answers" role="group" aria-label="Answer Alfred's question">
+      <div className="alfred-chat-answers-chips">
+        {suggested.map((item) => <button key={item.label} type="button" data-kind="suggested" onClick={tap(item)}>{item.label}</button>)}
+        {group("category").map((item) => <button key={item.label} type="button" onClick={tap(item)}>{item.label}</button>)}
+      </div>
+      {other.length || link ? (
+        <div className="alfred-chat-answers-more">
+          {other.map((item) => <button key={item.label} type="button" onClick={tap(item)}>{item.label}</button>)}
+          {link?.href ? <Link href={link.href}>{link.label} <span aria-hidden="true">↗</span></Link> : null}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** Static setup UI, kept outside the saved conversation log. */
 function ChatGettingStarted() {
