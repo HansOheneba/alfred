@@ -22,7 +22,11 @@ class PolicyTests(unittest.TestCase):
   script=(ROOT/'scripts/build.sh').read_text()
   self.assertNotRegex(script,r'(?m)^\s*(?:open|launchctl|osascript|tccutil|installer)\b')
   self.assertNotRegex(script,r'(?m)^\s*["\']?\$APP["\']?\s*(?:$|--)')
-  self.assertNotIn('/Library/LaunchAgents',script)
+  # A bundled SMAppService plist is inert at build/install time. Only a later
+  # explicit Start registers it; build may stage Contents/Library/LaunchAgents.
+  self.assertNotIn('~/Library/LaunchAgents',script)
+  self.assertNotIn('/Users/$USER/Library/LaunchAgents',script)
+  self.assertIn('Contents/Library/LaunchAgents',script)
   self.assertIn('codesign --verify --strict',script)
  def test_app_default_is_inactive(self):
   source=(ROOT/'Sources/AppMain.swift').read_text()

@@ -5,7 +5,7 @@ import { pushConfiguration } from "@/lib/notifications/push";
 import { notificationJSON, privateJSON, sameOrigin, displayedOwnerMatches } from "@/lib/notifications/http";
 import { loadRecoveryStatus } from "@/lib/notifications/recovery";
 
-const patch=z.object({paymentMentions:z.boolean().optional(),paymentPush:z.boolean().optional(),billReminders:z.boolean().optional(),weeklyOverview:z.boolean().optional()}).strict().refine(value=>Object.keys(value).length>0,"Choose a notification preference.");
+const patch=z.object({paymentMentions:z.boolean().optional(),outgoingMentions:z.boolean().optional(),paymentPush:z.boolean().optional(),billReminders:z.boolean().optional(),weeklyOverview:z.boolean().optional()}).strict().refine(value=>Object.keys(value).length>0,"Choose a notification preference.");
 export async function GET():Promise<Response> {
   try {
     const owner=await requireOwner();if(owner instanceof Response)return owner;

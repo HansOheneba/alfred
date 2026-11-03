@@ -12,7 +12,7 @@ import { deliverBankAutomation } from "@/lib/bank/automation";
 
 const settings = {} as SupabaseSettings, owner = profile(42), now = new Date("2026-11-03T12:00:00Z");
 function preferences(patch: Partial<NotificationPreferences> = {}): NotificationPreferences {
-  return { paymentMentions: false, paymentPush: false, billReminders: true, weeklyOverview: true,
+  return { paymentMentions: false, outgoingMentions: false, outgoingMentionsSince: null, paymentPush: false, billReminders: true, weeklyOverview: true,
     paymentMentionsSince: null, paymentPushSince: null, billRemindersSince: now.toISOString(), weeklyOverviewSince: now.toISOString(), ...patch };
 }
 beforeEach(() => {
@@ -31,6 +31,12 @@ describe("bank automation avoids unrelated work", () => {
     const prefs = preferences({ paymentMentions: true, paymentMentionsSince: now.toISOString() }); mocks.preferences.mockResolvedValue(prefs);
     await deliverBankAutomation(settings, owner);
     expect(mocks.preferences).toHaveBeenCalledOnce();
+    expect(mocks.mentions).toHaveBeenCalledExactlyOnceWith(settings, owner.profileId, now, now.getTime() + 10_000, { ownerId: owner.profileId, preferences: prefs });
+    expect(mocks.enqueue).not.toHaveBeenCalled(); expect(mocks.drain).not.toHaveBeenCalled();
+  });
+  it("recovers private outgoing activity when incoming mentions and device nudges are off", async () => {
+    const prefs = preferences({ outgoingMentions: true, outgoingMentionsSince: now.toISOString() }); mocks.preferences.mockResolvedValue(prefs);
+    await deliverBankAutomation(settings, owner);
     expect(mocks.mentions).toHaveBeenCalledExactlyOnceWith(settings, owner.profileId, now, now.getTime() + 10_000, { ownerId: owner.profileId, preferences: prefs });
     expect(mocks.enqueue).not.toHaveBeenCalled(); expect(mocks.drain).not.toHaveBeenCalled();
   });

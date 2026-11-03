@@ -19,7 +19,7 @@ import { trackTurnData } from "@/lib/conversation/turn-data";
 import type { FinanceStore } from "@/lib/finance/store";
 import { userFacingError } from "@/lib/telegram/messages";
 import type { ConversationContext } from "@/lib/finance/conversation";
-import { clientTurnUpdateId, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
+import { clientTurnUpdateId, isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
 import { logError } from "@/lib/log";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
@@ -288,7 +288,7 @@ async function bindPaymentReply(deps: StudioDeps, ownerId: string, clientId: str
 export async function openChoices(profile: UserProfile, deps: StudioDeps, last: ChatMessageRecord | undefined): Promise<ChatChoice[][]> {
   const ingest = ingestFor(deps, deps.now());
   if (!ingest || last?.role !== "assistant") return [];
-  if (last.paymentNotice || last.intent === "automation:incoming-payment") {
+  if (last.paymentNotice || isPaymentNoticeIntent(last.intent)) {
     if (!last.paymentNotice?.requiresPurpose) return [];
     return chatChoices((await currentQuestion(ingest, profile, { currentMessageId: last.paymentNotice.bankMessageId }))?.buttons);
   }

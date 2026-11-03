@@ -7,8 +7,8 @@ import { Spinner } from "@/app/components/status";
 import type { NotificationPreferences } from "@/lib/notifications/store";
 
 export const EMPTY_NOTIFICATION_PREFERENCES: NotificationPreferences = {
-  paymentMentions: false, paymentPush: false, billReminders: false, weeklyOverview: false,
-  paymentMentionsSince: null, paymentPushSince: null, billRemindersSince: null, weeklyOverviewSince: null,
+  paymentMentions: false, outgoingMentions: false, paymentPush: false, billReminders: false, weeklyOverview: false,
+  paymentMentionsSince: null, outgoingMentionsSince: null, paymentPushSince: null, billRemindersSince: null, weeklyOverviewSince: null,
 };
 export type NotificationSettingsData = {
   ownerId: string;
@@ -16,8 +16,8 @@ export type NotificationSettingsData = {
   push: { configured: boolean; publicKey: string | null; deliveryEnabled: boolean; schedulesEnabled: boolean; recoveryReady?: boolean };
   devices: { id: string; createdAt: string }[];
 };
-type PreferenceKey = "paymentMentions" | "paymentPush" | "billReminders" | "weeklyOverview";
-const preferenceKeys: PreferenceKey[] = ["paymentMentions", "paymentPush", "billReminders", "weeklyOverview"];
+type PreferenceKey = "paymentMentions" | "outgoingMentions" | "paymentPush" | "billReminders" | "weeklyOverview";
+const preferenceKeys: PreferenceKey[] = ["paymentMentions", "outgoingMentions", "paymentPush", "billReminders", "weeklyOverview"];
 const unavailable = "Notification settings could not be loaded. Please try again.";
 
 /** Ignore all extra server fields, including subscription endpoints or private keys. */
@@ -33,7 +33,7 @@ export function parseNotificationSettings(value: unknown, expectedOwner?: string
   const preferences = { ...EMPTY_NOTIFICATION_PREFERENCES };
   for (const key of preferenceKeys) {
     preferences[key] = prefs[key] as boolean;
-    const sinceKey = `${key}Since` as keyof Pick<NotificationPreferences, "paymentMentionsSince" | "paymentPushSince" | "billRemindersSince" | "weeklyOverviewSince">;
+    const sinceKey = `${key}Since` as keyof Pick<NotificationPreferences, "paymentMentionsSince" | "outgoingMentionsSince" | "paymentPushSince" | "billRemindersSince" | "weeklyOverviewSince">;
     const since = prefs[sinceKey];
     if (since !== null && (typeof since !== "string" || !Number.isFinite(Date.parse(since)))) throw new Error(unavailable);
     preferences[sinceKey] = since as string | null;
@@ -210,7 +210,7 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
     setChoices(preferences);
     setData({ ...data, preferences });
     setError("");
-    setNotice("Preview reset. All four choices are off. No account settings were changed.");
+    setNotice("Preview reset. All five choices are off. No account settings were changed.");
   }
   async function allowThisBrowser() {
     if (!data) return;
@@ -270,11 +270,12 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
   return (
     <div className="flex flex-col gap-5">
       <Card title="When Alfred checks in">
-        <p className="text-sm leading-6 text-muted">Let Alfred mention new payment alerts in chat, and choose which discreet nudges can reach your devices. Everything starts off until you choose it.</p>
+        <p className="text-sm leading-6 text-muted">Let Alfred announce money coming in and going out in chat, and choose which discreet nudges reach your devices. Each choice starts off until you turn it on.</p>
         {loading ? <p className="mt-4 flex items-center gap-2 text-sm text-muted" role="status"><Spinner />Loading notification choices…</p> : null}
         {data ? <>
           <div className="mt-5 divide-y divide-line">
-            <NotificationChoice id="payment-mentions" title="Mention incoming payments in chat" description="Alfred speaks up when a new incoming alert is detected. Uncertain alerts are clearly marked for review." checked={choices.paymentMentions} disabled={busy} onChange={(value) => setChoices({ ...choices, paymentMentions: value })} />
+            <NotificationChoice id="payment-mentions" title="Money in" description="Alfred announces new incoming payment alerts in chat. Uncertain alerts stay clearly marked for review." checked={choices.paymentMentions} disabled={busy} onChange={(value) => setChoices({ ...choices, paymentMentions: value })} />
+            <NotificationChoice id="outgoing-mentions" title="Money out" description="Alfred announces new outgoing payment alerts in chat. This is separate from your money-in choice." checked={choices.outgoingMentions} disabled={busy} onChange={(value) => setChoices({ ...choices, outgoingMentions: value })} />
             <NotificationChoice id="payment-push" title="Payment nudges" description="A discreet nudge for new payment alerts, including overnight. Details stay inside Alfred." checked={choices.paymentPush} disabled={busy || (!preview && !choices.paymentPush && !pushReady)} onChange={(value) => setChoices({ ...choices, paymentPush: value })} />
             <NotificationChoice id="bill-reminders" title="Bill reminders" description="A reminder at 9am the day before a confirmed bill, in your timezone." checked={choices.billReminders} disabled={busy || (!preview && !choices.billReminders && !pushReady)} onChange={(value) => setChoices({ ...choices, billReminders: value })} />
             <NotificationChoice id="weekly-overview" title="Weekly overview" description="A Sunday check-in at 6pm in your timezone, when your records are up to date." checked={choices.weeklyOverview} disabled={busy || (!preview && !choices.weeklyOverview && !pushReady)} onChange={(value) => setChoices({ ...choices, weeklyOverview: value })} />
@@ -284,7 +285,7 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
             {preview ? <Button onClick={resetPreview} disabled={busy}>Reset preview choices</Button> : null}
             <Button variant="primary" onClick={() => void saveChoices()} disabled={!dirty || busy} aria-busy={busy}>{busy ? <Spinner /> : null}{preview ? "Save preview choices" : "Save notification choices"}</Button>
           </div>
-          {preview ? <p className="mt-3 text-xs leading-5 text-muted">Try all four choices here. They are simulated for this visit, stay while you browse this preview, and reset when you reload. Nothing will be sent.</p> : !pushReady ? <p className="mt-3 text-xs leading-5 text-muted">Scheduled push recovery is not ready. New device notifications stay off until it has recently checked in. Alfred’s in-app mentions remain available, and existing device choices can be turned off.</p> : <p className="mt-3 text-xs leading-5 text-muted">Scheduled recovery has recently checked in. It can pick up pending nudges without waiting for another SMS.</p>}
+          {preview ? <p className="mt-3 text-xs leading-5 text-muted">Try all five choices here. They are simulated for this visit, stay while you browse this preview, and reset when you reload. Nothing will be sent.</p> : !pushReady ? <p className="mt-3 text-xs leading-5 text-muted">Scheduled push recovery is not ready. New device notifications stay off until it has recently checked in. Alfred’s in-app mentions remain available, and existing device choices can be turned off.</p> : <p className="mt-3 text-xs leading-5 text-muted">Scheduled recovery has recently checked in. It can pick up pending nudges without waiting for another SMS.</p>}
         </> : null}
         {error ? <p className="mt-4 text-sm text-danger" role="alert">{error}</p> : null}
         {notice ? <p className="mt-4 text-sm text-success" role="status" aria-live="polite">{notice}</p> : null}

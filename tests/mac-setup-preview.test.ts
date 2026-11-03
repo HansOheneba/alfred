@@ -16,14 +16,14 @@ afterEach(() => vi.unstubAllGlobals());
 
 describe("simple Mac setup explanation", () => {
   it("uses three human steps with a separate broad OS permission disclosure", () => {
-    expect(MAC_SETUP_STEPS.map((step) => step.title)).toEqual(["Connect your Alfred account", "Allow Messages on this Mac", "Choose providers and start with new alerts"]);
+    expect(MAC_SETUP_STEPS.map((step) => step.title)).toEqual(["Open Alfred Sync", "Allow Messages on this Mac", "Start automatic sync"]);
     const html = renderToStaticMarkup(createElement(MacAutomationCard));
     for (const step of MAC_SETUP_STEPS) expect(html).toContain(step.title);
     expect(html).toContain("Full Disk Access is a broad macOS permission");
     expect(html).toContain("does not narrow that OS permission");
     expect(html).toContain("Your Mac must already receive your iPhone SMS");
-    expect(html).toContain("Prototype · not available");
-    expect(html).toContain("not ready for distribution or activation");
+    expect(html).toContain("Mac app required");
+    expect(html).toContain("opening this page does not install the app or start syncing");
     expect(html).not.toContain("Create forwarding key");
     expect(html).not.toContain("Start capture</button>");
   });

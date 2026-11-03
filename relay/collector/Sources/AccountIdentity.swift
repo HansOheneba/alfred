@@ -30,13 +30,24 @@ struct CollectorAccountBinding: Codable {
         }
     }
 }
-private struct AccountResponse: Decodable { let ok: Bool; let identityProtocol: Int; let account: CollectorAccountIdentity }
-func decodeAccountIdentity(status: Int?, data: Data?, networkError: Bool) throws -> CollectorAccountIdentity {
+struct CollectorAccountCheck {
+    let identity: CollectorAccountIdentity
+    let setupReady: Bool
+}
+private struct AccountResponse: Decodable {
+    let ok: Bool; let identityProtocol: Int; let account: CollectorAccountIdentity
+    let setupProtocol: Int?; let setupReady: Bool?
+}
+func decodeCollectorAccountCheck(status: Int?, data: Data?, networkError: Bool) throws -> CollectorAccountCheck {
     guard !networkError, status == 200, let data, !data.isEmpty, data.count <= 8192,
           let result = try? JSONDecoder().decode(AccountResponse.self, from: data), result.ok, result.identityProtocol == 1 else {
         throw CollectorError("Alfred could not verify the account connection. No Messages access or delivery is allowed.")
     }
-    try result.account.validate(); return result.account
+    try result.account.validate()
+    return CollectorAccountCheck(identity: result.account, setupReady: result.setupProtocol == 1 && result.setupReady == true)
+}
+func decodeAccountIdentity(status: Int?, data: Data?, networkError: Bool) throws -> CollectorAccountIdentity {
+    try decodeCollectorAccountCheck(status: status, data: data, networkError: networkError).identity
 }
 
 /** A small, bounded, cookie-free identity response; redirects never receive the key. */
@@ -63,13 +74,13 @@ private final class AccountResponseDelegate: NSObject, URLSessionDataDelegate, @
     func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
         lock.lock(); failed = failed || error != nil; lock.unlock(); completed.signal()
     }
-    func result() throws -> CollectorAccountIdentity {
+    func result() throws -> CollectorAccountCheck {
         guard completed.wait(timeout: .now() + 20) == .success else { throw CollectorError("The account connection check timed out. Nothing was collected or sent.") }
         lock.lock(); defer { lock.unlock() }
-        return try decodeAccountIdentity(status: status, data: bytes, networkError: failed)
+        return try decodeCollectorAccountCheck(status: status, data: bytes, networkError: failed)
     }
 }
-func fetchCollectorAccount(key: String) throws -> CollectorAccountIdentity {
+func fetchCollectorAccountCheck(key: String) throws -> CollectorAccountCheck {
     var request = URLRequest(url: collectorAccountURL)
     request.httpMethod = "GET"; request.timeoutInterval = 12
     request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
@@ -84,6 +95,9 @@ func fetchCollectorAccount(key: String) throws -> CollectorAccountIdentity {
     defer { session.invalidateAndCancel() }
     session.dataTask(with: request).resume()
     return try delegate.result()
+}
+func fetchCollectorAccount(key: String) throws -> CollectorAccountIdentity {
+    try fetchCollectorAccountCheck(key: key).identity
 }
 func loadAccountBinding(directory: URL, config: CollectorConfig) throws -> CollectorAccountBinding {
     let binding: CollectorAccountBinding

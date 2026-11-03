@@ -1,4 +1,4 @@
-# Alfred collector — inactive local prototype
+# Alfred Sync — local Mac setup candidate
 
 This directory is a new native macOS collector candidate for Alfred. It does
 not modify an existing **My Money Sync** app, its Python scripts, credentials,
@@ -20,7 +20,7 @@ From this directory:
 
 `build.sh` compiles in a temporary directory, applies an ad-hoc local-development
 signature, verifies its declared entitlements, and stages
-`build/Alfred Collector.app.zip` plus a build manifest. It verifies the signature
+`build/Alfred Sync.app.zip` plus a build manifest. It verifies the signature
 again after an archive round trip, without executing the app. A ZIP avoids
 FileProvider-added Finder metadata interfering with signing of `.app` folders;
 no quarantine/security attributes are stripped.
@@ -45,12 +45,22 @@ transactions and an injected transport. `AppMain.swift` is excluded, so the app
 entry point, real Messages path, private key prompt and HTTP delivery are not
 executed. A successful fixture run is not a runtime platform-access result.
 
-The prepared installer only copies the app; no installer or autostart
-registration has been run. Opening the app without arguments shows an inactive
-notice; it does not collect, deliver or request a key. Choosing **Review saved
-alerts** explicitly opens the existing private local outbox, with no Messages
-or network access. Missing setup shows that there are no saved alerts to review.
-This app-opening and native review path remains unverified at runtime.
+The prepared installer only copies the app; no installation or background
+registration has been run. Opening the app shows its setup window and reads safe
+saved status only. Connect privately accepts an existing key and displays the
+resolved name/email for explicit confirmation; provider choices remain explicit.
+Check Messages reads headers only after a fresh owner/server-readiness check.
+Start repeats those checks, establishes a future-only baseline if safely new,
+and requests the bundled one-minute service after confirmation. Requiring macOS
+approval is shown as pending, never as running. No key, permission or service is
+created merely by opening the app.
+
+Pause revokes saved consent independently of the collector's work lock before
+unregistering its own service. It works without network/FDA and retains the
+outbox/baseline. Scheduled runs recheck consent before capture, each send and
+health reporting. An already initiated request may finish; Pause cannot recall
+an accepted alert. Review saved alerts remains private/local-only. The native
+window, real permissions and service operation remain unverified at runtime.
 
 ## Architecture and the Money Dashboard comparison
 
@@ -244,7 +254,7 @@ permission or sandbox denial.
 
 | Argument | Effect |
 | --- | --- |
-| none | Show the inactive notice; optionally open saved local alerts only after choosing Review saved alerts; no setup or collection |
+| none | Show the native setup/status window; account connection, Messages check, Start/Pause and local review require explicit actions |
 | `--status` | Read safe configuration/outbox metadata only; no Messages query, network request or reset |
 | `--review-held` | Open private local held-alert review; saved account confirmation only, no Messages, network, delivery or service operation |
 | `--configure --sender ID [--sender ID ...]` | Validate senders, privately accept an existing key, check the account without SMS, show its name/email and require `CONNECT`; save private config/binding exclusively; no baseline or service enablement |
@@ -253,11 +263,13 @@ permission or sandbox denial.
 | `--collect` | Capture eligible events into the outbox, then attempt a counts-only health check-in; no SMS delivery |
 | `--deliver` | Deliver existing pending events only; no Messages read |
 | `--run` | Perform one collection/delivery cycle, then attempt a counts-only health check-in; no background registration |
+| `--scheduled-run` | Bundled service entry only: fresh account/server readiness plus saved matching activation required; recheck consent before capture/send/report |
 
 Unknown arguments fail without an operation. Existing baseline, sender scope or
 credential changes require an explicit migration decision; no command silently
 resets state. No command creates a forwarding key on the website, grants FDA,
-installs the app or enables login startup.
+installs the app or enables login startup merely by being launched. Explicit
+Start in the native window requests the bundled service through SMAppService.
 All live collection/delivery commands perform the account recheck first. Their
 new receipt contract requires the corresponding backend code and receipt migration
 to be deployed through an approved workflow. Existing outbox version-1 state is
@@ -334,7 +346,8 @@ Before a later activation plan:
    approved.
 4. Have the user grant only the reviewed macOS permissions to this app identity.
 5. Establish the explicit future-only baseline before collection. No historical
-   import is implicit. Autostart is a separate, unimplemented future feature.
+   import is implicit. Background registration is an explicit Start action,
+   separate from installation and permission review.
 6. Verify any later registration and runtime health separately. Claim delivery only from
    safe evidence for a naturally arriving approved alert, never a fabricated SMS
    or test ingestion.
@@ -343,14 +356,16 @@ No step above is performed merely by checking out, compiling or testing this
 directory. Unsupported platform access remains a blocker, not a reason to
 remove sandbox checks or widen permissions silently.
 
-## Prepared automatic operation (disabled template only)
+## Explicit automatic operation
 
-`LaunchAgent.plist.template` demonstrates the future automatic cycle: `--run` at
-login/load and every 120 seconds, with a 10-second throttle. It is explicitly
-`Disabled=true`, uses unresolved executable/log path placeholders and has a
-`.template` extension. The build includes it as a sealed app resource and stages
-`build/LaunchAgent.disabled.plist.template`; it never copies anything into
-`~/Library/LaunchAgents` or registers/starts a job.
+The app bundles `com.hansopoku.alfred.collector.agent.plist` in
+`Contents/Library/LaunchAgents`. Its fixed BundleProgram points to this app's
+stable executable with `--scheduled-run`, RunAtLoad and a 60-second interval.
+SMAppService manages registration only after explicit Start; the installer
+contains no registration script or external log paths. A pending macOS approval
+stays visibly inactive until approval and a fresh explicit Start. The older
+`LaunchAgent.plist.template` is retained as an inactive source reference only.
+Neither build nor packaging copies a job into `~/Library/LaunchAgents`.
 
 `--run` attempts existing outbox delivery even if a new capture is held. Capture
 and delivery state remain separate: incomplete source metadata is durably
@@ -358,12 +373,14 @@ quarantined with cursor progress, and a network failure does not discard pending
 Each delivery batch is limited to three requests and a 90-second elapsed budget;
 another request starts only with at least its full 40-second request window
 remaining. Unclaimed rows stay pending without changing the capture cursor or
-attempt count. This bounds network work within the planned 120-second cadence
-instead of holding the collector lock through a long backlog.
+attempt count. The work lock prevents an overlapping scheduled tick from
+capturing or delivering the same outbox; actual cadence is best effort while the
+Mac is awake. Private activation is rechecked before each send and capture, and
+Pause revokes it independently of that work lock.
 
-Before this template can become an active service, a separate approved step must
+Before the bundled agent can become an active service, a separate approved step must
 validate the signed app's actual Messages/FDA access and background launch
-context on the target OS, resolve the intended installed executable and private
-mode-600 log paths, and explicitly authorize registration/autostart. Do not use
-the template to route around the earlier runtime sandbox denial. No installer or
-registration command is provided by this prototype.
+context on the target OS and explicitly authorize registration/autostart. Do not
+use a different launcher to route around the earlier runtime sandbox denial.
+No platform access, service registration or actual delivery has been performed
+by this local build/test work.

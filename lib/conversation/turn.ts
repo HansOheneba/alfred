@@ -1,4 +1,4 @@
-import { clientTurnUpdateId, isClientMessageId, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
+import { clientTurnUpdateId, isClientMessageId, isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { Channel } from "@/lib/ai/persona";
 import { intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
@@ -70,6 +70,11 @@ type TurnOptions = { channel: Channel; excludeClientId?: string | null; replyToP
 export async function converse(text: string, ctx: ActionContext, deps: TurnDeps, options: TurnOptions): Promise<TurnReply> {
   const noticeFocus = await paymentNoticeFocus(deps.messages, ctx.profile.profileId, options);
   const closedNotice = Boolean(noticeFocus && !noticeFocus.requiresPurpose);
+  const closedSource = closedNotice && noticeFocus ? await deps.bank?.getMessage(ctx.profile.profileId, noticeFocus.bankMessageId) : null;
+  // A new expense after an incoming alert cannot duplicate that inflow. After
+  // an outgoing alert it can duplicate the captured debit, so a distinct expense
+  // requires the explicit new-topic boundary. Client metadata supplies no direction.
+  const independentExpenseAllowed = closedSource?.ownerId === ctx.profile.profileId && closedSource.direction === "in";
   const confirmation = await confirmationAfterBoundary(deps, ctx, options);
   const currentMessageId = noticeFocus === undefined ? undefined : noticeFocus?.requiresPurpose ? noticeFocus.bankMessageId : null;
   const ordinaryReply = (reply: TurnReply): TurnReply => closedNotice || confirmation.fenced || options.newTopic ? { ...reply, newTopic: true } : reply;
@@ -93,7 +98,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   const ingest: IngestDeps | null = deps.bank
     ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }
     : null;
-  const separateExpense = noticeFocus && !noticeFocus.requiresPurpose ? independentExpenseRequest(text, ctx.profile.currency) : null;
+  const separateExpense = noticeFocus && !noticeFocus.requiresPurpose && independentExpenseAllowed ? independentExpenseRequest(text, ctx.profile.currency) : null;
   if (separateExpense) {
     // This is a new, explicit request rather than a purpose answer. The exact
     // user words supply one expense, and it always gets its own confirmation.
@@ -171,7 +176,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   // second transaction or silently turn into a different financial operation,
   // including when the original notice is already settled or no longer exists.
   const mutations = actions.filter((item) => NOTICE_FINANCIAL_MUTATIONS.has(item.type) || closedNotice && item.type === "label_payments");
-  const allowedIndependent = closedNotice && mutations.length > 0 && mutations.every((item) => groundedIndependentMutation(item, text, ctx));
+  const allowedIndependent = closedNotice && mutations.length > 0 && mutations.every((item) => (item.type !== "create_transaction" || independentExpenseAllowed) && groundedIndependentMutation(item, text, ctx));
   if (noticeFocus !== undefined && mutations.length > 0 && !allowedIndependent) {
     if (ingest && waiting?.current) {
       const again = await askAgain(ingest, ctx.profile, waiting.current, purposeQuestionIntro(waiting.current, "I couldn't safely match that answer to the captured payment. Tell me its purpose again or choose below."));
@@ -254,7 +259,7 @@ export async function paymentNoticeFocus(messages: MessageLog | null | undefined
   if (!messages) return undefined;
   const history = await messages.listRecent(ownerId, 3);
   const last = history.filter((item) => !options.excludeClientId || item.clientId !== options.excludeClientId).at(-1);
-  if (last?.role !== "assistant" || last.channel !== "web" || (!last.paymentNotice && last.intent !== "automation:incoming-payment")) return undefined;
+  if (last?.role !== "assistant" || last.channel !== "web" || (!last.paymentNotice && !isPaymentNoticeIntent(last.intent))) return undefined;
   // Explicit null means no proactive question was displayed. A newly arrived
   // server notice may suppress old pointers, but cannot become the reply target.
   return options.replyToPayment === null && last.paymentNotice

@@ -8,8 +8,8 @@ import { loadNotificationPreferences } from '@/lib/notifications/store';
 export async function deliverBankAutomation(settings:SupabaseSettings,profile:UserProfile,deadlineAt=Date.now()+25_000):Promise<void>{
   if(Date.now()>=deadlineAt)return;
   const prefs=await loadNotificationPreferences(settings,profile.profileId).catch(()=>{logError('bank_notice_preferences',new Error('Notification preferences could not be loaded.'));return null;});
-  if(!prefs||(!prefs.paymentMentions&&!prefs.paymentPush)||Date.now()>=deadlineAt)return;
-  if(prefs.paymentMentions)await recoverIncomingPaymentMentions(settings,profile.profileId,new Date(),Math.min(deadlineAt,Date.now()+10_000),{ownerId:profile.profileId,preferences:prefs}).catch(()=>logError('bank_private_notice',new Error('Private payment notice recovery could not complete.')));
+  if(!prefs||(!prefs.paymentMentions&&!prefs.outgoingMentions&&!prefs.paymentPush)||Date.now()>=deadlineAt)return;
+  if(prefs.paymentMentions||prefs.outgoingMentions)await recoverIncomingPaymentMentions(settings,profile.profileId,new Date(),Math.min(deadlineAt,Date.now()+10_000),{ownerId:profile.profileId,preferences:prefs}).catch(()=>logError('bank_private_notice',new Error('Private payment notice recovery could not complete.')));
   // Bill/weekly recovery is owned by the scheduled dispatcher. A bank event
   // need not inspect or drain device delivery when payment nudges are off.
   if(!prefs.paymentPush)return;

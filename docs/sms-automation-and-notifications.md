@@ -7,10 +7,13 @@ notification. Live use requires the separate setup and verification below.
 
 ## What is implemented
 
-- An inactive native Mac collector prototype in `relay/collector`, with build-time
+- A native Alfred Sync setup candidate in `relay/collector`, with build-time
   App Sandbox entitlements, exact provider scope, future-only initialization and
   a transactional per-message delivery outbox. It does not use the denied runtime
   sandbox initializer. Its build/package scripts never launch the app.
+  The native window provides account confirmation, provider review, Messages
+  permission guidance and explicit Start/Pause. A bundled 60-second agent runs
+  only after saved, owner-bound consent; opening/installing alone never enables it.
 - A read-only account identity check, explicit account-name/email confirmation,
   private key-bound owner metadata and fresh owner verification before live Mac
   access or delivery. Local status never claims it performed that fresh check.
@@ -20,11 +23,11 @@ notification. Live use requires the separate setup and verification below.
 - Streaming SMS request-size enforcement independent of `Content-Length`, strict
   UTF-8 decoding and bounded JSON traversal. Rejection logs exclude arbitrary
   headers, message contents, field names and credentials.
-- Separate account choices for incoming-payment chat mentions, payment push,
-  bill reminders and weekly overviews. All four default off. Saving preferences
+- Separate account choices for Money in chat, Money out chat, payment push,
+  bill reminders and weekly overviews. All five default off. Saving preferences
   and granting browser permission are separate explicit actions.
 - Deterministic Alfred messages in the authenticated conversation. A recognized
-  incoming alert is described as an alert, not independently verified settlement.
+  incoming or outgoing alert is described as an alert, not independently verified settlement.
   Recognizing a provider alone never establishes purpose. Alfred acknowledges a
   meaningful saved classification on the owner's active principal record, and
   asks “What was this for?” when the alert still needs a label. Existing saved
@@ -32,9 +35,12 @@ notification. Live use requires the separate setup and verification below.
   off. A generic classification is not claimed to explain the purpose.
   An existing settled record with an unclear purpose directs correction through
   Review; a purpose reply cannot create a second income entry for it.
-  Model-read or unknown alerts say “possible” and request review. Own-account
-  transfers, loan deposits, outgoing payments and skipped alerts do not generate
-  an incoming-payment mention.
+  Model-read or unknown alerts say “possible” and request review. Recognized
+  transfers, loans, investments and card holds use neutral class-specific wording.
+  Negative expenses reduce recorded spending without being guessed to be income
+  or necessarily a refund. Skipped alerts generate no announcement. Existing
+  incoming consent is preserved; outgoing announcements require their own opt-in
+  and activation timestamp.
 - An atomic message-plus-receipt write scoped to the owner and bank message.
   Duplicate ingestion and recovery cannot repeat that message, and clearing the
   conversation does not replay it. A classification change is rechecked before
@@ -62,6 +68,8 @@ notification. Live use requires the separate setup and verification below.
   start its own confirmation. Ordinary conversation can continue without
   leaving Alfred stuck on that payment. A later bare “yes” cannot revive an
   older pending action, and a purpose reply cannot duplicate incoming money.
+  A closed outgoing notice also cannot create its captured expense again. Start
+  a new topic explicitly before requesting a separate expense after that notice.
 - Web Push subscriptions and delivery records remain server-only. Notification
   payloads contain fixed discreet copy and fixed authenticated destinations,
   without amounts, names, balances, raw SMS or event identifiers. The existing
@@ -103,10 +111,12 @@ Messages file grants and SQLite WAL/SHM behavior on a target Mac remain unverifi
 fixture tests and a valid code signature are not permission or runtime proof.
 There is no automatic expansion to SHM write access.
 
-Reference foreground payment dialogs are replaced here by Alfred's private chat
-mentions and existing Review flow. Payment push can concern eligible incoming
-or outgoing external alerts; the additional proactive chat voice is incoming
-only. Neither a click nor a notification changes a financial classification.
+The practical reference is an installed native Mac app plus automatic background
+operation. Alfred Sync keeps that pattern with its own identity, state, account
+confirmation and explicit consent. It announces both financial directions in
+Alfred's private chat and retains the existing Review flow. Received provider SMS
+include alerts about outgoing money: this does not require reading sent personal
+messages. Neither a notice click nor a push changes a financial classification.
 
 Bill reminders use the owner's timezone at 09:00 the day before an active,
 confirmed bill. Imported inactive bills stay inactive. Weekly notices use Sunday
@@ -138,9 +148,9 @@ services. Real app routes retain their normal authentication and data behavior.
 The placement preview
 is `/preview/automations#automations`, using the shared Settings navigation and
 real Automations components with fictional, inactive preferences. Other section
-buttons show read-only placeholders in this fictional preview. All four demo
+buttons show read-only placeholders in this fictional preview. All five demo
 notification choices can be toggled and saved for the current visit, with a
-reset control. Reload starts with all four off; no real preferences are saved.
+reset control. Reload starts with all five off; no real preferences are saved.
 The three-step fictional setup is `/preview/automations/mac-setup`: it exercises
 an account mismatch, permission explanation, provider selection and future-only
 review. Completion explicitly leaves capture off; it makes no account or OS call.
@@ -255,11 +265,11 @@ alerts or change financial records. A still-active Mac can check in again.
 
 Before live use, review and approve each applicable step:
 
-1. Review the target database's applied history, then apply the seven new drafts
+1. Review the target database's applied history, then apply the eight new drafts
    through the normal database workflow: notifications, bank-notice receipts,
    collector receipts, notification recovery, collector health,
-   immediate-payment policy cleanup, and owner-controlled removal of saved Mac
-   status. The general runner applies all pending
+   immediate-payment policy cleanup, owner-controlled removal of saved Mac
+   status and both-direction activity announcements. The general runner applies all pending
    migration files, not a hard-coded pair. None has been applied to a real
    database here.
 2. Resolve and verify the new Mac app's static sandbox and Messages DB/WAL/SHM

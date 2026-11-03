@@ -19,8 +19,8 @@ describe("Automations settings placement", () => {
     expect(html).toContain("When Alfred checks in");
     expect(html).toContain("On this browser");
     expect(html).toContain('href="#automations-notifications"');
-    expect(html.match(/aria-checked="false"/g)).toHaveLength(4);
-    expect(html).toContain("Prototype · not available");
+    expect(html.match(/aria-checked="false"/g)).toHaveLength(5);
+    expect(html).toContain("Mac app required");
     expect(html).toContain("Push delivery is currently off");
     expect(html).not.toContain("Create forwarding key");
     expect(fetcher).not.toHaveBeenCalled();

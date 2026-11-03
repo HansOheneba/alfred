@@ -4,25 +4,25 @@ import { query } from "@/lib/supabase/connection";
 import { validateSubscription, type PushKind, type PushSubscriptionRecord } from "./push";
 
 export type NotificationPreferences = {
-  paymentMentions: boolean; paymentPush: boolean; billReminders: boolean; weeklyOverview: boolean;
-  paymentMentionsSince: string | null; paymentPushSince: string | null;
+  paymentMentions: boolean; outgoingMentions: boolean; paymentPush: boolean; billReminders: boolean; weeklyOverview: boolean;
+  paymentMentionsSince: string | null; outgoingMentionsSince: string | null; paymentPushSince: string | null;
   billRemindersSince: string | null; weeklyOverviewSince: string | null;
 };
-export type PreferencePatch = Partial<Pick<NotificationPreferences,"paymentMentions"|"paymentPush"|"billReminders"|"weeklyOverview">>;
+export type PreferencePatch = Partial<Pick<NotificationPreferences,"paymentMentions"|"outgoingMentions"|"paymentPush"|"billReminders"|"weeklyOverview">>;
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
-  paymentMentions:false,paymentPush:false,billReminders:false,weeklyOverview:false,
-  paymentMentionsSince:null,paymentPushSince:null,billRemindersSince:null,weeklyOverviewSince:null,
+  paymentMentions:false,outgoingMentions:false,paymentPush:false,billReminders:false,weeklyOverview:false,
+  paymentMentionsSince:null,outgoingMentionsSince:null,paymentPushSince:null,billRemindersSince:null,weeklyOverviewSince:null,
 };
 type PreferenceRow = {
-  payment_mentions:boolean;payment_push:boolean;bill_reminders:boolean;weekly_overview:boolean;
-  payment_mentions_since:Date|string|null;payment_push_since:Date|string|null;
+  payment_mentions:boolean;outgoing_mentions:boolean;payment_push:boolean;bill_reminders:boolean;weekly_overview:boolean;
+  payment_mentions_since:Date|string|null;outgoing_mentions_since:Date|string|null;payment_push_since:Date|string|null;
   bill_reminders_since:Date|string|null;weekly_overview_since:Date|string|null;
 };
 export type Execute = <T extends Record<string,unknown>>(settings:SupabaseSettings,sql:string,values?:unknown[])=>Promise<T[]>;
 const date = (value: Date|string|null) => value instanceof Date ? value.toISOString() : value;
 const preferences = (row?:PreferenceRow):NotificationPreferences => row ? {
-  paymentMentions:row.payment_mentions,paymentPush:row.payment_push,billReminders:row.bill_reminders,weeklyOverview:row.weekly_overview,
-  paymentMentionsSince:date(row.payment_mentions_since),paymentPushSince:date(row.payment_push_since),
+  paymentMentions:row.payment_mentions,outgoingMentions:row.outgoing_mentions,paymentPush:row.payment_push,billReminders:row.bill_reminders,weeklyOverview:row.weekly_overview,
+  paymentMentionsSince:date(row.payment_mentions_since),outgoingMentionsSince:date(row.outgoing_mentions_since),paymentPushSince:date(row.payment_push_since),
   billRemindersSince:date(row.bill_reminders_since),weeklyOverviewSince:date(row.weekly_overview_since),
 } : {...DEFAULT_NOTIFICATION_PREFERENCES};
 export type QueuedDelivery = {
@@ -31,7 +31,7 @@ export type QueuedDelivery = {
 };
 type DeliveryRow = {id:string;owner_id:string;subscription_id:string;kind:PushKind;event_key:string;resource_id:string|null;target_date:string|null;attempts:number;subscription:PushSubscriptionRecord};
 const fromDelivery=(r:DeliveryRow):QueuedDelivery=>({id:r.id,ownerId:r.owner_id,subscriptionId:r.subscription_id,kind:r.kind,eventKey:r.event_key,resourceId:r.resource_id,targetDate:r.target_date,attempts:r.attempts,subscription:r.subscription});
-export const PREFERENCE_COLUMNS = `payment_mentions,payment_push,bill_reminders,weekly_overview,payment_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since`;
+export const PREFERENCE_COLUMNS = `payment_mentions,outgoing_mentions,payment_push,bill_reminders,weekly_overview,payment_mentions_since,outgoing_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since`;
 
 export function createNotificationStore(settings:SupabaseSettings,execute:Execute=query) {
   return {
@@ -42,16 +42,17 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
     async update(ownerId:string,patch:PreferencePatch):Promise<NotificationPreferences> {
       // Null means preserve. A false->true transition establishes a new opt-in
       // window; changing epochs prevents old queued work reviving after re-enable.
-      const values=[ownerId,patch.paymentMentions??null,patch.paymentPush??null,patch.billReminders??null,patch.weeklyOverview??null];
+      const values=[ownerId,patch.paymentMentions??null,patch.paymentPush??null,patch.billReminders??null,patch.weeklyOverview??null,patch.outgoingMentions??null];
       const rows=await execute<PreferenceRow>(settings,`insert into public.notification_preferences as p
-        (owner_id,payment_mentions,payment_push,bill_reminders,weekly_overview,payment_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since,payment_epoch,bill_epoch,weekly_epoch)
-        values($1::uuid,coalesce($2::boolean,false),coalesce($3::boolean,false),coalesce($4::boolean,false),coalesce($5::boolean,false),
-          case when $2 then now() end,case when $3 then now() end,case when $4 then now() end,case when $5 then now() end,
+        (owner_id,payment_mentions,payment_push,bill_reminders,weekly_overview,outgoing_mentions,payment_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since,outgoing_mentions_since,payment_epoch,bill_epoch,weekly_epoch)
+        values($1::uuid,coalesce($2::boolean,false),coalesce($3::boolean,false),coalesce($4::boolean,false),coalesce($5::boolean,false),coalesce($6::boolean,false),
+          case when $2 then now() end,case when $3 then now() end,case when $4 then now() end,case when $5 then now() end,case when $6 then now() end,
           case when $3 then 1 else 0 end,case when $4 then 1 else 0 end,case when $5 then 1 else 0 end)
         on conflict(owner_id) do update set
-          payment_mentions=coalesce($2,p.payment_mentions),payment_push=coalesce($3,p.payment_push),
+          payment_mentions=coalesce($2,p.payment_mentions),outgoing_mentions=coalesce($6,p.outgoing_mentions),payment_push=coalesce($3,p.payment_push),
           bill_reminders=coalesce($4,p.bill_reminders),weekly_overview=coalesce($5,p.weekly_overview),
           payment_mentions_since=case when $2=false then null when $2=true and not p.payment_mentions then now() else p.payment_mentions_since end,
+          outgoing_mentions_since=case when $6=false then null when $6=true and not p.outgoing_mentions then now() else p.outgoing_mentions_since end,
           payment_push_since=case when $3=false then null when $3=true and not p.payment_push then now() else p.payment_push_since end,
           bill_reminders_since=case when $4=false then null when $4=true and not p.bill_reminders then now() else p.bill_reminders_since end,
           weekly_overview_since=case when $5=false then null when $5=true and not p.weekly_overview then now() else p.weekly_overview_since end,

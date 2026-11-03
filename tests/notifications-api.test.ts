@@ -43,6 +43,20 @@ describe("notification API authorization and private responses",()=>{
   expect(response.status).toBe(503);expect(await response.json()).toMatchObject({recoveryReady:false});expect(mocks.update).not.toHaveBeenCalled();
   expect((await PATCH(request("/api/notifications","PATCH",{paymentMentions:true}))).status).toBe(200);
  });
+ it("saves outgoing chat consent independently while push infrastructure is unavailable",async()=>{
+  mocks.configuration.mockReturnValue({ready:false,publicKey:null,config:null});
+  mocks.recovery.mockResolvedValue({configured:false,ready:false,lastCompletedAt:null,expectedIntervalSeconds:null,reason:"not-configured"});
+  const response=await PATCH(request("/api/notifications","PATCH",{outgoingMentions:true}));
+  expect(response.status).toBe(200);expect(mocks.update).toHaveBeenCalledWith(ownerId,{outgoingMentions:true});
+  expect(mocks.subscribe).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
+ });
+ it("rejects outgoing consent from a stale displayed account or a caller-supplied history cutoff",async()=>{
+  const stale=request("/api/notifications","PATCH",{outgoingMentions:true});stale.headers.set("x-alfred-owner","00000000-0000-4000-8000-000000000002");
+  expect((await PATCH(stale)).status).toBe(409);
+  expect((await PATCH(request("/api/notifications","PATCH",{outgoingMentions:true,outgoingMentionsSince:"2000-01-01T00:00:00Z"}))).status).toBe(400);
+  expect((await PATCH(request("/api/notifications","PATCH",{outgoingMentions:"yes"}))).status).toBe(400);
+  expect(mocks.update).not.toHaveBeenCalled();
+ });
  it("subscription operations derive ownership and do not send a notification",async()=>{
   const subscription={endpoint:"https://fcm.googleapis.com/fcm/send/fixture",keys:{p256dh:"fixture",auth:"fixture"}};
   expect(await (await POST(request("/api/notifications/subscriptions","POST",subscription))).json()).toEqual({ok:true,deviceId:"device"});

@@ -23,11 +23,13 @@ python3 scripts/packaging.py development
 ```
 
 This produces ignored development artifacts in `build/`. The installer contains
-only `Alfred Collector.app`, copied to `/Applications`. Its package metadata and
+only `Alfred Sync.app`, copied to `/Applications`. Its package metadata and
 payload are expanded and checked after creation. There are **no installer
 scripts**, LaunchAgent installation, app launches, login registration, account
 configuration, permission requests, Messages queries, secret entry, or network
-delivery. The disabled LaunchAgent file is an inert resource inside the app.
+delivery. The bundled 60-second service definition remains inert until the user
+explicitly chooses Start in Alfred Sync and macOS allows registration. Merely
+installing the app does not register it.
 Preparing the package does not install it. Do not distribute the development
 package or direct users to open an unsigned package as a workaround.
 
@@ -61,7 +63,7 @@ A release owner must complete and record these steps before general use:
 
    ```sh
    python3 scripts/packaging.py release-candidate \
-     --app '/approved/staging/Alfred Collector.app' \
+     --app '/approved/staging/Alfred Sync.app' \
      --team-id 'TEAMID1234' \
      --installer-identity 'Developer ID Installer: Approved Team (TEAMID1234)'
    ```
@@ -109,3 +111,22 @@ it may hold alerts that Alfred has not acknowledged. Deleting that data is a
 separate explicit decision after reviewing pending alerts and account state.
 No uninstall script, credential deletion or receipt-forgetting command is run
 by this packaging workflow.
+
+## Native setup candidate
+
+Version 2 adds the ordinary app entry point: open Alfred Sync, choose the exact
+payment senders, connect and confirm the intended Alfred account, check Messages
+access, then explicitly choose Start. Pause unregisters only Alfred’s own service;
+it does not touch My Money Sync or its permissions. The packaged service invokes
+the same signed executable with `--scheduled-run` every 60 seconds, and that path
+rechecks saved owner/scope consent before collection. A macOS background-approval
+prompt or denied Messages access is a stopped setup state, not success.
+
+Apple documents [bundled agent placement](https://developer.apple.com/documentation/servicemanagement/smappservice/agent(plistname:)) and [user-controlled service registration](https://developer.apple.com/documentation/servicemanagement/updating-your-app-package-installer-to-use-the-new-service-management-api). SDK compilation is preparation evidence only. No real registration, app opening, Full Disk Access grant or delivery has been performed.
+
+The display name changes from the never-installed development candidate Alfred
+Collector to Alfred Sync. Bundle ID, executable name and private-container
+identity remain unchanged. This copy-only installer does not remove a separately
+installed older prototype by name; an approved tester must first pause/quit it
+and separately remove only that old app bundle while retaining its private state.
+My Money Sync has a separate identity and is never an update target.

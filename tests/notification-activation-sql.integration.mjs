@@ -12,6 +12,7 @@ const expected = [
   '20261103210000_collector_health.sql',
   '20261103220000_immediate_payment_nudges.sql',
   '20261103230000_collector_health_removal.sql',
+  '20261103233000_payment_activity_notices.sql',
 ];
 const all = (await readdir(directory)).filter(name => name.endsWith('.sql')).sort();
 assert.deepEqual(all.filter(name => name.startsWith('20261103')), expected, 'Review the activation batch when migrations change');
@@ -39,9 +40,9 @@ try {
   for (const name of tables) check(await scalar('select to_regclass($1) as value', [`public.${name}`]), null, `${name} rolled back`);
   check(await scalar("select count(*)::int as value from alfred_schema_migrations where filename like '20261103%'"), 0, 'Activation ledger rolled back');
   await db.exec(`begin; ${statements.join('\n')} commit;`);
-  check((await rows("select filename from alfred_schema_migrations where filename like '20261103%' order by filename")).map(row => row.filename), expected, 'Exactly the reviewed seven drafts committed');
+  check((await rows("select filename from alfred_schema_migrations where filename like '20261103%' order by filename")).map(row => row.filename), expected, 'Exactly the reviewed eight drafts committed');
   const applied = new Set((await rows('select filename from alfred_schema_migrations')).map(row => row.filename));
-  check(expected.filter(name => !applied.has(name)), [], 'A repeated deployment skips all seven recorded migrations');
+  check(expected.filter(name => !applied.has(name)), [], 'A repeated deployment skips all eight recorded migrations');
   for (const name of tables) {
     check(await scalar('select relrowsecurity as value from pg_class where oid=to_regclass($1)', [`public.${name}`]), true, `${name} has RLS`);
     check(await scalar(`select count(*)::int as value from public.${name}`), 0, `${name} starts without subscriptions, preferences or work`);
@@ -50,8 +51,8 @@ try {
   await db.query('insert into auth.users(id) values($1::uuid)', [owner]);
   await db.query('insert into profiles(id) values($1::uuid) on conflict do nothing', [owner]);
   await db.query('insert into notification_preferences(owner_id) values($1::uuid)', [owner]);
-  check((await rows('select payment_mentions,payment_push,bill_reminders,weekly_overview from notification_preferences'))[0],
-    {payment_mentions:false,payment_push:false,bill_reminders:false,weekly_overview:false}, 'Every preference remains off');
+  check((await rows('select payment_mentions,outgoing_mentions,payment_push,bill_reminders,weekly_overview from notification_preferences'))[0],
+    {payment_mentions:false,outgoing_mentions:false,payment_push:false,bill_reminders:false,weekly_overview:false}, 'Every preference remains off');
   for (const name of ['push_subscriptions', 'notification_deliveries', 'collector_event_receipts', 'collector_health', 'notification_recovery_health'])
     check(await scalar('select has_table_privilege($1,$2,$3) as value', ['authenticated', `public.${name}`, 'SELECT']), false, `${name} is unavailable to client role`);
   check(await scalar('select count(*)::int as value from transactions'), 0, 'Activation creates no financial transaction');
@@ -59,7 +60,7 @@ try {
   check(await scalar('select count(*)::int as value from messages'), 0, 'Activation posts no message');
   const preflight = (await db.exec(await readFile(new URL('../docs/automation-activation-preflight.sql', import.meta.url), 'utf8'))).flatMap(result => result.rows);
   const functions = preflight.filter(row => typeof row.signature === 'string');
-  check(functions.length, 7, 'Read-only preflight covers every reviewed function signature');
+  check(functions.length, 8, 'Read-only preflight covers every reviewed function signature');
   check(functions.every(row => row.present === true), true, 'Preflight signatures match the actual migration functions');
   const catalogTables = preflight.filter(row => typeof row.name === 'string');
   check(catalogTables.length, 7, 'Read-only preflight covers all new operational tables');

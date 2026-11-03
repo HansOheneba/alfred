@@ -65,8 +65,9 @@ func deliverHTTP(_ message: PendingMessage, key: String, expectedOwnerId: String
 @discardableResult func deliverPending(store: OutboxStore, config: CollectorConfig,
     maxMessages: Int = 3, elapsedBudget: TimeInterval = 90,
     clock: () -> TimeInterval = { ProcessInfo.processInfo.systemUptime },
+    maySend: () throws -> Bool = { true },
     transport: (PendingMessage, String) -> DeliveryDecision) throws -> Int {
-    // One scheduled cycle must leave time for the next 120-second collection.
+    // A cycle is bounded; CollectorLock prevents overlapping scheduled cycles.
     // The HTTP implementation waits at most 40 seconds; never start another
     // request unless that complete window remains in this bounded batch.
     guard (1...3).contains(maxMessages), elapsedBudget.isFinite, (0...90).contains(elapsedBudget) else {
@@ -77,6 +78,7 @@ func deliverHTTP(_ message: PendingMessage, key: String, expectedOwnerId: String
     let deadline = started + elapsedBudget
     var accepted = 0
     for item in try store.pending(config: config, limit: maxMessages) {
+        if try !maySend() { break }
         let now = clock()
         guard now.isFinite, now >= started else { throw CollectorError("Delivery clock changed unexpectedly; remaining payloads retained.") }
         if deadline - now < 40 { break }

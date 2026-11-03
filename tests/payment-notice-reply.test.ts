@@ -870,3 +870,22 @@ describe("natural incoming payment purposes", () => {
     expect((await state.bank.getMessage(state.owner.profileId, target.id))?.status).toBe("needs_label");
   });
 });
+
+// An outgoing notice cannot use the incoming-only independent-expense escape.
+describe('outgoing notice duplicate-expense barrier',()=>{
+ const action:FinanceAction={type:'create_transaction',explicit:true,transactions:[{transaction_type:'expense',amount:'30.00',currency:'GHS',category:'Food',description:'lunch',date:'2026-11-03',payment_method:'',notes:''}]};
+ it('derives direction from the owned source and does not log a captured outgoing expense again',async()=>{
+  const state=setup(()=>action),captured=await state.payment(1,{direction:'out',status:'recorded'});
+  const existing=await state.store.appendTransaction(expense({amount:'30.00',transactionDate:'2026-11-03'}));
+  await state.bank.updateMessage(state.owner.profileId,captured.id,{transactionId:existing.transactionId});
+  const notice=await state.notice(captured,false);
+  const before=await state.store.listTransactions(state.owner.profileId);
+  const reply=await handleProfileTurn(state.owner,{text:'I spent 30 on lunch',clientId:'outgoing-duplicate-expense',replyToPayment:notice.paymentNotice},state.deps);
+  expect(reply.actionId).toBeUndefined();expect(reply.text).toContain('Nothing was changed');expect(await state.store.listTransactions(state.owner.profileId)).toEqual(before);
+ });
+ it('permits a separately requested expense after an explicit new-topic boundary',async()=>{
+  const state=setup(()=>action),captured=await state.payment(1,{direction:'out',status:'recorded'});await state.notice(captured,false);
+  const reply=await handleProfileTurn(state.owner,{text:'I spent 30 on lunch',clientId:'outgoing-new-topic-expense',newTopic:true,replyToPayment:null},state.deps);
+  expect(reply.ledgerChanged).toBe(true);expect(await state.store.listTransactions(state.owner.profileId)).toMatchObject([{type:'expense',amount:'30.00',description:'lunch'}]);expect(reply.messages?.find(row=>row.role==='assistant')?.paymentNotice).toBeUndefined();
+ });
+});

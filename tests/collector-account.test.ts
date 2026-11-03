@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ query: vi.fn(), allow: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), allow: vi.fn(), setup: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/env", () => ({ getDatabaseSettings: () => ({ projectRef: "fixture" }) }));
+vi.mock("@/lib/bank/collector-readiness", () => ({ collectorSetupReady: mocks.setup }));
 vi.mock("@/lib/bank/collector-requests", async importOriginal => ({
   ...await importOriginal<typeof import("@/lib/bank/collector-requests")>(), collectorRequestAllowed: mocks.allow,
 }));
@@ -15,14 +16,14 @@ const token = "alf_" + "x".repeat(24);
 const settings = { projectRef: "fixture" } as unknown as SupabaseSettings;
 const account = () => ({ owner_id: ownerId, preferred_name: "Fictional reviewer", email: "reviewer@example.invalid" });
 const request = (header = `Bearer ${token}`, suffix = "") => new Request("https://alfred.test/api/collector/account" + suffix, { headers: { authorization: header } });
-beforeEach(() => { mocks.query.mockResolvedValue([account()]); mocks.allow.mockResolvedValue(true); vi.spyOn(console, "info").mockImplementation(() => {}); });
+beforeEach(() => { mocks.query.mockResolvedValue([account()]); mocks.allow.mockResolvedValue(true); mocks.setup.mockResolvedValue(true); vi.spyOn(console, "info").mockImplementation(() => {}); });
 afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
 
 describe("private collector account connection check", () => {
   it("returns just the key owner's recognizable identity without changing delivery metadata", async () => {
     const response = await GET(request());
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, identityProtocol: 1, account: { ownerId, preferredName: "Fictional reviewer", email: "reviewer@example.invalid" } });
+    expect(await response.json()).toEqual({ ok: true, identityProtocol: 1, account: { ownerId, preferredName: "Fictional reviewer", email: "reviewer@example.invalid" }, setupProtocol: 1, setupReady: true });
     const [, sql, params] = mocks.query.mock.calls[0];
     expect(sql.trim().startsWith("select ")).toBe(true);
     expect(sql).not.toMatch(/\b(update|insert|delete|last_used_at|last_empty_at|transactions|bank_messages)\b/i);
@@ -30,6 +31,13 @@ describe("private collector account connection check", () => {
     expect(JSON.stringify(mocks.query.mock.calls)).not.toContain(token);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(response.headers.get("vary")).toBe("Authorization");
+  });
+  it("can confirm identity while keeping automatic capture unavailable until server setup is ready", async () => {
+    mocks.setup.mockResolvedValue(false);
+    const response = await GET(request());
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({ ok: true, identityProtocol: 1, account: { ownerId }, setupProtocol: 1, setupReady: false });
+    expect(mocks.setup).toHaveBeenCalledWith(settings);
   });
   it.each(["", "Bearer wrong", `Bearer ${token} extra`, `Basic ${token}`, `Bearer ${"alf_" + "x".repeat(65)}`])("rejects malformed authentication without a lookup", async (header) => {
     expect((await GET(request(header))).status).toBe(401);

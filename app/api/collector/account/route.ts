@@ -1,4 +1,5 @@
 import { collectorAccount } from "@/lib/bank/collector-account";
+import { collectorSetupReady } from "@/lib/bank/collector-readiness";
 import { collectorRequestAllowed, logCollectorRejection } from "@/lib/bank/collector-requests";
 import { getDatabaseSettings } from "@/lib/env";
 
@@ -30,7 +31,8 @@ export async function GET(request: Request): Promise<Response> {
       logCollectorRejection("account", "invalid_key");
       return answer({ ok: false, text: "This account connection could not be verified." }, 401);
     }
-    return answer({ ok: true, identityProtocol: 1, account });
+    const setupReady = await collectorSetupReady(settings);
+    return answer({ ok: true, identityProtocol: 1, account, setupProtocol: 1, setupReady });
   } catch {
     // Neither database errors nor credentials/identity belong in logs or errors.
     logCollectorRejection("account", "unavailable");

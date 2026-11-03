@@ -15,27 +15,30 @@ const previewSettings: NotificationSettingsData = {
   devices: [],
 };
 
-export type SampleReplyState = { userReply: string; category: "Business" | "Gift" | null; description: "freelance work" | "birthday money from grandma" | null; deferred: boolean };
+export type SampleReplyState = { userReply: string; category: "Business" | "Gift" | "Food" | null; description: "freelance work" | "birthday money from grandma" | "lunch" | null; deferred: boolean };
 export const EMPTY_SAMPLE_REPLY: SampleReplyState = { userReply: "", category: null, description: null, deferred: false };
-export function sampleReplyReducer(state: SampleReplyState, action: { type: "reply"; text: string } | { type: "defer" } | { type: "reset" }): SampleReplyState {
+export function sampleReplyReducer(state: SampleReplyState, action: { type: "reply"; text: string; direction?: "in" | "out" } | { type: "defer" } | { type: "reset" }): SampleReplyState {
   if (action.type === "reset") return { ...EMPTY_SAMPLE_REPLY };
   if (action.type === "reply") {
     const userReply = action.text.trim().slice(0, 160);
     if (!userReply) return state;
     const normalized = userReply.toLowerCase().replace(/[.!?]+$/, "").trim();
-    const explicitFreelance = ["it was for freelance work", "freelance work", "it was for freelance", "freelance"].includes(normalized);
-    const explicitBirthday = ["birthday money from grandma", "it was birthday money from grandma", "birthday gift from grandma"].includes(normalized);
-    return { userReply, category: explicitFreelance ? "Business" : explicitBirthday ? "Gift" : null, description: explicitFreelance ? "freelance work" : explicitBirthday ? "birthday money from grandma" : null, deferred: false };
+    const explicitFreelance = action.direction !== "out" && ["it was for freelance work", "freelance work", "it was for freelance", "freelance"].includes(normalized);
+    const explicitBirthday = action.direction !== "out" && ["birthday money from grandma", "it was birthday money from grandma", "birthday gift from grandma"].includes(normalized);
+    const explicitLunch = action.direction === "out" && ["it was for lunch", "that was for lunch", "lunch"].includes(normalized);
+    return { userReply, category: explicitFreelance ? "Business" : explicitBirthday ? "Gift" : explicitLunch ? "Food" : null, description: explicitFreelance ? "freelance work" : explicitBirthday ? "birthday money from grandma" : explicitLunch ? "lunch" : null, deferred: false };
   }
   return { ...state, category: null, description: null, deferred: true };
 }
 
-export function SmsAutomationPreview({ knownCopy, unknownCopy, uncertainCopy }: { knownCopy: string; unknownCopy: string; uncertainCopy: string }) {
+export function SmsAutomationPreview({ knownCopy, unknownCopy, uncertainCopy, outgoingKnownCopy, outgoingUnknownCopy, outgoingUncertainCopy }: { knownCopy: string; unknownCopy: string; uncertainCopy: string; outgoingKnownCopy: string; outgoingUnknownCopy: string; outgoingUncertainCopy: string }) {
+  const [direction, setDirection] = useState<"in" | "out">("in");
   const [example, setExample] = useState<"known" | "unknown" | "uncertain">("known");
   const [reviewed, setReviewed] = useState(false);
   const [reply, setReply] = useState("");
   const [conversation, dispatch] = useReducer(sampleReplyReducer, EMPTY_SAMPLE_REPLY);
-  const copy = example === "known" ? knownCopy : example === "unknown" ? unknownCopy : uncertainCopy;
+  const copies = direction === "in" ? { known: knownCopy, unknown: unknownCopy, uncertain: uncertainCopy } : { known: outgoingKnownCopy, unknown: outgoingUnknownCopy, uncertain: outgoingUncertainCopy };
+  const copy = copies[example];
   return (
     <main className="min-h-screen bg-bg">
       <header className="border-b border-line bg-surface">
@@ -54,18 +57,21 @@ export function SmsAutomationPreview({ knownCopy, unknownCopy, uncertainCopy }: 
 
         <div className="grid gap-5 lg:grid-cols-[minmax(0,1.65fr)_minmax(17rem,1fr)]">
           <Card title={<span className="flex items-center gap-2"><span className="size-1.5 rounded-full bg-accent" aria-hidden="true" />Inside your private chat</span>} action={<span className="text-xs text-faint">Fictional example</span>} className="overflow-hidden">
+            <div className="mb-3 grid w-full grid-cols-2 gap-1 rounded-xl border border-line bg-bg p-1" role="group" aria-label="Example payment direction">
+              {([{ label: "Money in", value: "in" }, { label: "Money out", value: "out" }] as const).map((option) => <button key={option.value} type="button" aria-pressed={direction === option.value} onClick={() => { setDirection(option.value); setReviewed(false); setReply(""); dispatch({ type: "reset" }); }} className={`min-h-11 rounded-lg px-3 py-2 text-xs font-medium transition focus-visible:outline-2 focus-visible:outline-accent ${direction === option.value ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>{option.label}</button>)}
+            </div>
             <div className="mb-5 grid w-full grid-cols-3 gap-1 rounded-xl border border-line bg-bg p-1" role="group" aria-label="Example alert type">
               {([{ label: "Known purpose", value: "known" }, { label: "Unknown purpose", value: "unknown" }, { label: "Uncertain alert", value: "uncertain" }] as const).map((option) => <button key={option.label} type="button" aria-pressed={example === option.value} onClick={() => { setExample(option.value); setReviewed(false); setReply(""); dispatch({ type: "reset" }); }} className={`min-h-11 min-w-0 rounded-lg px-2 py-2 text-[11px] font-medium leading-4 transition focus-visible:outline-2 focus-visible:outline-accent sm:text-xs ${example === option.value ? "bg-surface-2 text-ink" : "text-muted hover:text-ink"}`}>{option.label}</button>)}
             </div>
             <div className="rounded-2xl border border-line bg-bg px-4 py-5 sm:px-6">
               <p className="mb-5 text-center text-[11px] text-faint">Sample activity · 10:42am</p>
-              <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-3 text-sm leading-6">Let me know when a payment comes in.</div>
+              <div className="ml-auto max-w-[85%] rounded-2xl rounded-br-md bg-surface-2 px-4 py-3 text-sm leading-6">{direction === "in" ? "Let me know when money comes in." : "Let me know when money goes out."}</div>
               <div className="mt-6 flex items-start gap-3">
                 <AlfredAvatar sizeClass="mt-1 size-8" sizes="32px" />
                 <div className="min-w-0 flex-1">
                   <p className="mb-2 text-xs font-medium text-muted">Alfred</p>
                   <div className="rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-4">
-                    <span className={`mb-3 inline-flex rounded-full px-2 py-1 text-[11px] font-medium ${example === "known" ? "bg-accent-soft text-accent" : "bg-surface-2 text-muted"}`}>{example === "known" ? "Purpose already known" : example === "unknown" ? "Purpose needed" : "Possible incoming alert"}</span>
+                    <span className={`mb-3 inline-flex rounded-full px-2 py-1 text-[11px] font-medium ${example === "known" ? "bg-accent-soft text-accent" : "bg-surface-2 text-muted"}`}>{example === "known" ? "Purpose already known" : example === "unknown" ? "Purpose needed" : direction === "in" ? "Possible incoming alert" : "Possible outgoing alert"}</span>
                     <p className="text-sm leading-7 text-ink">{copy.split(/(GH₵[\d,.]+)/).map((part, index) => index % 2 ? <span key={index} className="amount font-medium">{part}</span> : part)}</p>
                     <div className="mt-4 flex flex-wrap items-center gap-3"><Button size="sm" onClick={() => setReviewed(true)}>{example === "known" ? "View sample record" : "Review sample alert"}</Button><span className="text-[11px] text-faint">Shown once for this alert</span></div>
                     {reviewed ? <p className="mt-3 text-xs leading-5 text-muted" role="status">Sample opened. No financial records were created or changed.</p> : null}
@@ -76,17 +82,17 @@ export function SmsAutomationPreview({ knownCopy, unknownCopy, uncertainCopy }: 
                 {conversation.userReply ? <div className="mt-5" aria-live="polite">
                   <div className="ml-auto max-w-[85%] break-words rounded-2xl rounded-br-md bg-surface-2 px-4 py-3 text-sm leading-6">{conversation.userReply}</div>
                   <div className="mt-4 flex items-start gap-3"><AlfredAvatar sizeClass="mt-1 size-8" sizes="32px" /><div className="min-w-0 flex-1 rounded-2xl rounded-tl-md border border-line bg-surface px-4 py-4">
-                    {conversation.category ? <p className="text-sm leading-7">Filed <span className="amount">GH₵80.00</span> under {conversation.category}.</p> : conversation.deferred ? <p className="text-sm leading-7">Okay, I’ll leave this sample in Review.</p> : <>
-                      <p className="text-sm leading-7">What was the payment for? I’ll leave it in Review until that’s clear. For this sample, try “It was for freelance work” or “Birthday money from grandma”.</p>
+                    {conversation.category ? <p className="text-sm leading-7">{direction === "out" ? "Labelled the saved " : "Filed "}<span className="amount">GH₵80.00</span> {direction === "out" ? "payment " : ""}under {conversation.category}.{direction === "out" ? " No second expense was added." : ""}</p> : conversation.deferred ? <p className="text-sm leading-7">Okay, I’ll leave this sample in Review.</p> : <>
+                      <p className="text-sm leading-7">What was the payment for? I’ll leave it in Review until that’s clear. {direction === "out" ? "For this sample, try “It was for lunch”." : "For this sample, try “It was for freelance work” or “Birthday money from grandma”."}</p>
                       <Button size="sm" className="mt-3" onClick={() => dispatch({ type: "defer" })}>Keep in Review</Button>
                     </>}
                     <p className="mt-3 text-xs leading-5 text-muted">Fictional conversation only. No real records are changed.</p>
                   </div></div>
                 </div> : null}
-                <form className="mt-6 border-t border-line pt-4" onSubmit={(event) => { event.preventDefault(); if (reply.trim()) { dispatch({ type: "reply", text: reply }); setReply(""); } }}>
+                <form className="mt-6 border-t border-line pt-4" onSubmit={(event) => { event.preventDefault(); if (reply.trim()) { dispatch({ type: "reply", text: reply, direction }); setReply(""); } }}>
                   <label htmlFor="sample-payment-reply" className="text-xs font-medium text-muted">Reply to this sample</label>
-                  <div className="mt-2 flex gap-2"><input id="sample-payment-reply" value={reply} onChange={(event) => setReply(event.target.value)} maxLength={160} autoComplete="off" placeholder="It was for freelance work" className="min-w-0 flex-1 rounded-xl border border-line-strong bg-surface px-3 py-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft" /><button type="submit" disabled={!reply.trim()} className="min-h-11 shrink-0 rounded-xl bg-accent px-4 text-sm font-medium text-[var(--accent-ink)] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Reply</button></div>
-                  <div className="mt-2 flex flex-wrap gap-x-4"><button type="button" onClick={() => setReply("It was for freelance work")} className="min-h-9 text-left text-xs font-medium text-accent underline underline-offset-4">Use sample reply</button><button type="button" onClick={() => setReply("Birthday money from grandma")} className="min-h-9 text-left text-xs font-medium text-accent underline underline-offset-4">Use birthday example</button></div>
+                  <div className="mt-2 flex gap-2"><input id="sample-payment-reply" value={reply} onChange={(event) => setReply(event.target.value)} maxLength={160} autoComplete="off" placeholder={direction === "out" ? "It was for lunch" : "It was for freelance work"} className="min-w-0 flex-1 rounded-xl border border-line-strong bg-surface px-3 py-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft" /><button type="submit" disabled={!reply.trim()} className="min-h-11 shrink-0 rounded-xl bg-accent px-4 text-sm font-medium text-[var(--accent-ink)] disabled:opacity-40 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent">Reply</button></div>
+                  <div className="mt-2 flex flex-wrap gap-x-4"><button type="button" onClick={() => setReply(direction === "out" ? "It was for lunch" : "It was for freelance work")} className="min-h-9 text-left text-xs font-medium text-accent underline underline-offset-4">Use sample reply</button>{direction === "in" ? <button type="button" onClick={() => setReply("Birthday money from grandma")} className="min-h-9 text-left text-xs font-medium text-accent underline underline-offset-4">Use birthday example</button> : null}</div>
                   <p className="mt-1 text-[11px] leading-5 text-faint">A clear reply labels this fictional sample. Vague replies stay in Review. Nothing is sent or saved.</p>
                 </form>
               </> : null}
