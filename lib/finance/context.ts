@@ -6,7 +6,8 @@ import { LIMITS } from "@/lib/config";
 import { AiError } from "@/lib/errors";
 import { applyFollowUp, readConversation, type ConversationContext } from "@/lib/finance/conversation";
 import type { InterpretedAction } from "@/lib/finance/schemas";
-import { readReportingTransactions, type FinanceStore } from "@/lib/finance/store";
+import { readReporting, type FinanceStore } from "@/lib/finance/store";
+import type { AttentionSummary } from "@/lib/finance/accounting/types";
 import { zonedYmd } from "@/lib/finance/dates";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
@@ -41,7 +42,7 @@ export async function interpretWithContext(input: {
     input.store.listBudgets(ownerId),
     input.store.listSavingsGoals(ownerId),
     input.messages ? input.messages.listRecent(ownerId, LIMITS.maxHistory) : Promise.resolve([]),
-    readReportingTransactions(input.store, ownerId),
+    readReporting(input.store, ownerId),
   ]);
   const recent = transactions
     .filter((item) => item.status === "active")
@@ -61,6 +62,7 @@ export async function interpretWithContext(input: {
     offTopicTurn: offTopicStreak(ownHistory) + 1,
     history: ownHistory.slice(-8).map((item) => ({ role: item.role, body: item.body.slice(0, 400) })),
     snapshot: snapshotLine(reporting, input.profile, input.now),
+    attention: reporting.attention,
   };
   let interpreted: InterpretedAction;
   try {
@@ -116,6 +118,8 @@ export type ChatCue = {
   offTopicTurn: number;
   history: { role: "user" | "assistant"; body: string }[];
   snapshot: string;
+  /** What the Accounts page lists under Needs attention, or null when the ledger can't say. */
+  attention?: AttentionSummary | null;
 };
 
 /** Assistant replies in a row, newest first, that were off-topic chat. */
@@ -129,7 +133,7 @@ export function offTopicStreak(history: ChatMessageRecord[]): number {
   return streak;
 }
 
-function snapshotLine(transactions: TransactionRecord[], profile: UserProfile, now: Date): string {
+function snapshotLine({ transactions, attention }: { transactions: TransactionRecord[]; attention: AttentionSummary | null }, profile: UserProfile, now: Date): string {
   const today = zonedYmd(now, profile.timezone);
   const expenses = transactions.filter(
     (item) => item.status === "active" && item.type === "expense" && item.currency === profile.currency,
@@ -140,5 +144,16 @@ function snapshotLine(transactions: TransactionRecord[], profile: UserProfile, n
   const todayText = todayRows.length
     ? `${formatMinor(sum(todayRows), profile.currency)} spent today across ${todayRows.length} expenses`
     : "nothing logged today yet";
-  return `Today: ${todayText}. This month so far: ${formatMinor(sum(month), profile.currency)} spent.`;
+  return `Today: ${todayText}. This month so far: ${formatMinor(sum(month), profile.currency)} spent.${attention ? ` ${attentionLine(attention)}` : ""}`;
+}
+
+/** What the Accounts page lists under Needs attention, in words Alfred can repeat. */
+export function attentionLine(attention: AttentionSummary): string {
+  if (attention.total === 0) return "Nothing on the Accounts page needs attention.";
+  const reasons = [
+    attention.review ? `${attention.review} waiting for a category` : "",
+    attention.unassigned ? `${attention.unassigned} with no account assigned` : "",
+    attention.hold ? `${attention.hold} on hold` : "",
+  ].filter(Boolean);
+  return `${attention.total} ${attention.total === 1 ? "movement needs" : "movements need"} attention on the Accounts page (${reasons.join(", ")}).`;
 }

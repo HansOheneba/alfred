@@ -44,3 +44,20 @@ export class AccountingError extends Error {
   constructor(message: string, public readonly code: "validation" | "stale" | "ownership" | "not_found" | "conflict" = "validation") { super(message); this.name = "AccountingError"; }
 }
 export function emptyAccountingState(ownerId: string): AccountingState { return { ownerId,revision:0,accounts:[],movements:[],snapshots:[],transfers:[],settlements:[],audit:[] }; }
+
+/** What the Accounts page lists under Needs attention: no account yet, waiting for review, or on hold. */
+export function needsAttention(movement: Pick<CashMovement, "accountId" | "status">): boolean {
+  return !movement.accountId || movement.status === "review" || movement.status === "hold";
+}
+
+/** How many movements need attention, and why, so Alfred can speak to the same list the Accounts page shows. */
+export type AttentionSummary = { total: number; review: number; unassigned: number; hold: number };
+export function attentionSummary(movements: Pick<CashMovement, "accountId" | "status">[]): AttentionSummary {
+  const rows = movements.filter(needsAttention);
+  return {
+    total: rows.length,
+    review: rows.filter((row) => row.status === "review").length,
+    unassigned: rows.filter((row) => !row.accountId).length,
+    hold: rows.filter((row) => row.status === "hold").length,
+  };
+}

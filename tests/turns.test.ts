@@ -112,6 +112,16 @@ describe("a turn", () => {
     expect(requests[0].open?.some((line) => line.includes("use ask_next"))).toBe(true);
   });
 
+  it("points at the Accounts page's Needs attention list when no bank text is waiting", async () => {
+    const { deps, ctx, store } = setup(() => ({ type: "ask_next" }));
+    const attention = { total: 142, review: 3, unassigned: 140, hold: 0 };
+    Object.assign(store, { readReporting: async (userId: string) => ({ transactions: await store.listTransactions(userId), attention }) });
+    const reply = await converse("Are you sure nothing is left uncategorised?", ctx, deps, { channel: "web" });
+    expect(reply.text).toBe(
+      "No bank texts are waiting for a label, but 142 movements need attention on the Accounts page (3 waiting for a category, 140 with no account assigned). Open Accounts, then Needs attention, to sort them.",
+    );
+  });
+
   it("asks the same payment again when the answer to it can't be read", async () => {
     const { deps, ctx, owner, now } = setup(() => {
       throw new AiError("invalid", "DeepSeek returned empty JSON.");

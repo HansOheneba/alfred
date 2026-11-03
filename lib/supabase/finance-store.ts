@@ -1,4 +1,5 @@
 import type { SupabaseSettings } from "@/lib/config";
+import { attentionSummary } from "@/lib/finance/accounting/types";
 import { AuthError, DatabaseError, SheetsError } from "@/lib/errors";
 import { canonicalizeAmount } from "@/lib/finance/money";
 import type { FinanceStore } from "@/lib/finance/store";
@@ -97,6 +98,15 @@ export async function listRawTransactions(settings:SupabaseSettings,userId:strin
 }
 
 export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceStore {
+  async function readReporting(userId:string) {
+    const { loadAccountingState }=await import("@/lib/finance/accounting/persisted-store");
+    // The accounting read fetches raw rows inside its source-version boundary,
+    // and supplies the same raw fallback when the accounting schema is absent.
+    const accounting=await loadAccountingState(settings,userId);
+    if (accounting.availability !== "ready") return { transactions:accounting.rawTransactions, attention:null };
+    const { projectAccountingTransactions }=await import("@/lib/finance/accounting/view");
+    return { transactions:projectAccountingTransactions(accounting.rawTransactions,accounting.state), attention:attentionSummary(accounting.state.movements) };
+  }
   return {
     async ensureReady() {
       const rows = await query<{ ready: boolean }>(
@@ -175,14 +185,10 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
     },
 
     async listReportTransactions(userId) {
-      const { loadAccountingState }=await import("@/lib/finance/accounting/persisted-store");
-      // The accounting read fetches raw rows inside its source-version boundary,
-      // and supplies the same raw fallback when the accounting schema is absent.
-      const accounting=await loadAccountingState(settings,userId);
-      if (accounting.availability !== "ready") return accounting.rawTransactions;
-      const { projectAccountingTransactions }=await import("@/lib/finance/accounting/view");
-      return projectAccountingTransactions(accounting.rawTransactions,accounting.state);
+      return (await readReporting(userId)).transactions;
     },
+
+    readReporting,
 
     async getAccountBalances(userId,currency) {
       const {loadAccountingState}=await import("@/lib/finance/accounting/persisted-store");

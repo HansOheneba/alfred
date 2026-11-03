@@ -35,7 +35,7 @@ export function trackTurnData(deps: StudioDeps) {
     changed: () => changed,
     deps: {
       ...deps,
-      store: observe(deps.store, "finance", ["appendTransaction", "updateTransaction", "saveBudget", "deleteBudget", "appendSavingsGoal", "updateSavingsGoal"], ["listTransactions", "listReportTransactions", "listBudgets", "listSavingsGoals"]),
+      store: observe(deps.store, "finance", ["appendTransaction", "updateTransaction", "saveBudget", "deleteBudget", "appendSavingsGoal", "updateSavingsGoal"], ["listTransactions", "listReportTransactions", "readReporting", "listBudgets", "listSavingsGoals"]),
       bank: deps.bank ? observe(deps.bank, "bank", ["insertMessage", "updateMessage", "correctDate", "saveRule", "deleteRule", "addAccountName"]) : deps.bank,
       loans: deps.loans ? observe(deps.loans, "loans", ["add", "remove"], ["list"]) : deps.loans,
       investments: deps.investments ? observe(deps.investments, "investments", ["create", "update", "setHoldings", "addValue", "addContribution", "removeContribution"]) : deps.investments,

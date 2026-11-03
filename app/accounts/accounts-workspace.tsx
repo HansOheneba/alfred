@@ -6,7 +6,7 @@ import { createContext, useContext, useEffect, useMemo, useRef, useState, useSyn
 import { usePrivacyMask } from "@/app/components/app-shell";
 import { buildAccountingView } from "@/lib/finance/accounting/view";
 import type { SettlementIssue } from "@/lib/finance/accounting/settlements";
-import type { AccountingAction, AccountingState, CashMovement, FinancialAccount } from "@/lib/finance/accounting/types";
+import { needsAttention, type AccountingAction, type AccountingState, type CashMovement, type FinancialAccount } from "@/lib/finance/accounting/types";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import { AccountPageControls, accountListPage, BalanceHistory, formatAccountTime } from "./account-history";
@@ -58,7 +58,7 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
   const view = useMemo(() => buildAccountingView(state, currency), [state, currency]);
   const firstUse = availability === "ready" && state.accounts.length === 0 && state.movements.length === 0;
   const hasFilters = Boolean(search || accountFilter || statusFilter);
-  const attention = useMemo(() => state.movements.filter((row) => !row.accountId || ["review", "hold"].includes(row.status)), [state.movements]);
+  const attention = useMemo(() => state.movements.filter(needsAttention), [state.movements]);
   const movement = state.movements.find((row) => row.id === movementId);
   const currencies = [...new Set([defaultCurrency, ...state.accounts.map((item) => item.currency)])];
   const money = (minor: number, unit = currency) => masked ? "••••••" : formatMinor(minor, unit);

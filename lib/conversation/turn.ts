@@ -18,7 +18,8 @@ import type { BankStore } from "@/lib/bank/store";
 import { openThread } from "@/lib/conversation/thread";
 import { welcomeFor } from "@/lib/conversation/welcome";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
-import { interpretWithContext, type ChatCue } from "@/lib/finance/context";
+import { attentionLine, interpretWithContext, type ChatCue } from "@/lib/finance/context";
+import type { AttentionSummary } from "@/lib/finance/accounting/types";
 import type { LoanStore } from "@/lib/finance/loans";
 import { answerTypedDecision, decidePending, latestOpenPending } from "@/lib/finance/pending";
 import { actionsOf, type FinanceAction, type InterpretedAction } from "@/lib/finance/schemas";
@@ -128,6 +129,15 @@ type Turn = {
   channel: Channel;
 };
 
+/**
+ * No bank text is waiting for a label, but the Accounts page can still list
+ * movements that need a category or an account; say so rather than "all clear".
+ */
+export function nothingWaiting(attention: AttentionSummary | null | undefined): string {
+  if (!attention?.total) return "Nothing is waiting for a label right now. Tell me what you spent, or ask how the month is going.";
+  return `No bank texts are waiting for a label, but ${attentionLine(attention)} Open Accounts, then Needs attention, to sort them.`;
+}
+
 async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
   const { ctx, ingest, waiting } = turn;
   if (action.type === "label_payments") {
@@ -138,7 +148,7 @@ async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
     const asked = ingest ? await askNextReply(ingest, ctx.profile) : null;
     return asked
       ? { kind: "text", text: asked.text, intent: "bank:label", buttons: asked.buttons }
-      : { kind: "text", text: "Nothing is waiting for a label right now. Tell me what you spent, or ask how the month is going.", intent: "ask_next" };
+      : { kind: "text", text: nothingWaiting(turn.cue.attention), intent: "ask_next" };
   }
   if (action.type === "answer_confirmation") {
     if (!turn.pending) return { kind: "text", text: "There's nothing waiting for a yes or no right now. What would you like me to do?", intent: "answer_confirmation" };
@@ -160,7 +170,9 @@ async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
 function stateLines(turn: Turn): string[] {
   const count = turn.waiting?.all.length ?? 0;
   return [
-    count > 0 ? `${count === 1 ? "One payment from their bank texts is" : `${count} payments from their bank texts are`} waiting for them to say what ${count === 1 ? "it was" : "they were"}.` : "No payments are waiting for a label.",
+    count > 0 ? `${count === 1 ? "One payment from their bank texts is" : `${count} payments from their bank texts are`} waiting for them to say what ${count === 1 ? "it was" : "they were"}.` : "No payments from their bank texts are waiting for a label.",
+    // The Accounts page's own list, so "nothing waiting" never reads as "everything is categorised".
+    ...(turn.cue.attention ? [attentionLine(turn.cue.attention)] : []),
     ...turn.open,
   ];
 }
