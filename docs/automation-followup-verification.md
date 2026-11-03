@@ -52,13 +52,30 @@ Known, unknown and uncertain payment examples render. At a 390 by 844 mobile
 viewport the page width was 390 pixels and the payment switch/reset worked.
 The viewport and sample choices were restored afterward.
 
-That server belongs to the earlier implementation checkout; it is not evidence
-that this final follow-up commit is running. Starting a separate final-code
-sample server on port 3121 failed with a loopback bind restriction. Automatic
-approval review rejected the escalation because it treated it as retrying a
-previously denied bind. No alternate launcher or route was attempted afterward.
-Final-code and hosted-demo browser verification remain incomplete. The native
-window was compiled and its state transitions tested, but never opened.
+That server belongs to the earlier implementation checkout. The final runtime
+code at `9cf713f584ea958115f5563aa42f04875d698507` was subsequently verified on
+the separately approved sample-only server at `http://127.0.0.1:3121`, using the
+same command, address and normal approval review. The earlier loopback rejection
+was retried only after the user explicitly approved that exact preview. No
+alternate port or launcher was used.
+
+The final server initially could not resolve dependencies linked outside the
+Turbopack project root. Existing locked dependencies were copied into this
+isolated checkout without installing new packages. A clean, normally approved
+restart on the same address cleared partially loaded module state; no database
+import or application source change was needed. All three final demo routes
+then rendered successfully. Desktop checks passed for independent switches,
+save/reload/reset, the account mismatch block, the full three-step inactive
+setup, known/unknown/uncertain examples and the birthday-money sample reply.
+All notification choices also start off on the SMS demo. Mobile checks at
+390 by 844 passed for page width (390 pixels), switch/save/reset interaction,
+and layout inspection. The viewport and choices were restored. The final
+browser error log was empty. The background tab was retained as a deliverable.
+
+Hosted-demo browser verification remains incomplete. The native window was
+compiled and its state transitions tested, but never opened. No real account,
+credential, Messages access, notification permission, financial data or delivery
+was used during the final browser check.
 
 ## External gates still unresolved
 
