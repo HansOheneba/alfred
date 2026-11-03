@@ -8,7 +8,7 @@ import { ingestBankText } from "@/lib/bank/ingest";
 import { askNext } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { openThread } from "@/lib/conversation/thread";
-import { converse, type TurnDeps } from "@/lib/conversation/turn";
+import { converse, OUTAGE_INTRO, type TurnDeps } from "@/lib/conversation/turn";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { ActionContext } from "@/lib/finance/action-router";
 import { MemoryLoanStore } from "@/lib/finance/loans";
@@ -131,6 +131,18 @@ describe("a turn", () => {
     await askNext(ingest, owner);
     const reply = await converse("that was the suit", ctx, deps, { channel: "telegram" });
     expect(reply.text).toMatch(/^Sorry, I didn't quite catch that\.\n\nGH₵22\.50 to Ellen Ohenewa Obeng-Darko/);
+    expect(reply.buttons?.length).toBeGreaterThan(0);
+  });
+
+  it("keeps the payment question open with its buttons while the model is down", async () => {
+    const { deps, ctx, owner, now } = setup(() => {
+      throw new AiError("unavailable", "DeepSeek failed with status 503.");
+    });
+    const ingest = { bank: deps.bank!, ledger: ctx.store, now, createId: deps.createId };
+    await ingestBankText(ingest, owner, ELLEN, { channel: "mac" });
+    await askNext(ingest, owner);
+    const reply = await converse("that was groceries", ctx, deps, { channel: "web" });
+    expect(reply.text.startsWith(`${OUTAGE_INTRO}\n\nGH₵22.50 to Ellen`)).toBe(true);
     expect(reply.buttons?.length).toBeGreaterThan(0);
   });
 

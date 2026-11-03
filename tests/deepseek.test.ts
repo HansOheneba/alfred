@@ -78,6 +78,41 @@ describe("DeepSeek client", () => {
     expect(fetchImpl).toHaveBeenCalledTimes(2);
   });
 
+  it("moves to the everyday model when the turn's model is down", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse(JSON.stringify({ type: "help" })));
+    const action = await interpretMessage(settings, { ...request, model: "deepseek-pro" }, fetchImpl as typeof fetch);
+    expect(action.type).toBe("help");
+    const models = fetchImpl.mock.calls.map((call) => (JSON.parse(String(call[1].body)) as { model: string }).model);
+    expect(models).toEqual(["deepseek-pro", "deepseek-flash"]);
+  });
+
+  it("tries the everyday model once more after a brief outage", async () => {
+    const fetchImpl = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("{}", { status: 503 }))
+      .mockResolvedValueOnce(jsonResponse(JSON.stringify({ type: "help" })));
+    const action = await interpretMessage(settings, request, fetchImpl as typeof fetch);
+    expect(action.type).toBe("help");
+    expect(fetchImpl).toHaveBeenCalledTimes(2);
+  });
+
+  it("gives up on the everyday model when it times out, leaving time to reply", async () => {
+    const timeout = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    const fetchImpl = vi.fn().mockRejectedValue(timeout);
+    await expect(interpretMessage(settings, request, fetchImpl as typeof fetch)).rejects.toMatchObject({ code: "timeout" });
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
+  });
+
+  it("reports a reply that times out mid-body as a timeout", async () => {
+    const timeout = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+    const slow = { ok: true, status: 200, json: async () => { throw timeout; } } as unknown as Response;
+    const fetchImpl = vi.fn().mockResolvedValueOnce(slow).mockResolvedValueOnce(slow);
+    await expect(interpretMessage(settings, { ...request, model: "deepseek-pro" }, fetchImpl as typeof fetch)).rejects.toMatchObject({ code: "timeout" });
+  });
+
   it("does not retry a rate limit", async () => {
     const fetchImpl = vi.fn(async () => new Response("{}", { status: 429 }));
     await expect(interpretMessage(settings, request, fetchImpl as typeof fetch)).rejects.toBeInstanceOf(AiError);

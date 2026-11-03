@@ -98,9 +98,10 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   });
   logInfo("interpreted", { userId: ctx.profile.profileId, action: action.type === "several" ? action.actions.map((item) => item.type).join("+") : action.type });
 
-  // A reply that couldn't be read most likely answers the payment just asked about, so that question stays open.
+  // A reply that couldn't be read, or that came while the model was down, most likely answers the
+  // payment just asked about, so that question stays open with buttons that work without the model.
   if (unread && ingest && waiting?.current) {
-    const again = await askAgain(ingest, ctx.profile, waiting.current);
+    const again = await askAgain(ingest, ctx.profile, waiting.current, unread === "outage" ? OUTAGE_INTRO : undefined);
     return { kind: "text", text: again.text, intent: "bank:label", buttons: again.buttons };
   }
 
@@ -137,6 +138,9 @@ export function nothingWaiting(attention: AttentionSummary | null | undefined): 
   if (!attention?.total) return "Nothing is waiting for a label right now. Tell me what you spent, or ask how the month is going.";
   return `No bank texts are waiting for a label, but ${attentionLine(attention)} Open Accounts, then Needs attention, to sort them.`;
 }
+
+/** Said before re-asking a payment question when the model is down, so a tap still moves things on. */
+export const OUTAGE_INTRO = "My thinking is running slow right now, so I couldn't take that in. Tap an answer below, or send it again in a minute. Nothing was saved.";
 
 async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
   const { ctx, ingest, waiting } = turn;

@@ -34,7 +34,7 @@ export async function interpretWithContext(input: {
   model?: string;
   /** Works out what's open in the conversation from its recent messages. */
   open?: (history: ChatMessageRecord[]) => string[];
-}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** True when the model's reply couldn't be read, so `action` is a stock fallback. */ unread?: boolean }> {
+}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** Why the model gave nothing usable, so `action` is a stock fallback: its reply couldn't be read, or it was down or too slow. */ unread?: "invalid" | "outage" }> {
   const ownerId = input.profile.profileId;
   const [transactions, context, budgets, goals, history, reporting] = await Promise.all([
     input.store.listTransactions(ownerId),
@@ -104,7 +104,12 @@ export async function interpretWithContext(input: {
   } catch (error) {
     if (error instanceof AiError && error.code === "invalid") {
       logError("interpret_unread", error);
-      return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: true };
+      return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: "invalid" };
+    }
+    // While a payment question is open, its buttons still work without the model, so the turn can carry on.
+    if (error instanceof AiError && (error.code === "unavailable" || error.code === "timeout") && input.waiting?.current) {
+      logError("interpret_outage", error);
+      return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: "outage" };
     }
     throw error;
   }

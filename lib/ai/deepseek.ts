@@ -83,6 +83,7 @@ export async function interpretMessage(
   try {
     first = await chatCompletion(turnSettings, messages, {}, fetchImpl);
   } catch (error) {
+    if (outage(error)) return afterOutage(error, settings, turnSettings, messages, today, fetchImpl);
     if (!(error instanceof AiError) || error.code !== "invalid") throw error;
   }
   const parsed = parseModelOutput(first, { today });
@@ -110,11 +111,44 @@ export async function interpretMessage(
   throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);
 }
 
+/** DeepSeek being down or too slow, as opposed to a reply that couldn't be used. */
+function outage(error: unknown): error is AiError {
+  return error instanceof AiError && (error.code === "unavailable" || error.code === "timeout");
+}
+
+/** A pause before retrying a model that just failed, long enough for a brief overload to pass. */
+export const OUTAGE_PAUSE_MS = 800;
+
+/** How long a second try may take, so both fit in one request with time left for the reply. */
+const SECOND_TRY_MS = 15_000;
+
+/**
+ * One more try after DeepSeek failed or timed out: on the everyday model when
+ * the turn asked for a stronger one, otherwise the same model after a short
+ * pause. A timeout on the everyday model already used most of the time
+ * budget, so it isn't retried.
+ */
+async function afterOutage(
+  error: AiError,
+  settings: DeepSeekSettings,
+  turnSettings: DeepSeekSettings,
+  messages: ChatMessage[],
+  today: string,
+  fetchImpl: typeof fetch,
+): Promise<InterpretedAction> {
+  const switching = turnSettings.model !== settings.model;
+  if (!switching && error.code === "timeout") throw error;
+  if (!switching) await new Promise((resolve) => setTimeout(resolve, OUTAGE_PAUSE_MS));
+  const retry = await attempt(settings, messages, { timeoutMs: SECOND_TRY_MS }, today, fetchImpl);
+  if (retry.success) return retry.data;
+  throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);
+}
+
 /** One completion read as a finance action; an unreadable reply comes back as an issue instead of throwing. */
 async function attempt(
   settings: DeepSeekSettings,
   messages: ChatMessage[],
-  options: { temperature?: number },
+  options: { temperature?: number; timeoutMs?: number },
   today: string,
   fetchImpl: typeof fetch,
 ): Promise<{ success: true; data: InterpretedAction } | { success: false; issue: string }> {
@@ -190,7 +224,15 @@ export async function chatCompletion(
   if (response.status === 429) throw new AiError("rate_limit", "DeepSeek rate limited the request.");
   if (!response.ok) throw new AiError("unavailable", `DeepSeek failed with status ${response.status}.`);
 
-  const parsed = completionSchema.safeParse(await response.json());
+  // The time limit also covers reading the body, so a slow reply can time out here too.
+  let body: unknown;
+  try {
+    body = await response.json();
+  } catch (error) {
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) throw new AiError("timeout", "DeepSeek timed out.");
+    throw new AiError("invalid", "DeepSeek returned an unexpected payload.");
+  }
+  const parsed = completionSchema.safeParse(body);
   if (!parsed.success) throw new AiError("invalid", "DeepSeek returned an unexpected payload.");
   const choice = parsed.data.choices[0];
   if (choice.finish_reason === "length") {

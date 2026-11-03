@@ -44,6 +44,7 @@ export function userFacingError(error: unknown): string {
   if (error instanceof AiError) {
     if (error.code === "rate_limit") return "The assistant is busy right now. Try again in a minute.";
     if (error.code === "timeout") return "That took too long to understand. Please try again.";
+    if (error.code === "unavailable") return "My thinking is running slow right now. Try again in a minute; nothing was saved.";
     return "I couldn't read that reliably. Please rephrase with the amount and what it was for.";
   }
   if (error instanceof DatabaseError) return "The ledger is temporarily unavailable. If I didn't confirm a result, it wasn't saved.";
