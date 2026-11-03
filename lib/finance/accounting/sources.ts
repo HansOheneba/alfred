@@ -8,6 +8,12 @@ import type { AccountingState, CashMovement, MovementStatus } from "./types";
 const hash = (data:unknown) => createHash("sha256").update(stableJson(data)).digest("hex");
 const legacyLoan = new Set(["loan","lent","repaid","borrowed","paid_back"]);
 
+function sourceDescription(direction:CashMovement["direction"],...values:(string|null|undefined)[]):string {
+  return values.find((value) => typeof value === "string" && value.trim().length > 0)
+    ?? (direction === "in" ? "Incoming payment" : direction === "out" ? "Outgoing payment" : "Bank payment");
+}
+
+
 /** Build exact source identities. Provider names and payment labels never assign a financial account. */
 export function sourceMovements(ownerId:string,transactions:TransactionRecord[],messages:BankMessage[]):CashMovement[] {
   const rows:CashMovement[] = [];
@@ -32,7 +38,7 @@ export function sourceMovements(ownerId:string,transactions:TransactionRecord[],
     rows.push({
       id:`bank:${message.id}`,ownerId,accountId:null,direction:message.direction,status,sourceStatus:status,
       amountMinor:toMinor(message.amount),feeMinor:toMinor(message.fee),currency:message.currency,date:transaction?.transactionDate ?? message.occurredAt.slice(0,10),occurredAt:message.occurredAt,
-      description:transaction?.description ?? message.counterparty ?? "Bank payment",category,sourceCategory:category,
+      description:sourceDescription(message.direction,transaction?.description,message.counterparty),category,sourceCategory:category,
       sourceId:message.id,sourceKind:"bank",sourceFingerprint:hash({message,transaction:transaction ?? null}),
       legacyTransactionId:duplicate ? null : message.transactionId,feeTransactionId:duplicate ? null : message.feeTransactionId,
       legacyClassification:legacyLoan.has(message.status) ? "loan" : transaction && toMinor(transaction.amount)<0 ? "refund" : null,
@@ -44,9 +50,10 @@ export function sourceMovements(ownerId:string,transactions:TransactionRecord[],
     const minor=toMinor(transaction.amount);
     if (minor===0) continue;
     const status:MovementStatus=transaction.status === "active" ? "confirmed" : "excluded";
-    rows.push({id:`transaction:${transaction.transactionId}`,ownerId,accountId:null,direction:transaction.type === "income" || minor<0 ? "in" : "out",status,sourceStatus:status,
+    const direction=transaction.type === "income" || minor<0 ? "in" : "out";
+    rows.push({id:`transaction:${transaction.transactionId}`,ownerId,accountId:null,direction,status,sourceStatus:status,
       amountMinor:Math.abs(minor),feeMinor:0,currency:transaction.currency,date:transaction.transactionDate,occurredAt:null,
-      description:transaction.description,category:transaction.category,sourceCategory:transaction.category,
+      description:sourceDescription(direction,transaction.description),category:transaction.category,sourceCategory:transaction.category,
       sourceId:transaction.transactionId,sourceKind:"transaction",sourceFingerprint:hash(transaction),legacyTransactionId:transaction.transactionId,feeTransactionId:null,legacyClassification:minor<0 ? "refund" : null,sourceLabel:transaction.paymentMethod || "Manual / cash"});
   }
   return rows;

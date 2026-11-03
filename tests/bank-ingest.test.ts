@@ -150,11 +150,12 @@ describe("smarter labelling", () => {
     expect(next.outcomes[0].outcome).toBe("transfer");
   });
 
-  it("leaves out GH₵1 card checks and test sends without asking", async () => {
-    const { deps, owner } = setup();
-    const result = await ingestBankText(deps, owner, FROM_ME_AGAIN.replace("GHS 2.00", "GHS 1.00").replace("HANS OHENEBA ADUSE OPOKU", "KOFI MENSAH"), { channel: "shortcut" });
-    expect(result.outcomes[0].outcome).toBe("skipped");
-    expect(result.outcomes[0].message.status).toBe("skipped");
+  it.each(["0.01", "0.50", "1.00"])("leaves a legitimate GH₵%s payment for review until its purpose is known", async (amount) => {
+    const { deps, ledger, owner } = setup();
+    const result = await ingestBankText(deps, owner, FROM_ME_AGAIN.replace("GHS 2.00", `GHS ${amount}`).replace("HANS OHENEBA ADUSE OPOKU", "KOFI MENSAH"), { channel: "shortcut" });
+    expect(result.outcomes[0].outcome).toBe("needs_label");
+    expect(result.outcomes[0].message).toMatchObject({ status: "needs_label", amount });
+    expect(await ledger.listTransactions(owner.profileId)).toHaveLength(0);
   });
 
   it("never learns a payee from a vague label or from your own name", async () => {

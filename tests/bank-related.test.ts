@@ -66,7 +66,7 @@ describe("texts about the same payment", () => {
   it("turns a GH₵1 debit that came before its payment into that payment's fee", async () => {
     const { ledger, send } = setup();
     const early = await send(DEBIT("1.00", "1,946.22"));
-    expect(early.outcomes[0].outcome).toBe("skipped");
+    expect(early.outcomes[0].outcome).toBe("needs_label");
     await send(TRANSFER);
     expect((await ledger.listTransactions("42")).map((item) => [item.category, item.amount])).toEqual([["Fees", "1.00"]]);
   });

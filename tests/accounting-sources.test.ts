@@ -43,6 +43,58 @@ describe("owner-scoped source ingestion and hydration", () => {
     expect(rows[0].sourceLabel).toBe("gcb");
   });
 
+  it.each([
+    { source: "hubtel", direction: "out", counterparty: "", description: "Outgoing payment" },
+    { source: "momo", direction: "in", counterparty: " \t ", description: "Incoming payment" },
+  ] as const)("gives a blank $source counterparty an honest directional label without changing its source or classification", ({ source, direction, counterparty, description }) => {
+    const message = bank("small-source", { source, direction, counterparty, status: "skipped", amount: "1.00", fee: "0.00" });
+    const original = structuredClone(message);
+    expect(sourceMovements("owner", [], [message])[0]).toMatchObject({
+      id: "bank:small-source", sourceId: "small-source", sourceKind: "bank", description,
+      status: "excluded", sourceStatus: "excluded", accountId: null, category: "Uncategorized",
+      amountMinor: 100, feeMinor: 0, sourceLabel: source, sourceText: message.raw,
+    });
+    expect(message).toEqual(original);
+  });
+
+  it.each([
+    { description: " \t ", counterparty: "Credit.Inv", expected: "Credit.Inv" },
+    { description: "", counterparty: " \n ", expected: "Incoming payment" },
+    { description: "  Explicit existing memo  ", counterparty: "Synthetic merchant", expected: "  Explicit existing memo  " },
+  ])("uses meaningful source text before a neutral fallback: $expected", ({ description, counterparty, expected }) => {
+    const raw = transaction("linked", { type: "income", description });
+    const message = bank("linked-bank", { direction: "in", transactionId: "linked", counterparty });
+    expect(sourceMovements("owner", [raw], [message])[0]).toMatchObject({ description: expected, category: "Food" });
+    expect(raw.description).toBe(description);
+    expect(message.counterparty).toBe(counterparty);
+  });
+
+  it("labels a blank manual description without inventing a merchant or changing its category", () => {
+    const raw = transaction("blank-manual", { type: "income", description: " \t ", category: "Other" });
+    expect(sourceMovements("owner", [raw], [])[0]).toMatchObject({
+      id: "transaction:blank-manual", description: "Incoming payment", category: "Other", sourceId: "blank-manual",
+    });
+    expect(raw.description).toBe(" \t ");
+  });
+
+  it("refreshes an old blank display label while retaining fingerprint-bound choices and original evidence", () => {
+    const message = bank("blank-existing", { source: "hubtel", direction: "out", counterparty: "", status: "skipped", amount: "1.00", fee: "0.00", balance: null });
+    const fresh = sourceMovements("owner", [], [message]);
+    const saved = { ...emptyAccountingState("owner"),
+      accounts: [{ id: "hubtel-account", label: "Synthetic Hubtel wallet", provider: "hubtel", currency: "GHS", includeInCash: true, createdAt: NOW }],
+      movements: [{ ...fresh[0], description: "", accountId: "hubtel-account", category: "Existing explicit label", categoryOrigin: "manual" as const }],
+    };
+    const hydrated = hydrateAccountingSources(saved, fresh);
+    expect(hydrated.movements[0]).toMatchObject({
+      id: saved.movements[0].id, sourceId: saved.movements[0].sourceId, sourceFingerprint: saved.movements[0].sourceFingerprint,
+      sourceText: message.raw, sourceLabel: "hubtel", description: "Outgoing payment", accountId: "hubtel-account",
+      status: "excluded", category: "Existing explicit label", categoryOrigin: "manual",
+    });
+    expect(hydrated.transfers).toEqual([]);
+    expect(saved.movements[0].description).toBe("");
+    expect(message.counterparty).toBe("");
+  });
+
   it("retains reported balances and source evidence for unlabeled payments, without confirming them", () => {
     const rows = sourceMovements("owner", [], [bank("pending", { status: "needs_label" })]);
     expect(rows[0]).toMatchObject({

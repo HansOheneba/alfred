@@ -43,9 +43,6 @@ export type IngestOutcome = {
 export const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"] as const;
 export const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"] as const;
 
-/** Card checks and test sends: this much or less is left out without asking. */
-export const TINY_AMOUNT = 1;
-
 /** Card messages name no payee, so there's nothing to learn from them. */
 export function learnable(counterparty: string): boolean {
   // A channel like TELECEL PUSH reaches a different person each time, so filing it by name would be wrong.
@@ -243,12 +240,6 @@ export async function ingestBankText(
     // While Alfred is still learning a bank's texts, the person confirms each payment, so a misreading can't slip in.
     if (stored.readBy === "model" && !(await trustsReading(deps.bank, profile.profileId, stored.source))) {
       outcomes.push({ message: stored, outcome: "needs_label", feeRecorded });
-      continue;
-    }
-
-    if (Number(stored.amount) <= TINY_AMOUNT) {
-      await deps.bank.updateMessage(profile.profileId, stored.id, { status: "skipped" });
-      outcomes.push({ message: { ...stored, status: "skipped" }, outcome: "skipped", feeRecorded });
       continue;
     }
 
