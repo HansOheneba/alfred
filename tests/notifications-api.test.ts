@@ -1,5 +1,5 @@
 import { beforeEach,describe,expect,it,vi } from "vitest";
-const mocks=vi.hoisted(()=>({owner:vi.fn(),preferences:vi.fn(),devices:vi.fn(),update:vi.fn(),subscribe:vi.fn(),unsubscribe:vi.fn(),deviceForEndpoint:vi.fn(),configuration:vi.fn(),dispatch:vi.fn(),mentions:vi.fn(),recovery:vi.fn(),recoveryConfiguration:vi.fn(),completed:vi.fn(),failed:vi.fn()}));
+const mocks=vi.hoisted(()=>({owner:vi.fn(),preferences:vi.fn(),devices:vi.fn(),update:vi.fn(),subscribe:vi.fn(),unsubscribe:vi.fn(),deviceForEndpoint:vi.fn(),configuration:vi.fn(),dispatch:vi.fn(),mentions:vi.fn(),recovery:vi.fn(),recoveryConfiguration:vi.fn(),completed:vi.fn(),failed:vi.fn(),policy:vi.fn()}));
 vi.mock("@/lib/web/api",()=>({requireOwner:mocks.owner}));
 vi.mock("@/lib/notifications/store",()=>({createNotificationStore:()=>({preferences:mocks.preferences,devices:mocks.devices,update:mocks.update,subscribe:mocks.subscribe,unsubscribe:mocks.unsubscribe,deviceForEndpoint:mocks.deviceForEndpoint})}));
 vi.mock("@/lib/notifications/push",()=>({pushConfiguration:mocks.configuration}));
@@ -7,6 +7,7 @@ vi.mock("@/lib/notifications/service",()=>({dispatchScheduledNotifications:mocks
 vi.mock("@/lib/bank/notices",()=>({recoverAllIncomingPaymentMentions:mocks.mentions}));
 vi.mock("@/lib/notifications/recovery",()=>({loadRecoveryStatus:mocks.recovery,recoveryConfiguration:mocks.recoveryConfiguration,recordRecoveryCompletion:mocks.completed,recordRecoveryFailure:mocks.failed}));
 vi.mock("@/lib/env",()=>({getDatabaseSettings:()=>({fixture:true})}));
+vi.mock("@/lib/notifications/schema-ready",()=>({notificationPolicyAvailable:mocks.policy}));
 import { GET,PATCH } from "@/app/api/notifications/route";
 import { POST,DELETE } from "@/app/api/notifications/subscriptions/route";
 import { POST as status } from "@/app/api/notifications/subscriptions/status/route";
@@ -14,12 +15,21 @@ import { POST as dispatch } from "@/app/api/notifications/dispatch/route";
 const origin="https://alfred.example",ownerId="00000000-0000-4000-8000-000000000001";
 const request=(path:string,method:string,body:unknown,source=origin)=>new Request(origin+path,{method,headers:{origin:source,"content-type":"application/json","x-alfred-owner":ownerId},body:JSON.stringify(body)});
 beforeEach(()=>{
- vi.clearAllMocks();vi.unstubAllEnvs();vi.stubEnv("ALFRED_PUSH_DELIVERY_ENABLED","true");mocks.recovery.mockResolvedValue({configured:true,ready:true,lastCompletedAt:"2026-11-03T12:00:00Z",expectedIntervalSeconds:300,reason:"ready"});mocks.recoveryConfiguration.mockReturnValue({configured:true});mocks.completed.mockResolvedValue(undefined);mocks.failed.mockResolvedValue(undefined);mocks.owner.mockResolvedValue({profile:{profileId:ownerId},settings:{supabase:{fixture:true}}});
+ vi.clearAllMocks();vi.unstubAllEnvs();mocks.policy.mockResolvedValue(true);vi.stubEnv("ALFRED_PUSH_DELIVERY_ENABLED","true");mocks.recovery.mockResolvedValue({configured:true,ready:true,lastCompletedAt:"2026-11-03T12:00:00Z",expectedIntervalSeconds:300,reason:"ready"});mocks.recoveryConfiguration.mockReturnValue({configured:true});mocks.completed.mockResolvedValue(undefined);mocks.failed.mockResolvedValue(undefined);mocks.owner.mockResolvedValue({profile:{profileId:ownerId},settings:{supabase:{fixture:true}}});
  mocks.preferences.mockResolvedValue({paymentPush:false});mocks.devices.mockResolvedValue([{id:"device",createdAt:"2026-11-03T12:00:00Z"}]);mocks.update.mockResolvedValue({paymentPush:true});
  mocks.configuration.mockReturnValue({ready:true,publicKey:"public-fixture",config:{publicKey:"public-fixture",privateKey:"must-never-be-serialized",subject:"mailto:fixture@example.invalid"}});
  mocks.subscribe.mockResolvedValue("device");mocks.unsubscribe.mockResolvedValue(undefined);mocks.deviceForEndpoint.mockResolvedValue(null);
 });
 describe("notification API authorization and private responses",()=>{
+ it("keeps device opt-in unavailable when the new policy migration is missing despite an old healthy heartbeat",async()=>{
+  mocks.policy.mockResolvedValue(false);
+  const payload=await (await GET()).json();
+  expect(payload.push).toMatchObject({recoveryReady:false,recovery:{ready:false,reason:"schema-unavailable"}});
+  expect((await PATCH(request("/api/notifications","PATCH",{paymentPush:true}))).status).toBe(503);
+  expect(mocks.update).not.toHaveBeenCalled();
+  expect((await PATCH(request("/api/notifications","PATCH",{paymentPush:false}))).status).toBe(200);
+ });
+
  it("requires an authenticated owner for configuration",async()=>{
   mocks.owner.mockResolvedValue(Response.json({ok:false},{status:401}));expect((await GET()).status).toBe(401);expect(mocks.preferences).not.toHaveBeenCalled();
  });

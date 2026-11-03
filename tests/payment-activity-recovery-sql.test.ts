@@ -42,8 +42,8 @@ beforeAll(async () => {
       status text,amount numeric(12,2),fee numeric(12,2) default 0,currency text default 'GHS',
       counterparty text default 'Fictional provider',read_by text default 'rules',transaction_id uuid,fee_transaction_id uuid,
       created_at timestamptz default now(),occurred_at timestamptz default now());
-    create table transactions(owner_id uuid,transaction_id uuid,category text,description text,status text,type text,amount numeric(12,2),currency text);`);
-  for (const name of ['20261103110000_notifications.sql', '20261103113000_bank_notice_receipts.sql', '20261103233000_payment_activity_notices.sql']) {
+    create table transactions(owner_id uuid,transaction_id uuid,category text,description text,status text,type text,amount numeric(12,2),currency text,source_update_id text);`);
+  for (const name of ['20261103110000_notifications.sql', '20261103113000_bank_notice_receipts.sql', '20261103233000_payment_activity_notices.sql', '20261103235000_fee_notice_readiness.sql']) {
     await db.exec(await readFile(new URL('../supabase/migrations/' + name, import.meta.url), 'utf8'));
   }
 });

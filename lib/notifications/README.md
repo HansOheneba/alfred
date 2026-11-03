@@ -6,8 +6,15 @@ start off; private in-app payment mentions are independent of browser push.
 
 ## Immediate payment nudges
 
-Opted-in payment nudges are eligible immediately, including overnight. They have
-no intentional 22:00–07:00 hold. The device and operating system may still delay
+Opted-in payment nudges are eligible at every local hour, including overnight.
+An unresolved, unnamed outgoing debit of at most 10 currency units waits for
+the existing three-minute related-payment window before asking its purpose.
+Its status stays reviewable; it is not skipped. A related payment may establish
+that it is a separately reported fee, which must not produce its own purpose
+question or duplicate payment nudge. A standalone payment becomes eligible
+after the window, using server creation time rather than a supplied old date.
+Named payments and incoming payments do not receive that delay.
+There is no intentional 22:00–07:00 hold. The device and operating system may still delay
 or silence display, and a provider response is not proof of lock-screen display.
 Bill reminders retain their 09:00 local window and weekly notices retain their
 Sunday 18:00 local window; their separate preferences are unchanged.

@@ -43,6 +43,7 @@ const requiredFunctions = [
   "public.alfred_record_collector_health(uuid,uuid,text,integer,integer,integer,integer,integer,timestamp with time zone,timestamp with time zone)",
   "public.alfred_forget_collector_health(uuid,uuid)",
   "public.alfred_record_bank_activity_notice(uuid,uuid,text,text,boolean,text,uuid,boolean,jsonb,jsonb)",
+  "public.alfred_bank_notice_readiness(uuid,uuid,timestamp with time zone)",
 ];
 
 /** Explicit operator-only check: catalog metadata and one operational heartbeat;

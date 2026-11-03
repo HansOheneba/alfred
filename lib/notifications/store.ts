@@ -93,6 +93,7 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
         where p.owner_id=$1::uuid and b.id=$2::uuid and p.payment_push and p.payment_push_since is not null
           and b.channel in ('mac','shortcut') and b.amount>0 and b.kind='payment'
           and b.status in ('needs_label','recorded') and b.occurred_at>=p.payment_push_since and b.created_at>=p.payment_push_since
+          and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
           and b.occurred_at>=s.created_at and (s.expires_at is null or s.expires_at>now())
         on conflict(owner_id,subscription_id,event_key) do nothing returning id::text`,[ownerId,messageId]);
       return rows.length;
@@ -119,7 +120,9 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
         where d.id=$2::uuid and d.owner_id=$1::uuid and s.id=d.subscription_id and s.owner_id=d.owner_id and p.owner_id=d.owner_id
           and d.status='queued' and d.attempts<3 and d.next_attempt_at<=$3::timestamptz
           and (s.expires_at is null or s.expires_at>$3::timestamptz)
-          and ((d.kind='payment' and p.payment_push and d.preference_epoch=p.payment_epoch and exists(select 1 from public.bank_messages b where b.id=d.resource_id and b.owner_id=d.owner_id and b.kind='payment' and b.status in ('needs_label','recorded') and b.channel in ('mac','shortcut') and b.amount>0))
+          and ((d.kind='payment' and p.payment_push and d.preference_epoch=p.payment_epoch and exists(select 1 from public.bank_messages b where b.id=d.resource_id and b.owner_id=d.owner_id and b.kind='payment' and b.status in ('needs_label','recorded') and b.channel in ('mac','shortcut') and b.amount>0
+            and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
+            and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')))
             or (d.kind='bill' and p.bill_reminders and d.preference_epoch=p.bill_epoch and exists(select 1 from public.bills b where b.id=d.resource_id and b.owner_id=d.owner_id and b.active))
             or (d.kind='weekly' and p.weekly_overview and d.preference_epoch=p.weekly_epoch))
         returning d.id::text,d.owner_id::text,d.subscription_id::text,d.kind,d.event_key,d.resource_id::text,d.target_date::text,d.attempts,s.subscription`,[ownerId,id,now.toISOString()]);
@@ -129,8 +132,29 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
       await execute(settings,`update public.notification_deliveries set status=$3,last_result=$4,next_attempt_at=coalesce($5::timestamptz,next_attempt_at),updated_at=now()
         where owner_id=$1::uuid and id=$2::uuid and status='attempted'`,[ownerId,id,result.status,result.reason,result.nextAttempt?.toISOString()??null]);
     },
-    async cancel(ownerId:string,id:string):Promise<void> {
-      await execute(settings,`update public.notification_deliveries set status='canceled',last_result='ineligible',updated_at=now() where owner_id=$1::uuid and id=$2::uuid and status='queued'`,[ownerId,id]);
+    async deferWaiting(ownerId:string,id:string,now:Date):Promise<boolean> {
+      const rows=await execute<{id:string}>(settings,`update public.notification_deliveries d
+        set next_attempt_at=greatest(d.next_attempt_at,n.ready_at),updated_at=now()
+        from public.bank_messages b, lateral public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n
+        where d.owner_id=$1::uuid and d.id=$2::uuid and d.status='queued' and d.kind='payment'
+          and b.owner_id=d.owner_id and b.id=d.resource_id and n.state='waiting'
+        returning d.id::text`,[ownerId,id,now.toISOString()]);
+      return rows.length>0;
+    },
+    async cancel(ownerId:string,id:string,now=new Date()):Promise<boolean> {
+      const rows=await execute<{id:string}>(settings,`update public.notification_deliveries d set status='canceled',last_result='ineligible',updated_at=now()
+        where d.owner_id=$1::uuid and d.id=$2::uuid and d.status='queued'
+          and not(d.kind='payment' and d.attempts<3 and exists(
+            select 1 from public.notification_preferences p
+            join public.push_subscriptions s on s.owner_id=p.owner_id and s.id=d.subscription_id
+            join public.bank_messages b on b.owner_id=p.owner_id and b.id=d.resource_id
+            where p.owner_id=d.owner_id and p.payment_push and p.payment_epoch=d.preference_epoch
+              and (s.expires_at is null or s.expires_at>$3::timestamptz)
+              and b.kind='payment' and b.status in ('needs_label','recorded') and b.channel in ('mac','shortcut') and b.amount>0
+              and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
+              and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state in ('ready','waiting'))
+          )) returning d.id::text`,[ownerId,id,now.toISOString()]);
+      return rows.length>0;
     },
   };
 }

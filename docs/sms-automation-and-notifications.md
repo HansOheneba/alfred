@@ -209,6 +209,11 @@ diagnostics. The readiness checker does not provision or verify live services.
 Payment nudges have no overnight hold: opted-in eligible alerts can dispatch
 immediately, including overnight. Transport retries and recovery remain durable;
 this is not a promise of instant display by a browser or operating system.
+An unresolved bare outgoing debit at or below the related-fee threshold remains
+visible for review while its three-minute related-payment window settles.
+Confirmed fee-only evidence suppresses a separate purpose question; a standalone
+payment becomes eligible after that window. This does not reinstate the removed
+small-payment skip or change existing financial records.
 Bill and weekly schedules, account/device activation cutoffs and opt-outs remain
 unchanged. New push opt-ins fail closed without configured recovery and a recent
 completed authenticated dispatcher check-in. Scheduler registration and
@@ -304,11 +309,11 @@ alerts or change financial records. A still-active Mac can check in again.
 
 Before live use, review and approve each applicable step:
 
-1. Review the target database's applied history, then apply the eight new drafts
+1. Review the target database's applied history, then apply only reviewed pending migrations
    through the normal database workflow: notifications, bank-notice receipts,
    collector receipts, notification recovery, collector health,
    immediate-payment policy cleanup, owner-controlled removal of saved Mac
-   status and both-direction activity announcements. The general runner applies all pending
+   status, both-direction activity announcements and fee-notice readiness. The general runner applies all pending
    migration files, not a hard-coded pair. None has been applied to a real
    database here.
 2. Resolve and verify the new Mac app's static sandbox and Messages DB/WAL/SHM
