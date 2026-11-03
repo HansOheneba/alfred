@@ -9,6 +9,7 @@ beforeEach(async () => {
   db = new PGlite();
   await db.exec(`create role anon; create role authenticated; create table public.profiles(id uuid primary key); insert into profiles values('${a}'),('${b}');`);
   await db.exec(readFileSync("supabase/migrations/20261103210000_collector_health.sql", "utf8"));
+  await db.exec(readFileSync("supabase/migrations/20261103230000_collector_health_removal.sql", "utf8"));
 });
 afterEach(async () => { await db.close(); });
 type Draft = { owner?: string; id?: string; state?: string; source?: number; unreadable?: number; incomplete?: number; held?: number; pending?: number; captured?: string | null; accepted?: string | null };
@@ -17,6 +18,7 @@ async function record(value: Draft = {}) {
   return (await db.query<{ result: string }>("select public.alfred_record_collector_health($1::uuid,$2::uuid,$3,$4::integer,$5::integer,$6::integer,$7::integer,$8::integer,$9::timestamptz,$10::timestamptz) as result", params)).rows[0].result;
 }
 async function allowNextReport(owner = a, id = device()) { await db.query("update collector_health set last_seen_at=now()-interval '1 minute' where owner_id=$1::uuid and device_id=$2::uuid", [owner, id]); }
+async function forget(owner = a, id = device()) { return (await db.query<{ removed: boolean }>("select public.alfred_forget_collector_health($1::uuid,$2::uuid) as removed", [owner, id])).rows[0].removed; }
 
 describe("bounded owner-scoped collector operational status", () => {
   it("stores counts, enum, opaque ID and separate timestamps without any payload fields", async () => {
@@ -89,5 +91,41 @@ describe("bounded owner-scoped collector operational status", () => {
   it("has RLS enabled with no direct client read policies", async () => {
     expect((await db.query<{ relrowsecurity: boolean }>("select relrowsecurity from pg_class where oid='public.collector_health'::regclass")).rows[0].relrowsecurity).toBe(true);
     expect((await db.query("select * from pg_policies where tablename='collector_health'")).rows).toHaveLength(0);
+  });
+  it("frees a capped account's selected stale slot without evicting another Mac", async () => {
+    for (let index = 1; index <= 5; index++) await record({ id: device(index) });
+    expect(await record({ id: device(6) })).toBe("device_limit");
+    const preserved = (await db.query("select * from collector_health where device_id<>$1::uuid order by device_id", [device(3)])).rows;
+    expect(await forget(a, device(3))).toBe(true);
+    expect((await db.query("select * from collector_health order by device_id")).rows).toEqual(preserved);
+    expect(await record({ id: device(6) })).toBe("stored");
+    expect((await db.query<{ device_id: string }>("select device_id from collector_health order by device_id")).rows.map(row => row.device_id)).toEqual([device(1), device(2), device(4), device(5), device(6)]);
+  });
+  it("removes only the authenticated owner namespace and is safe to retry", async () => {
+    await record({ owner: a }); await record({ owner: b, state: "capture_error", captured: null });
+    const other = (await db.query("select * from collector_health where owner_id=$1::uuid", [b])).rows;
+    expect(await forget(a, device(2))).toBe(false);
+    expect(await forget(a)).toBe(true); expect(await forget(a)).toBe(false);
+    expect((await db.query("select * from collector_health")).rows).toEqual(other);
+    expect((await db.query("select * from profiles order by id")).rows).toEqual([{ id: a }, { id: b }]);
+  });
+  it("does not revoke collection: the same active Mac can check in again", async () => {
+    await record(); expect(await forget()).toBe(true); expect(await record()).toBe("stored");
+    expect((await db.query("select * from collector_health")).rows).toHaveLength(1);
+  });
+  it("rolls back removal with its transaction and uses the reporter's owner lock", async () => {
+    await record(); const before = (await db.query("select * from collector_health")).rows;
+    await db.exec("begin"); expect(await forget()).toBe(true); await db.exec("rollback");
+    expect((await db.query("select * from collector_health")).rows).toEqual(before);
+    const definitions = (await db.query<{ body: string }>("select prosrc as body from pg_proc where proname in ('alfred_forget_collector_health','alfred_record_collector_health')")).rows;
+    for (const { body } of definitions) expect(body).toContain("pg_advisory_xact_lock(hashtextextended(owner::text,92351))");
+  });
+  it("blocks removal from direct client roles even with a known owner and device", async () => {
+    await record();
+    for (const role of ["anon", "authenticated"]) {
+      expect((await db.query<{ allowed: boolean }>("select has_function_privilege($1,'public.alfred_forget_collector_health(uuid,uuid)','execute') as allowed", [role])).rows[0].allowed).toBe(false);
+      await db.exec(`set role ${role}`); await expect(forget()).rejects.toThrow(); await db.exec("reset role");
+    }
+    expect((await db.query("select * from collector_health")).rows).toHaveLength(1);
   });
 });

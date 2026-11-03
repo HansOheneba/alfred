@@ -19,7 +19,9 @@ export async function POST(request:Request):Promise<Response> {
     settings=getDatabaseSettings();
     const mentionsRecovered=await recoverAllIncomingPaymentMentions(settings).catch(()=>{
       logError("notification_mentions_recovery",new Error("Private payment mention recovery could not complete."));
-      return null;
+      // One heartbeat covers both recovery tasks. A partial run must remain
+      // unhealthy so settings and new push opt-ins cannot claim full recovery.
+      throw new Error("Private payment mention recovery could not complete.");
     });
     const result=await dispatchScheduledNotifications(settings);
     await recordRecoveryCompletion(settings);

@@ -2,7 +2,7 @@
 
 This is preparation for an operator-approved release, not evidence that live
 collection or notifications are running. Hans owns merge and deployment. The
-six drafts, secret configuration, scheduler registration, Mac permissions and
+seven drafts, secret configuration, scheduler registration, Mac permissions and
 device consent have not been applied or activated by this handoff.
 
 ## Confirm the target before any change
@@ -21,7 +21,7 @@ A missing ledger or a schema/ledger mismatch is a stop condition, not permission
 to recreate the ledger or rerun files. Retain only migration names and catalog
 results in the review; never include credentials or notification subscriptions.
 
-## Review exactly six new migrations
+## Review exactly seven new migrations
 
 1. `20261103110000_notifications.sql`
 2. `20261103113000_bank_notice_receipts.sql`
@@ -29,14 +29,18 @@ results in the review; never include credentials or notification subscriptions.
 4. `20261103200000_notification_recovery.sql`
 5. `20261103210000_collector_health.sql`
 6. `20261103220000_immediate_payment_nudges.sql`
+7. `20261103230000_collector_health_removal.sql`
 
 The first five add operational schema and functions. The sixth adjusts only
 eligible queued, never-attempted payment-notification jobs with the current
 enabled preference epoch; it does not rewrite finance records or send anything.
 Review counts of affected queue metadata before applying it. Never reset
 already-attempted or ambiguous delivery rows just to make them eligible sooner.
+The seventh adds an owner-scoped function for removing a saved Mac status entry.
+It does not stop collection, revoke a forwarding key, delete saved alerts or
+change financial records. An active Mac can report its status again.
 
-`npm run db:migrate` is **not** a six-file-only, atomic activation command: it
+`npm run db:migrate` is **not** a seven-file-only, atomic activation command: it
 applies every pending file and records each ledger row in a separate query.
 Some drafts create triggers and cannot be blindly rerun. Use the established
 database release workflow with a reviewed pending-file plan, a single checked
@@ -45,15 +49,15 @@ rows, and a rollback plan. The current pooled `query()` helper cannot guarantee
 the same connection for separately issued BEGIN/COMMIT calls.
 
 Before approving the actual application, verify the complete earlier baseline is
-already recorded and that these six files are either all missing or have an
-understood, consistent partial state. Applying a fresh all-six batch must commit
+already recorded and that these seven files are either all missing or have an
+understood, consistent partial state. Applying a fresh all-seven batch must commit
 the schema and matching ledger rows together. Retrying must skip files already
 recorded rather than re-execute them. This document deliberately supplies no live
 write command until the actual ledger and target have been reviewed.
 
 The local rehearsal is `node tests/notification-activation-sql.integration.mjs`.
 It creates an in-memory PostgreSQL database, rehearses failure rollback and a
-successful six-file commit, and verifies off-by-default preferences, client
+successful seven-file commit, and verifies off-by-default preferences, client
 restrictions and absence of financial writes. It never loads `.env`, registers
 a scheduler, contacts Alfred or uses a real account.
 
@@ -81,6 +85,10 @@ existing notices, so it is a live operation requiring approval. Verify cadence
 over multiple normal runs, then allow the account and browser to opt in. A
 recent check-in is evidence of a completed call, not proof of permanent schedule
 availability or device display.
+The completed heartbeat covers both chat-mention recovery and notification
+dispatch. If either task fails, the run returns an error and records failed
+health; a partial run cannot keep new push opt-ins available. Queued work stays
+for a later successful run.
 
 After the feature is merged and deployed, the signed-in page's GET
 `/api/notifications` reports safe configuration flags, preference/device
@@ -117,10 +125,10 @@ test reports.
 
 ## Current blockers
 
-- The pushed automation branch received GitHub PR-write 403. Repository read or
-  push access does not establish integration PR access. Repair the existing
-  connection's PR permission through its supported authorization workflow, or
-  have the repository owner create the PR; do not switch credentials to evade it.
+- Draft PR #26 exists for the reviewed automation branch. Its creation used the
+  user's explicitly approved existing Mac GitHub login after the separate
+  integration refused PR creation. Merge and production deployment remain with
+  Hans; this follow-up does not perform either action.
 - No authorized production database catalog/ledger result is available in this
   local checkout. Live migration state remains unverified.
 - Production secret configuration, actual recovery schedule registration,

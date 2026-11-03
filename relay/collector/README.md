@@ -215,7 +215,9 @@ asserted before ingestion, so a mismatched recipient is rejected before a claim
 or financial operation rather than only being noticed in the response.
 
 Before any live Messages access or delivery, the app checks its existing key
-against the fixed read-only `/api/collector/account` endpoint. Setup displays the
+against the fixed `/api/collector/account` endpoint. Its identity lookup is
+read-only; request throttling writes operational abuse-limit counters. It does
+not create keys, record alerts or update a delivery timestamp. Setup displays the
 account name and email and requires explicit confirmation. A separate private
 `account.json` binds that owner to the key hash. Missing, changed or unverifiable
 bindings stop live commands. The endpoint creates no key and does not update a

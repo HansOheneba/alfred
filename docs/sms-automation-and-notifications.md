@@ -239,12 +239,27 @@ Mac runtime/UI verification; the app has not been launched or installed here.
 
 ## Activation remains a separate operation
 
+Collector account checks and health posts are throttled before identity lookup.
+They share a 1,200-request/minute overall budget, 120/minute advisory client
+bucket and 60/minute key bucket. Fixed hash slots bound counter growth when
+callers rotate headers or invalid keys; collisions can reject earlier. Headers
+never establish identity. Rejection logs contain only the endpoint and fixed
+reason, never keys, names, email addresses, IP addresses or message text.
+Account identity reads remain SELECT-only, while throttling writes operational
+counters. Missing throttle storage fails closed.
+
+Owners can remove a saved Mac status from Automations after confirmation. This
+frees a slot at the five-Mac status limit. It removes only that owner's selected
+status entry: it does not revoke a forwarding key, stop a collector, remove local
+alerts or change financial records. A still-active Mac can check in again.
+
 Before live use, review and approve each applicable step:
 
-1. Review the target database's applied history, then apply the six new drafts
+1. Review the target database's applied history, then apply the seven new drafts
    through the normal database workflow: notifications, bank-notice receipts,
-   collector receipts, notification recovery, collector health and the
-   immediate-payment policy cleanup. The general runner applies all pending
+   collector receipts, notification recovery, collector health,
+   immediate-payment policy cleanup, and owner-controlled removal of saved Mac
+   status. The general runner applies all pending
    migration files, not a hard-coded pair. None has been applied to a real
    database here.
 2. Resolve and verify the new Mac app's static sandbox and Messages DB/WAL/SHM

@@ -62,6 +62,16 @@ export async function loadCollectorHealth(settings: SupabaseSettings, ownerId: s
   });
 }
 
+/** Operational metadata only. The authenticated route supplies the owner. A
+ * later check-in can recreate this status; this never disconnects a collector. */
+export async function removeCollectorHealth(settings: SupabaseSettings, ownerId: string, deviceId: string): Promise<boolean> {
+  if (!UUID.test(ownerId) || !UUID.test(deviceId)) throw Error("Invalid saved Mac status.");
+  const rows = await query<{ removed: boolean }>(settings,
+    "select public.alfred_forget_collector_health($1::uuid,$2::uuid) as removed", [ownerId, deviceId]);
+  if (rows.length !== 1 || typeof rows[0].removed !== "boolean") throw Error("Mac status removal is unavailable.");
+  return rows[0].removed;
+}
+
 /** Deliberately separate from SMS ingestion: only a small, strict status object. */
 export async function readCollectorHealthBody(request: Request): Promise<unknown> {
   if (!/^application\/json(?:\s*;|$)/i.test(request.headers.get("content-type") ?? "")) throw Error("Invalid collector status request.");

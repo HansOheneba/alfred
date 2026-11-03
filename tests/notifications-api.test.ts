@@ -72,4 +72,18 @@ describe("notification API authorization and private responses",()=>{
   mocks.completed.mockClear();mocks.dispatch.mockRejectedValue(new Error("fixture failure"));
   expect((await call()).status).toBe(503);expect(mocks.completed).not.toHaveBeenCalled();expect(mocks.failed).toHaveBeenCalledOnce();
  });
+ it("marks mention recovery failure unhealthy and retries both tasks on the next successful run",async()=>{
+  vi.stubEnv("ALFRED_NOTIFICATION_CRON_SECRET","synthetic-fixture-only");vi.stubEnv("ALFRED_NOTIFICATION_SCHEDULES_ENABLED","true");
+  const call=()=>dispatch(new Request(origin+"/api/notifications/dispatch",{method:"POST",headers:{authorization:"Bearer synthetic-fixture-only"}}));
+  const logged=vi.spyOn(console,"error").mockImplementation(()=>{});
+  try {
+   mocks.mentions.mockRejectedValueOnce(new Error("synthetic private receipt failure: must-not-leak"));
+   const failed=await call();expect(failed.status).toBe(503);expect(await failed.text()).not.toContain("must-not-leak");
+   expect(mocks.failed).toHaveBeenCalledOnce();expect(mocks.completed).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
+   expect(JSON.stringify(logged.mock.calls)).not.toContain("must-not-leak");
+   mocks.mentions.mockResolvedValueOnce(2);mocks.dispatch.mockResolvedValueOnce({enabled:true,queued:1,owners:1});
+   const recovered=await call();expect(recovered.status).toBe(200);expect(await recovered.json()).toMatchObject({mentionsRecovered:2,recoveryCheckedIn:true});
+   expect(mocks.dispatch).toHaveBeenCalledOnce();expect(mocks.completed).toHaveBeenCalledOnce();
+  } finally { logged.mockRestore(); }
+ });
 });

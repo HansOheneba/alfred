@@ -14,7 +14,7 @@ describe("private visible Mac health", () => {
     expect(html).toContain("2 Messages items need a check");
     expect(html).toContain("later readable alerts can continue");
     expect(html).toContain("1 alert is held safely");
-    expect(html).toContain("held-alert review screen is not available yet");
+    expect(html).toContain("Review saved alerts");
     expect(html).toContain("some records may already exist");
     expect(html).toContain("Last completed Messages check");
     expect(html).toContain("Last alert accepted by Alfred");
@@ -70,5 +70,21 @@ describe("private visible Mac health", () => {
     fetcher.mockResolvedValueOnce(Response.json({ text: "private-fixture" }, { status: 503 }));
     await expect(readCollectorHealth(owner)).rejects.toThrow("Mac status could not be checked");
     expect(fetcher).toHaveBeenCalledTimes(2);
+  });
+  it("offers a confirmation for status-only removal with honest limits", () => {
+    const html = render();
+    expect(html).toContain("Remove saved status");
+    expect(html).toContain("does not stop collection");
+    expect(html).toContain("revoke the forwarding key");
+    expect(html).toContain("delete saved alerts or change financial records");
+    expect(html).toContain("active Mac may appear again");
+    expect(html).toContain("makes no account request");
+    expect(html).not.toContain("held-alert review screen is not available yet");
+  });
+  it("never displays a previous account's initial health while a new owner loads", () => {
+    const html = renderToStaticMarkup(createElement(CollectorHealthSection, { ownerId: other, initial: parseCollectorHealth(fixture(), owner) }));
+    expect(html).not.toContain("1 alert is held safely");
+    expect(html).not.toContain("Last heard:");
+    expect(html).not.toContain(fixture().devices[0].deviceId);
   });
 });

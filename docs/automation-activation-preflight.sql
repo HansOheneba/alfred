@@ -21,6 +21,7 @@ from (values
  ('public.alfred_claim_collector_event(uuid,text,text)'),
  ('public.alfred_complete_collector_event(uuid,text,text,uuid,uuid[])'),
  ('public.alfred_release_collector_event(uuid,text,text,uuid)'),
- ('public.alfred_record_collector_health(uuid,uuid,text,integer,integer,integer,integer,integer,timestamp with time zone,timestamp with time zone)')
+ ('public.alfred_record_collector_health(uuid,uuid,text,integer,integer,integer,integer,integer,timestamp with time zone,timestamp with time zone)'),
+ ('public.alfred_forget_collector_health(uuid,uuid)')
 ) as expected(signature);
 rollback;

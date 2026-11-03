@@ -1,7 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ query: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), allow: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/env", () => ({ getDatabaseSettings: () => ({ projectRef: "fixture" }) }));
+vi.mock("@/lib/bank/collector-requests", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/bank/collector-requests")>(), collectorRequestAllowed: mocks.allow,
+}));
 import { GET } from "@/app/api/collector/account/route";
 import { collectorAccount } from "@/lib/bank/collector-account";
 import { hashIngestToken } from "@/lib/bank/store";
@@ -12,7 +15,7 @@ const token = "alf_" + "x".repeat(24);
 const settings = { projectRef: "fixture" } as unknown as SupabaseSettings;
 const account = () => ({ owner_id: ownerId, preferred_name: "Fictional reviewer", email: "reviewer@example.invalid" });
 const request = (header = `Bearer ${token}`, suffix = "") => new Request("https://alfred.test/api/collector/account" + suffix, { headers: { authorization: header } });
-beforeEach(() => { mocks.query.mockResolvedValue([account()]); });
+beforeEach(() => { mocks.query.mockResolvedValue([account()]); mocks.allow.mockResolvedValue(true); vi.spyOn(console, "info").mockImplementation(() => {}); });
 afterEach(() => { vi.clearAllMocks(); vi.restoreAllMocks(); });
 
 describe("private collector account connection check", () => {
@@ -55,7 +58,8 @@ describe("private collector account connection check", () => {
     const response = await GET(request());
     const body = await response.text();
     expect(response.status).toBe(503); expect(body).not.toMatch(/alf_|private-database|reviewer@example/);
-    expect(info).not.toHaveBeenCalled(); expect(error).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(JSON.stringify({ level: "info", event: "collector_request_rejected", endpoint: "account", reason: "unavailable" }));
+    expect(error).not.toHaveBeenCalled();
   });
   it("removes terminal-control and invisible formatting from the displayed name", async () => {
     mocks.query.mockResolvedValue([{ ...account(), preferred_name: "\u001bSample\u202ereviewer\n" }]);
@@ -68,5 +72,28 @@ describe("private collector account connection check", () => {
   it("does not return accidental extra database fields", async () => {
     mocks.query.mockResolvedValue([{ ...account(), token_hash: "never-serialize", raw: "never-serialize" }]);
     expect(await (await GET(request())).text()).not.toContain("never-serialize");
+  });
+  it.each([`Bearer ${token}`, "Bearer wrong", ""])("throttles requests before identity lookup for %s", async header => {
+    mocks.allow.mockResolvedValue(false);
+    const response = await GET(request(header));
+    expect(response.status).toBe(429);
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(await response.text()).not.toMatch(/alf_|reviewer@example/);
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+  });
+  it("fails closed when throttling storage is unavailable", async () => {
+    mocks.allow.mockRejectedValue(Error(`${token} reviewer@example.invalid private-backend`));
+    const response = await GET(request());
+    expect(response.status).toBe(503); expect(mocks.query).not.toHaveBeenCalled();
+    expect(await response.text()).not.toMatch(/alf_|reviewer@example|private-backend/);
+  });
+  it("records fixed reasons for rejected keys without identity or request metadata", async () => {
+    const info = vi.spyOn(console, "info");
+    await GET(request("Bearer wrong"));
+    mocks.query.mockResolvedValue([]); await GET(request());
+    expect(info.mock.calls.map(call => JSON.parse(call[0]))).toEqual([
+      { level: "info", event: "collector_request_rejected", endpoint: "account", reason: "missing_or_malformed_key" },
+      { level: "info", event: "collector_request_rejected", endpoint: "account", reason: "invalid_key" },
+    ]);
   });
 });

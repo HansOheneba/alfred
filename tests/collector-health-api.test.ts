@@ -1,8 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-const mocks = vi.hoisted(() => ({ query: vi.fn(), owner: vi.fn() }));
+const mocks = vi.hoisted(() => ({ query: vi.fn(), owner: vi.fn(), allow: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/web/api", () => ({ requireOwner: mocks.owner }));
 vi.mock("@/lib/env", () => ({ getDatabaseSettings: () => ({ fixture: true }) }));
+vi.mock("@/lib/bank/collector-requests", async importOriginal => ({
+  ...await importOriginal<typeof import("@/lib/bank/collector-requests")>(), collectorRequestAllowed: mocks.allow,
+}));
 import { GET, POST } from "@/app/api/collector/health/route";
 import { collectorHealthOwner, loadCollectorHealth, parseCollectorHealth, readCollectorHealthBody } from "@/lib/bank/collector-health";
 import { hashIngestToken } from "@/lib/bank/store";
@@ -21,6 +24,8 @@ function streaming(chunks: Uint8Array[], patch: Record<string, string> = {}, can
   return { request: new Request(base, { method: "POST", headers: { ...headers(), ...patch }, body, duplex: "half" } as RequestInit), cancel };
 }
 beforeEach(() => {
+  mocks.allow.mockResolvedValue(true);
+  vi.spyOn(console, "info").mockImplementation(() => {});
   mocks.owner.mockResolvedValue({ profile: { profileId: a }, settings: { supabase: settings } });
   mocks.query.mockImplementation(async (_settings: unknown, sql: string) => sql.includes("from public.ingest_tokens") ? [{ owner_id: a }] : sql.includes("alfred_record_collector_health") ? [{ result: "stored" }] : [row()]);
 });
@@ -85,7 +90,8 @@ describe("collector health authentication and privacy", () => {
     const error = vi.spyOn(console, "error").mockImplementation(() => {}), info = vi.spyOn(console, "info").mockImplementation(() => {});
     mocks.query.mockRejectedValue(Error(`${token} private-SMS-fixture raw-key`));
     const response = await POST(request()); expect(response.status).toBe(503);
-    expect(await response.text()).not.toMatch(/alf_|private-SMS|raw-key/); expect(error).not.toHaveBeenCalled(); expect(info).not.toHaveBeenCalled();
+    expect(await response.text()).not.toMatch(/alf_|private-SMS|raw-key/); expect(error).not.toHaveBeenCalled();
+    expect(info).toHaveBeenCalledWith(JSON.stringify({ level: "info", event: "collector_request_rejected", endpoint: "health", reason: "unavailable" }));
   });
   it("GET requires a signed-in owner even with a valid collector key", async () => {
     mocks.owner.mockResolvedValue(Response.json({ ok: false }, { status: 401 }));
@@ -103,6 +109,28 @@ describe("collector health authentication and privacy", () => {
   it("rejects caller-chosen GET account parameters and handles absent status rows", async () => {
     expect((await GET(new Request(base + "?ownerId=" + b))).status).toBe(400); expect(mocks.query).not.toHaveBeenCalled();
     mocks.query.mockResolvedValue([]); expect(await loadCollectorHealth(settings, a)).toEqual([]);
+  });
+  it.each([`Bearer ${token}`, "Bearer wrong", ""])("throttles before health body reads, owner lookup or storage for %s", async authorization => {
+    mocks.allow.mockResolvedValue(false);
+    const response = await POST(request(report(), { authorization }));
+    expect(response.status).toBe(429); expect(mocks.query).not.toHaveBeenCalled();
+    expect(response.headers.get("cache-control")).toBe("private, no-store");
+    expect(await response.text()).not.toMatch(/alf_|private/);
+  });
+  it("fails closed when request throttling is unavailable", async () => {
+    mocks.allow.mockRejectedValue(Error(`${token} private-fixture@example.invalid`));
+    const response = await POST(request());
+    expect(response.status).toBe(503); expect(mocks.query).not.toHaveBeenCalled();
+    expect(await response.text()).not.toMatch(/alf_|private-fixture/);
+  });
+  it("logs fixed invalid-key reasons without account, key, address or message data", async () => {
+    const info = vi.spyOn(console, "info");
+    await POST(request(report(), { authorization: "Bearer wrong", "x-forwarded-for": "192.0.2.7" }));
+    mocks.query.mockResolvedValue([]); await POST(request());
+    expect(info.mock.calls.map(call => JSON.parse(call[0]))).toEqual([
+      { level: "info", event: "collector_request_rejected", endpoint: "health", reason: "missing_or_malformed_key" },
+      { level: "info", event: "collector_request_rejected", endpoint: "health", reason: "invalid_key" },
+    ]);
   });
 });
 

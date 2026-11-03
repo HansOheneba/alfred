@@ -45,8 +45,11 @@ transport, the delivery switch, and `recoveryReady=true`. The latter requires:
 - a successful completed authenticated dispatcher check-in, bound to that
   configuration, within twice the expected interval (at least five minutes).
 
-The authenticated POST dispatcher records completion only after its recovery
-work succeeds. Failures invalidate readiness. The first bootstrap dispatch
+The authenticated POST dispatcher records completion only after both chat-mention
+recovery and notification dispatch succeed. A failure in either task invalidates
+readiness, including when an earlier completed heartbeat was still recent. A
+mention-recovery failure returns an error before notification dispatch and retains
+work for a later healthy run. The first bootstrap dispatch
 establishes health; a later scheduled run can deliver retained work if no recent
 successful heartbeat was available before bootstrap. A stale/missing heartbeat
 pauses sends and prevents new device-push opt-ins; it does not cancel queued
