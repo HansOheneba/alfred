@@ -1,38 +1,61 @@
-;; macOS sandbox for the Alfred relay. install.sh compiles it into the program,
-;; which applies it to itself before reading anything.
-;; Full Disk Access lets a program read anything; this profile takes that back,
-;; so macOS itself refuses the relay everything except what it needs.
-;; HOME is passed in at start-up. Later rules win over earlier ones.
+;; Compiled into the relay. Full Disk Access remains a separate macOS decision.
+;; Default-deny file contents across disk, with narrow application/runtime access.
+;; Validate this profile on each supported macOS version before claiming health.
 (version 1)
 (allow default)
+(deny file-read* file-write* (subpath "/"))
 
-;; Nothing in your home folder: not Documents, Desktop, Photos, Mail, keychains or anything else.
-(deny file-read* file-write* (subpath (param "HOME")))
-;; Except the Messages database, read-only.
+;; Foundation, SQLite, locale/timezone and resolver runtime resources.
+(allow file-read*
+  (subpath "/System/Library")
+  (subpath "/usr/lib")
+  (subpath "/usr/share/icu")
+  (subpath "/usr/share/zoneinfo")
+  (subpath "/private/var/db/timezone")
+  (literal "/private/etc/hosts")
+  (literal "/private/etc/resolv.conf")
+  (literal "/private/etc/localtime")
+  (literal "/private/etc/services")
+  (literal "/dev/urandom")
+  (literal "/dev/random")
+  (literal "/dev/null"))
+
+;; Traversal metadata does not grant directory-content reads.
+(allow file-read-metadata
+  (literal "/") (literal "/Users") (literal "/private")
+  (literal "/private/var") (literal "/private/var/db")
+  (literal "/private/etc") (literal "/System")
+  (literal "/usr") (literal "/usr/share") (literal "/dev")
+  (literal (param "HOME"))
+  (literal (string-append (param "HOME") "/Library"))
+  (literal (string-append (param "HOME") "/Library/Messages"))
+  (literal (string-append (param "HOME") "/Library/Application Support")))
+
+;; Messages content is available to relay code, not directory listings.
 (allow file-read*
   (literal (string-append (param "HOME") "/Library/Messages/chat.db"))
   (literal (string-append (param "HOME") "/Library/Messages/chat.db-wal"))
   (literal (string-append (param "HOME") "/Library/Messages/chat.db-shm")))
-;; SQLite keeps a shared-memory index next to a WAL database, even for readers.
-(allow file-write-data (literal (string-append (param "HOME") "/Library/Messages/chat.db-shm")))
-;; And its own folder, read-only: the key and these rules.
-(allow file-read* (subpath (string-append (param "HOME") "/Library/Application Support/AlfredRelay")))
-;; The paths leading there, so files can be found (listing contents stays blocked).
-(allow file-read-metadata (subpath (param "HOME")))
+;; SQLite may update its shared-memory index for a read-only WAL connection.
+(allow file-write-data
+  (literal (string-append (param "HOME") "/Library/Messages/chat.db-shm")))
 
-;; No writing anywhere else on the disk, apart from temporary files.
-(deny file-write* (subpath "/"))
-(allow file-write* (subpath "/private/var/folders") (subpath "/private/tmp") (literal "/dev/null"))
-;; It can write only two files: which message it sent last, and its log. Not its key, program or these rules.
+;; Key, executable, state and logs stay in this single application folder.
+(allow file-read*
+  (subpath (string-append (param "HOME") "/Library/Application Support/AlfredRelay")))
+;; Fixed temporary state path is protected by relay.lock; no broad temp writes.
 (allow file-write*
-  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/last-rowid"))
-  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/relay.log")))
-(allow file-write-data (literal (string-append (param "HOME") "/Library/Messages/chat.db-shm")))
+  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/state.json"))
+  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/state.json.tmp"))
+  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/relay.lock"))
+  (literal (string-append (param "HOME") "/Library/Application Support/AlfredRelay/relay.log"))
+  (literal "/dev/null"))
 
-;; No starting other programs.
 (deny process-fork)
 
-;; Network: outgoing HTTPS only (Alfred), plus name lookups. No listening, no other ports.
+;; This confines outbound TCP to port 443, NOT to Alfred's hostname.
+;; Application code fixes HTTPS destination and refuses redirects. The macOS
+;; resolver socket is allowed; inbound/listening and other ports are denied.
 (deny network*)
 (allow network-outbound (remote tcp "*:443"))
 (allow network-outbound (literal "/private/var/run/mDNSResponder"))

@@ -156,7 +156,7 @@ export async function ingestBankText(
   profile: UserProfile,
   text: string,
   options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
-): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number }> {
+): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number; durableMessageIds: string[] }> {
   const now = options.receivedAt ?? deps.now;
   // Texts from MoMo, GCB and Hubtel that the rules skipped are notices, not payments.
   const knownSender = /gcb|hubtel|momo|mobile ?money|\bmtn\b/i.test(options.sender ?? "");
@@ -173,6 +173,7 @@ export async function ingestBankText(
   const names = await deps.bank.accountNames(profile.profileId);
   const ignored = await deps.bank.ignoredAccounts(profile.profileId);
   const outcomes: IngestOutcome[] = [];
+  const durableMessageIds: string[] = [];
   let duplicates = 0;
 
   for (const item of parsed) {
@@ -200,9 +201,12 @@ export async function ingestBankText(
     });
     if (!stored) {
       duplicates += 1;
+      const existing = await deps.bank.findMessageByIdentity(profile.profileId, { source: item.source, externalId: item.externalId, textHash: item.fingerprint });
+      if (existing) durableMessageIds.push(existing.id);
       if (item.dated) await deps.bank.correctDate(profile.profileId, item.fingerprint, item.occurredAt);
       continue;
     }
+    durableMessageIds.push(stored.id);
 
     let feeRecorded = false;
     if (Number(stored.fee) > 0) {
@@ -306,7 +310,7 @@ export async function ingestBankText(
     outcomes.push({ message: stored, outcome: "needs_label", feeRecorded });
   }
 
-  return { outcomes, duplicates, found: parsed.length };
+  return { outcomes, duplicates, found: parsed.length, durableMessageIds };
 }
 
 /** Records a bank payment as money into (out, from the bank's side) or out of an investment. Returns the contribution's id. */

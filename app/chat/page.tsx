@@ -66,7 +66,7 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
 
   return (
     <AppShell current="chat" name={name} fill>
-      <ChatPanel key={`${account.userId}:${question || "conversation"}`} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} financialsEmpty={financialsEmpty} loadInitialChoices={history.at(-1)?.role === "assistant" && Boolean(history.at(-1)?.intent?.startsWith("bank:"))} />
+      <ChatPanel key={`${account.userId}:${question || "conversation"}`} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={history.map(toThreadMessage)} financialsEmpty={financialsEmpty} loadInitialChoices={history.at(-1)?.role === "assistant" && Boolean(history.at(-1)?.intent?.startsWith("bank:") || history.at(-1)?.paymentNotice?.requiresPurpose)} />
     </AppShell>
   );
 }

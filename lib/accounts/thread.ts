@@ -11,6 +11,8 @@ export type ThreadMessage = {
   settled?: boolean;
   status?: "sending" | "sent" | "failed";
   chart?: ChatChart | null;
+  paymentNotice?: ChatMessageRecord["paymentNotice"];
+  newTopic?: boolean;
 };
 
 export function toThreadMessage(record: ChatMessageRecord): ThreadMessage {
@@ -23,7 +25,16 @@ export function toThreadMessage(record: ChatMessageRecord): ThreadMessage {
     clientId: record.clientId,
     status: "sent",
     chart: record.chart ?? null,
+    paymentNotice: record.paymentNotice,
+    newTopic: record.newTopic,
   };
+}
+
+/** Keep retries tied to the question originally shown, even after a new alert. */
+export function paymentReplyContext(messages: ThreadMessage[], clientId?: string): ChatMessageRecord["paymentNotice"] {
+  const original = clientId && messages.find((message) => message.role === "user" && message.clientId === clientId);
+  if (original) return original.paymentNotice;
+  return [...messages].reverse().find((message) => message.role === "assistant")?.paymentNotice;
 }
 
 export function threadKey(message: Pick<ThreadMessage, "id" | "role" | "clientId">): string {

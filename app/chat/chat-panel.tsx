@@ -12,8 +12,8 @@ import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
 import { getGettingStartedState } from "@/app/components/getting-started-state";
 import type { ChatChoice } from "@/lib/accounts/chat-choices";
-import type { ChatChart } from "@/lib/accounts/messages";
-import { mergeThread, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
+import type { ChatChart, ChatMessageRecord } from "@/lib/accounts/messages";
+import { mergeThread, paymentReplyContext, threadKey, type ThreadMessage } from "@/lib/accounts/thread";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import type { Ledger } from "@/lib/web/ledger";
 
@@ -28,6 +28,8 @@ type ServerMessage = {
   clientId: string | null;
   chart?: ChatChart | null;
   ledgerChanged?: boolean;
+  paymentNotice?: ChatMessageRecord["paymentNotice"];
+  newTopic?: boolean;
 };
 
 const QUICK_ACTIONS: (Suggestion & { description: string; tone: "expense" | "income" })[] = [
@@ -82,6 +84,7 @@ export function ChatPanel({
   const [choices, setChoices] = useState<ChatChoice[][]>(initialChoices);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [newTopic, setNewTopic] = useState(false);
   const [statsOpen, setStatsOpen] = useState(false);
   const [contextLedger, setContextLedger] = useState<Ledger | null>(ledger ?? null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -235,7 +238,8 @@ export function ChatPanel({
             channel?: string;
             created_at?: string;
             client_id?: string | null;
-            meta?: { chart?: ChatChart; ledgerChanged?: boolean } | null;
+            intent?: string | null;
+            meta?: { chart?: ChatChart; ledgerChanged?: boolean; paymentNotice?: ChatMessageRecord["paymentNotice"];newTopic?:boolean } | null;
           };
           if (!active || row.owner_id !== ownerId || !row.id || (row.role !== "user" && row.role !== "assistant")) return;
           if (row.channel !== "web" && row.channel !== "telegram") return;
@@ -248,9 +252,11 @@ export function ChatPanel({
             clientId: row.client_id ?? null,
             status: "sent",
             chart: row.meta?.chart ?? null,
+            paymentNotice: row.meta?.paymentNotice,
+            newTopic: row.meta?.newTopic,
           };
           setMessages((current) => mergeThread(current, [incoming]));
-          if (row.channel === "telegram" && row.role === "assistant") {
+          if (row.role === "assistant" && (row.channel === "telegram" || row.intent?.startsWith("automation:"))) {
             observedAssistant.current = row.id;
             afterOutcome(row.meta?.ledgerChanged);
             setChoices([]);
@@ -294,6 +300,11 @@ export function ChatPanel({
     setChoices([]);
     const bodyClientId = typeof body.clientId === "string" ? body.clientId : undefined;
     const turnId = clientId ?? bodyClientId ?? (userText ? crypto.randomUUID() : undefined);
+    const original = turnId ? messages.find((message) => message.role === "user" && message.clientId === turnId) : undefined;
+    const startsNewTopic = typeof body.text === "string" && (original ? Boolean(original.newTopic) : newTopic);
+    const replyToPayment = (typeof body.text === "string" || typeof body.choice === "string")
+      ? startsNewTopic ? undefined : paymentReplyContext(messages, turnId)
+      : undefined;
     if (userText && turnId) {
       setMessages((current) => {
         const exists = current.some((message) => message.role === "user" && message.clientId === turnId);
@@ -311,17 +322,20 @@ export function ChatPanel({
             createdAt: new Date().toISOString(),
             clientId: turnId,
             status: "sending",
+            paymentNotice: replyToPayment,
+            newTopic: startsNewTopic || undefined,
           },
         ]);
       });
       setText((current) => (current.trim() === userText ? "" : current));
+      setNewTopic(false);
       stickToBottom.current = true;
     }
     try {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ ...body, clientId: turnId }),
+        body: JSON.stringify({ ...body, clientId: turnId, ...((typeof body.text === "string" || typeof body.choice === "string") ? { replyToPayment: replyToPayment ?? null } : {}), ...(startsNewTopic ? { newTopic: true } : {}) }),
       });
       const payload = (await response.json()) as {
         ok?: boolean;
@@ -505,6 +519,7 @@ export function ChatPanel({
             </Link>
           </div> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
+          {paymentReplyContext(messages) ? <div className="mb-2 flex flex-wrap items-center gap-2 px-2 text-xs text-muted" aria-label="Payment reply context"><span>{newTopic ? "Your next message starts a new topic." : "Replying about this payment alert."}</span>{!newTopic ? <button type="button" disabled={busy} className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={() => { setNewTopic(true); setChoices([]); inputRef.current?.focus(); }}>Start a new topic</button> : null}</div> : null}
           {showFollowUps && !choices.length ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
@@ -659,5 +674,7 @@ function serverMessage(message: ServerMessage): ThreadMessage {
     clientId: message.clientId,
     status: "sent",
     chart: message.chart ?? null,
+    paymentNotice: message.paymentNotice,
+    newTopic: message.newTopic,
   };
 }

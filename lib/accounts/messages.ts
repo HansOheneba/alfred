@@ -16,6 +16,8 @@ export type ChatMessageRecord = {
   chart?: ChatChart | null;
   /** A server-observed financial write, never inferred from the model's action or reply. */
   ledgerChanged?: boolean;
+  paymentNotice?: {bankMessageId:string;requiresPurpose:boolean};
+  newTopic?: boolean;
 };
 
 export type NewChatMessage = {
@@ -27,6 +29,8 @@ export type NewChatMessage = {
   intent?: string | null;
   chart?: ChatChart | null;
   ledgerChanged?: boolean;
+  paymentNotice?: ChatMessageRecord["paymentNotice"];
+  newTopic?: boolean;
 };
 
 export interface MessageLog {
@@ -89,6 +93,8 @@ export class MemoryMessageLog implements MessageLog {
       intent: message.intent ?? null,
       chart: message.chart ?? null,
       ledgerChanged: message.ledgerChanged,
+      paymentNotice: message.paymentNotice,
+      newTopic: message.newTopic,
     };
     this.rows.push(row);
     return this.publicRow(row);
@@ -105,6 +111,8 @@ export class MemoryMessageLog implements MessageLog {
       intent: row.intent ?? null,
       chart: row.chart ?? null,
       ledgerChanged: row.ledgerChanged,
+      paymentNotice: row.paymentNotice,
+      newTopic: row.newTopic,
     };
   }
 }

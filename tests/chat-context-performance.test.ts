@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
-import { MemoryMessageLog } from "@/lib/accounts/messages";
+import { MemoryMessageLog, type ChatMessageRecord } from "@/lib/accounts/messages";
+import type { InterpretRequest } from "@/lib/ai/deepseek";
 import { waitingPayments } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { interpretWithContext } from "@/lib/finance/context";
@@ -9,6 +10,21 @@ import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { NOW, profile } from "./helpers";
 
 describe("Chat context work budgets", () => {
+  it("keeps proactive private payment copy out of later model history", async () => {
+    const store = new MemoryFinanceStore(), messages = new MemoryMessageLog();
+    await messages.append({ ownerId: "42", channel: "web", role: "assistant", body: "Synthetic private payment detail", intent: "automation:incoming-payment" });
+    await messages.append({ ownerId: "42", channel: "web", role: "assistant", body: "Synthetic private follow-up detail", paymentNotice: { bankMessageId: "11111111-1111-4111-8111-111111111111", requiresPurpose: true } });
+    await messages.append({ ownerId: "42", channel: "web", role: "user", body: "How are things?" });
+    const interpret = vi.fn(async (_request: InterpretRequest) => ({ type: "chat" as const, message: "Synthetic reply" }));
+    const open = vi.fn((_history: ChatMessageRecord[]) => []);
+    const result = await interpretWithContext({ text: "How are things?", profile: profile(), store, messages, now: NOW, channel: "web", interpret, open });
+    expect(JSON.stringify(interpret.mock.calls[0])).not.toContain("Synthetic private payment detail");
+    expect(JSON.stringify(open.mock.calls[0])).not.toContain("Synthetic private payment detail");
+    expect(JSON.stringify(interpret.mock.calls[0])).not.toContain("Synthetic private follow-up detail");
+    expect(JSON.stringify(open.mock.calls[0])).not.toContain("Synthetic private follow-up detail");
+    expect(result.cue.history).toEqual([{ role: "user", body: "How are things?" }]);
+    expect(interpret.mock.calls[0][0].history).toHaveLength(1);
+  });
   it("reads loans once for forty waiting payments while preserving both debt directions", async () => {
     const bank = new MemoryBankStore();
     const loans = new MemoryLoanStore();

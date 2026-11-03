@@ -5,7 +5,7 @@ import { classifyPayee } from "@/lib/bank/payees";
 import { holdFor } from "@/lib/bank/related";
 import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, normalizeCategory } from "@/lib/finance/categories";
 import { zonedYmd } from "@/lib/finance/dates";
 import { findPerson, loanBalances } from "@/lib/finance/loans";
 import type { LabelAnswer } from "@/lib/finance/schemas";
@@ -42,7 +42,15 @@ export type WaitingPayments = {
   current: BankMessage | null;
   /** Its number in `lines`, or 0. */
   currentNumber: number;
+  /** A reply to one private notice must not learn a rule or file other payments. */
+  exactQuestion?: boolean;
 };
+
+/**
+ * A private payment notice names its own question. An explicit null means the
+ * last notice wasn't a question, or is no longer open; never reuse an older one.
+ */
+export type PaymentQuestionFocus = { currentMessageId?: string | null };
 
 /** Works out which payments a message is about and what each was, e.g. from the main conversation's answer. */
 export type LabelResolver = (input: { text: string; waiting: WaitingPayments; profile: UserProfile }) => Promise<ResolvedLabel[]>;
@@ -85,13 +93,21 @@ export function filedAs(label: Label): string {
  * What's waiting for a label, plus what the last label just filed, numbered
  * for the model, or null when there's neither.
  */
-export async function waitingPayments(deps: IngestDeps, profile: UserProfile): Promise<WaitingPayments | null> {
+export async function waitingPayments(deps: IngestDeps, profile: UserProfile, focus: PaymentQuestionFocus = {}): Promise<WaitingPayments | null> {
   const all = oldestFirst(await deps.bank.listMessages(profile.profileId, "needs_label"));
-  const recent = await justFiled(deps, profile);
+  const explicit = focus.currentMessageId !== undefined;
+  // An answer to a new notice must not silently correct a different, recently
+  // filed payment. Corrections remain available in the normal conversation.
+  const recent = explicit ? [] : await justFiled(deps, profile);
   if (all.length === 0 && recent.length === 0) return null;
-  const listed = [...all.slice(0, MAX_LISTED), ...recent.map((item) => item.message)];
-  // The most recently asked question is the one a bare reply most likely answers.
-  const current = [...all].filter((item) => item.askedAt).sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0] ?? null;
+  const current = explicit
+    ? all.find((item) => item.id === focus.currentMessageId) ?? null
+    : [...all].filter((item) => item.askedAt).sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0] ?? null;
+  const oldest = all.slice(0, MAX_LISTED);
+  // The exact notice can be newer than forty older questions. Keep it in the
+  // bounded model context, otherwise its number would be zero and replies lost.
+  if (current && !oldest.some((item) => item.id === current.id)) oldest.splice(MAX_LISTED - 1, 1, current);
+  const listed = [...oldest, ...recent.map((item) => item.message)];
   const debts = new Map<string, string>();
   if (deps.loans && listed.some((message) => message.counterparty.trim())) {
     const balances = loanBalances(await deps.loans.list(profile.profileId));
@@ -117,6 +133,7 @@ export async function waitingPayments(deps: IngestDeps, profile: UserProfile): P
     ),
     current,
     currentNumber: current ? listed.findIndex((item) => item.id === current.id) + 1 : 0,
+    exactQuestion: explicit,
   };
 }
 
@@ -185,6 +202,9 @@ const LIST_QUERY = /^(?:what|which)\b.*\b(?:those|they|them|ones|payments?)\b|^(
 /** "Ask", "ask your questions", "no I mean ask me": the person wants the next question now. */
 const ASK = /^(?:(?:no,?\s+)?i\s+mean\s+|ok(?:ay)?,?\s+|go\s+ahead,?\s+(?:and\s+)?|yes,?\s+|please\s+)?ask(?:\s+(?:me|away|now|them))?(?:\s+(?:your|the|those|my)\s+questions?)?(?:\s+(?:now|please))?\s*[.!]*$/i;
 const UNDO = /^\s*(?:undo|undo (?:that|it|those|this)|revert (?:that|it))\s*[.!]?\s*$/i;
+
+/** Shared so a new private notice cannot make "undo" target an older batch. */
+export function isLabelUndo(text: string): boolean { return UNDO.test(text); }
 
 /** "The rest were…", "all of them", "both": the person means every waiting payment. */
 const EVERYTHING = /\b(?:the rest|the others|all the others|everything else|all (?:of )?(?:them|those|these)|remaining|both)\b/i;
@@ -296,10 +316,13 @@ export async function askAgain(deps: IngestDeps, profile: UserProfile, message: 
 }
 
 /** The payment the person was asked about last and its answer buttons, or null when none is open. */
-export async function currentQuestion(deps: IngestDeps, profile: UserProfile): Promise<{ message: BankMessage; buttons: InlineButton[][] } | null> {
-  const asked = (await deps.bank.listMessages(profile.profileId, "needs_label")).filter((item) => item.askedAt);
-  const message = asked.sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0];
-  if (!message) return null;
+export async function currentQuestion(deps: IngestDeps, profile: UserProfile, focus: PaymentQuestionFocus = {}): Promise<{ message: BankMessage; buttons: InlineButton[][] } | null> {
+  const explicit = focus.currentMessageId !== undefined;
+  const asked = explicit ? [] : (await deps.bank.listMessages(profile.profileId, "needs_label")).filter((item) => item.askedAt);
+  const message = explicit
+    ? focus.currentMessageId ? await deps.bank.getMessage(profile.profileId, focus.currentMessageId) : null
+    : asked.sort((left, right) => (right.askedAt ?? "").localeCompare(left.askedAt ?? ""))[0];
+  if (!message || message.ownerId !== profile.profileId || message.status !== "needs_label") return null;
   const question = await questionFor(deps.loans, profile, message, deps.people, deps.bank);
   return { message, buttons: question.buttons };
 }
@@ -308,16 +331,17 @@ export async function currentQuestion(deps: IngestDeps, profile: UserProfile): P
  * A tapped answer button (`b:<message id>:<code>`): files that payment and asks
  * the next one. `said` is what the tap reads as in the conversation.
  */
-export async function chooseLabel(deps: IngestDeps, profile: UserProfile, data: string): Promise<{ said: string; reply: LabelReply } | null> {
+export async function chooseLabel(deps: IngestDeps, profile: UserProfile, data: string, options: { learn?: boolean; messageId?: string; next?: boolean } = {}): Promise<{ said: string; reply: LabelReply } | null> {
   const choice = parseLabelCallback(data);
+  if (options.messageId !== undefined && choice?.messageId !== options.messageId) return null;
   const message = choice ? await deps.bank.getMessage(profile.profileId, choice.messageId) : null;
   const label = message && choice ? labelFromCode(message, choice.code) : null;
   if (!message || !label) return null;
   const said = message.kind === "hold_settle" && label.kind === "skip" ? "Yes, same payment" : labelChoiceText(label);
-  const result = await applyLabel(deps, profile, message.id, label);
+  const result = await applyLabel(deps, profile, message.id, label, options);
   if (!result.ok) return { said, reply: { text: result.text, next: null } };
   await deps.bank.saveUndo(profile.profileId, result.changes);
-  return { said, reply: await withNext(deps, profile, `✓ ${result.text}`, nextIntro) };
+  return { said, reply: options.next === false ? { text: `✓ ${result.text}`, next: null } : await withNext(deps, profile, `✓ ${result.text}`, nextIntro) };
 }
 
 /** The next waiting payment's question with its buttons, or null when nothing is waiting. */
@@ -329,7 +353,7 @@ export async function askNextReply(deps: IngestDeps, profile: UserProfile): Prom
 
 /** "undo" and "what are those?" while payments are waiting: answered without the model. */
 export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text: string): Promise<LabelReply | null> {
-  if (UNDO.test(text)) {
+  if (isLabelUndo(text)) {
     const changes = await deps.bank.takeUndo(profile.profileId, new Date(deps.now.getTime() - UNDO_WINDOW_MS));
     if (changes) {
       const reopened = await undoLabels(deps, profile, changes);
@@ -347,6 +371,108 @@ export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text
   const shown = waiting.slice(0, MAX_SHOWN).map((message, index) => `${index + 1}. ${waitingLine(message, profile)}`);
   const more = waiting.length > MAX_SHOWN ? `\n…and ${waiting.length - MAX_SHOWN} more.` : "";
   return withNext(deps, profile, `${waiting.length} payments are waiting for a label:\n${shown.join("\n")}${more}\n\n${NATURAL_HINT}`, () => "First: ");
+}
+
+function purposeWords(text: string): string[] {
+  return text.toLowerCase().replace(/[’]/g, "'").match(/[a-z0-9]+(?:'[a-z]+)?/g) ?? [];
+}
+
+/** Only explicit purpose words support a focused label; sender/source recognition does not. */
+function purposeEvidence(text: string, direction: BankMessage["direction"]) {
+  const words = purposeWords(text);
+  const categories = new Set<string>();
+  const spending = new Set<string>();
+  for (let index = 0; index < words.length; index++) {
+    for (let length = 1; length <= 3 && index + length <= words.length; length++) {
+      const phrase = words.slice(index, index + length).join(" ");
+      const category = normalizeCategory(phrase, direction === "in" ? "income" : "expense");
+      if (category && category !== "Other" && category !== "Misc") categories.add(category);
+      const expense = normalizeCategory(phrase, "expense");
+      if (expense && expense !== "Misc") spending.add(expense);
+    }
+  }
+  const said = words.join(" ");
+  // School fees are education, not bank/transaction Fees. If Education is not
+  // a supported category yet, ask rather than silently file under Fees.
+  if (/\b(?:school fees|tuition|education)\b/.test(said)) {
+    categories.delete("Fees");
+    spending.delete("Fees");
+  }
+  const kinds = new Set<Label["kind"]>();
+  const semanticWords = new Set<string>();
+  if (direction === "in") {
+    // Occasion money is a conventional gift purpose, unlike a relative's
+    // identity alone. Commercial payments, loans and handled funds do not
+    // become gifts merely because an occasion is mentioned.
+    const occasionMoney = /\b(?:birthday|christmas|graduation|anniversary|wedding) (?:money|cash)\b/.test(said)
+      || /\b(?:money|cash)\b.{0,80}\bfor (?:my|our) (?:birthday|christmas|graduation|anniversary|wedding)\b/.test(said);
+    const otherNature = /\b(?:loan|borrowed|repayment|repaid|refund|deposit|sales?|invoice|client|business|work|service|share|contribution|on behalf|someone else's)\b/.test(said);
+    const thirdPartyFunds = /\b(?:holding|keeping|handling|passing on|pass through|on behalf of)\b/.test(said)
+      || /\b(?:to|for) (?:my |our |the )?(?:grandma|grandmother|grandpa|grandfather|mum|mom|mother|dad|father|sister|brother|aunt|uncle|cousin|friend|wife|husband|daughter|son|child|children|parents?|someone else|them|him|her)\b/.test(said);
+    if ((occasionMoney || /\bgifted (?:me|us)\b/.test(said)) && !otherNature && !thirdPartyFunds && !/\b(?:not|never|isn't|wasn't|hasn't|didn't)\b/.test(said)) categories.add("Gift");
+    // Receiving rent in one's role as the tenant's payee is rental income;
+    // bare "rent" could instead be a contribution, loan or reimbursement.
+    const rentalIncome = /\brental income\b/.test(said)
+      || /\brent(?: money| payment)? from (?:my |our |the |a )?tenants?\b/.test(said)
+      || /\btenants?\b.{0,48}\b(?:paid|paying|sent|transferred)\b.{0,32}\brent\b/.test(said);
+    if (rentalIncome && !/\b(?:deposit|refund|returned|loan|borrowed|repayment|repaid|share|contribution|on behalf|not|never|hasn't|didn't)\b/.test(said)) {
+      categories.add("Business");
+      for (const word of ["rental", "income", "earnings"]) semanticWords.add(word);
+    }
+  }
+  const repayment = /\b(?:repaid|repayment|paying (?:me|them|him|her|you) back|paid (?:me|them|him|her|you) back|pay back|returned (?:the )?money i (?:had )?lent|returned (?:my|the) loan)\b/.test(said);
+  if (repayment) kinds.add(direction === "in" ? "repaid" : "paid_back");
+  else if (/\b(?:loan|borrowed|lent me|lent to me)\b/.test(said)) kinds.add(direction === "in" ? "borrowed" : "lent");
+  if (/\b(?:my own|own money|between my accounts|between accounts)\b/.test(said)) kinds.add("transfer");
+  if (/\b(?:skip|ignore|leave (?:it |this |that )?out|not a payment|same payment)\b/.test(said)) kinds.add("skip");
+  if (/\b(?:pass through|someone else's|on behalf of|handling money for)\b/.test(said)) kinds.add("pass_through");
+  if (/\b(?:invest|invested|investment)\b/.test(said)) kinds.add("invest");
+  if (/\b(?:share|split|contribution|chipping in|chip in)\b/.test(said) && spending.size === 1) kinds.add("chip_in");
+  if (categories.has("Refund") && spending.size === 1) kinds.add("refund");
+  const purposes = new Set([...categories].map(category => category === "Refund" ? "refund" : `category:${category}`));
+  for (const kind of kinds) purposes.add(kind);
+  return { words, categories, spending, kinds, purposes, semanticWords };
+}
+
+export function explicitExpenseCategory(text: string): string | null {
+  const evidence = purposeEvidence(text, "out");
+  return !paymentPurposeUnclear(text, "out") && evidence.purposes.size === 1 && evidence.categories.size === 1 ? [...evidence.categories][0] : null;
+}
+
+export function paymentPurposeNeedsClassification(text: string, direction: BankMessage["direction"]): boolean {
+  return !paymentPurposeUnclear(text, direction) && purposeEvidence(text, direction).purposes.size === 0;
+}
+
+/** A tentative single assertion can be clear; questions and competing possibilities cannot. */
+export function paymentPurposeUnclear(text: string, direction: BankMessage["direction"]): boolean {
+  const said = text.trim().toLowerCase().replace(/[’]/g, "'").replace(/[.!?,;:]+$/g, "").trim();
+  if (/^(?:y|yes|yeah|yep|yup|n|no|nope|nah|ok|okay|sure|thanks|thank you|hmm|what|something|stuff|whatever|other|misc(?:ellaneous)?)$/.test(said)) return true;
+  if (text.includes("?") || /\b(?:maybe|perhaps|not sure|unsure|no idea|not certain|can't remember|cannot remember|could be|i guess|i (?:do not|don't|dont) know|whether|or)\b/.test(said)) return true;
+  if (/\b(?:not|isn't|wasn't|never)\s+(?:a |an |my )?(?:birthday|gift|present|rent|loan|repayment)\b/.test(said)) return true;
+  const evidence = purposeEvidence(text, direction);
+  return evidence.purposes.size > 1 || /\b(?:probably|i think)\b/.test(said) && evidence.purposes.size !== 1;
+}
+
+const PURPOSE_FILLER = new Set(["a", "an", "the", "it", "this", "that", "was", "is", "for", "to", "from", "of", "and", "payment", "money"]);
+
+/** A model may format the person's purpose, but cannot supply a different one or add details. */
+export function groundedPaymentLabel(text: string, message: BankMessage, label: Label): boolean {
+  if (paymentPurposeUnclear(text, message.direction)) return false;
+  const evidence = purposeEvidence(text, message.direction);
+  if (evidence.purposes.size !== 1) return false;
+  const category = "category" in label ? normalizeCategory(label.category, label.kind === "category" && message.direction === "in" ? "income" : "expense") : null;
+  if (label.kind === "category" ? !category || !evidence.categories.has(category) : !evidence.kinds.has(label.kind)) return false;
+  if ((label.kind === "refund" || label.kind === "chip_in") && (!category || !evidence.spending.has(category))) return false;
+  const details = "description" in label ? label.description : "note" in label ? label.note : "investment" in label ? label.investment : null;
+  const own = new Set(evidence.words);
+  const sourceWords = new Set(purposeWords(message.counterparty));
+  const sameWord = (word: string) => PURPOSE_FILLER.has(word) || own.has(word) || sourceWords.has(word) || evidence.semanticWords.has(word)
+    || Boolean(normalizeCategory(word, message.direction === "in" ? "income" : "expense") && evidence.categories.has(normalizeCategory(word, message.direction === "in" ? "income" : "expense")!));
+  if (details && !purposeWords(details).every(sameWord)) return false;
+  if ("person" in label && label.person && !purposeWords(label.person).every(word => own.has(word) || purposeWords(message.counterparty).includes(word))) return false;
+  if (label.kind === "category" && label.forMonth && !text.includes(label.forMonth)) return false;
+  if (label.kind === "category" && label.includedFee && (!/\bfee\b/i.test(text) || !text.includes(label.includedFee))) return false;
+  return true;
 }
 
 /**
@@ -368,6 +494,14 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
       const correcting = waiting.recent.find((item) => item.message.id === messageId);
       const message = correcting?.message ?? waiting.all.find((item) => item.id === messageId);
       if (!message) continue;
+      if (waiting.exactQuestion && messageId !== current?.id) {
+        dropped += 1;
+        continue;
+      }
+      if (waiting.exactQuestion && !groundedPaymentLabel(text, message, answer.label)) {
+        dropped += 1;
+        continue;
+      }
       // A bare reply like "food" answers the question just asked; "no, I mean…" corrects what was just filed.
       const pointer =
         pointsAt(text, message, profile, deps.now) ?? (picked.length === 1 && (messageId === current?.id || correcting) ? "current" : null);
@@ -378,7 +512,7 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
       // A correction puts the payment back first, so the new label replaces the old one.
       if (correcting) await undoLabels(deps, profile, [correcting.change]);
       // Only someone the person named, or the one they were asked about, is remembered for next time.
-      const learn = pointer === "name" || (pointer === "current" && !correcting);
+      const learn = !waiting.exactQuestion && (pointer === "name" || (pointer === "current" && !correcting));
       const result = await applyLabel(deps, profile, messageId, answer.label, { learn });
       if (result.ok) {
         changes.push(...result.changes.map((change) => ({ ...change, filedAs: filedAs(answer.label) })));
@@ -398,6 +532,7 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
 
   const body = lines.length === 1 ? lines[0] : lines.map((line) => `• ${line}`).join("\n");
   const undo = changes.length > 1 ? `\n\nSorted ${changes.length} payments. Say “undo” if I got any wrong.` : "";
+  if (waiting.exactQuestion) return { text: `${body}${undo}`, next: null };
   return withNext(deps, profile, `${body}${undo}`, nextIntro);
 }
 

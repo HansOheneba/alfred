@@ -48,3 +48,7 @@ next-env.d.ts
 /artifacts/
 /ui-preview/capture*.mjs
 /ui-preview/check*.mjs
+
+# Inactive local SMS collector builds
+/relay/mac/build/
+/relay/collector/build/

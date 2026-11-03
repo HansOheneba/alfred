@@ -26,6 +26,8 @@ function present(message: ChatMessageRecord) {
     clientId: message.clientId,
     chart: message.chart ?? null,
     ledgerChanged: message.ledgerChanged,
+    paymentNotice:message.paymentNotice,
+    newTopic:message.newTopic,
   };
 }
 
@@ -90,11 +92,11 @@ export async function POST(request: Request): Promise<Response> {
     const profile = await createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id);
     if (!profile) return Response.json({ ok: false, text: "Your profile is not ready yet." }, { status: 500 });
     const turn = text.success
-      ? { text: text.data.text, clientId: text.data.clientId }
+      ? { text: text.data.text, clientId: text.data.clientId, replyToPayment:text.data.replyToPayment, newTopic:text.data.newTopic }
       : decision.success
         ? { decision: decision.data.decision, actionId: decision.data.actionId, clientId: decision.data.clientId }
         : choice.success
-          ? { choice: choice.data.choice, clientId: choice.data.clientId }
+          ? { choice: choice.data.choice, clientId: choice.data.clientId, replyToPayment: choice.data.replyToPayment }
           : null;
     if (!turn) return Response.json({ ok: false, text: "Send a text message." }, { status: 400 });
     const result = await handleProfileTurn(profile, turn, createStudioDeps(settings));

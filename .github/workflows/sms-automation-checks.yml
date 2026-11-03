@@ -1,0 +1,58 @@
+name: SMS automation checks
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sms-automation-pr-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  web:
+    name: Web regression and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      NEXT_TELEMETRY_DISABLED: "1"
+      ALFRED_PUSH_DELIVERY_ENABLED: "false"
+      ALFRED_NOTIFICATION_SCHEDULES_ENABLED: "false"
+    steps:
+      - name: Check out the PR merge commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Set up Node.js 24 LTS
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          package-manager-cache: false
+      - name: Install locked dependencies
+        run: npm ci
+      - name: Run synthetic regression tests
+        run: npm test
+      - name: Generate Next.js route types
+        run: npx --no-install next typegen
+      - name: Check TypeScript
+        run: npm run typecheck
+      - name: Build with Webpack
+        run: npm run build -- --webpack
+
+  native:
+    name: Pure macOS collector fixtures
+    runs-on: macos-latest
+    timeout-minutes: 15
+    env:
+      ALFRED_TEST_SANDBOX: "0"
+    steps:
+      - name: Check out the PR merge commit
+        uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - name: Test the collector without its app entry point
+        run: zsh -f relay/collector/scripts/test.sh
+      - name: Test the legacy relay with the sandbox runtime probe disabled
+        run: zsh -f relay/mac/test.sh

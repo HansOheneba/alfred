@@ -4,11 +4,16 @@ import { isClientMessageId } from "@/lib/accounts/messages";
 import { LIMITS } from "@/lib/config";
 
 const clientId = z.string().refine(isClientMessageId, "Invalid message id.");
+const replyToPayment = z.object({ bankMessageId: z.string().uuid(), requiresPurpose: z.boolean() }).strict().nullable().optional();
 
 export const chatTextSchema = z
   .object({
     text: z.string().trim().min(1).max(LIMITS.maxUserTextChars),
     clientId,
+    /** The purpose question the person actually saw, even if a newer alert arrived. */
+    replyToPayment,
+    /** Explicitly detach from a payment reply and begin a separate request. */
+    newTopic: z.literal(true).optional(),
   })
   .strict();
 
@@ -25,5 +30,6 @@ export const chatChoiceSchema = z
   .object({
     choice: z.string().regex(/^b:[0-9a-f-]{36}:(?:c\d|t|s|r|l|b|p|i)$/i),
     clientId,
+    replyToPayment,
   })
   .strict();

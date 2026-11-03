@@ -61,6 +61,8 @@ export type LabelChange = {
 export interface BankStore {
   /** Inserts a message, or returns null when the same message was already stored. */
   insertMessage(row: NewBankMessage): Promise<BankMessage | null>;
+  /** Durable evidence for an insertion rejected by the existing dedupe indexes. */
+  findMessageByIdentity(ownerId: string, identity: Pick<NewBankMessage, "source" | "externalId" | "textHash">): Promise<BankMessage | null>;
   updateMessage(ownerId: string, id: string, patch: Partial<Pick<BankMessage, "status" | "transactionId" | "feeTransactionId" | "askedAt" | "kind" | "balance">>): Promise<void>;
   getMessage(ownerId: string, id: string): Promise<BankMessage | null>;
   /** Corrects the date of a stored message that still needs a label, when a later copy shows when it really happened. */
@@ -174,6 +176,14 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       if (patch.balance !== undefined) add("balance", patch.balance);
       if (sets.length === 0) return;
       await query(settings, `update public.bank_messages set ${sets.join(", ")} where owner_id = $1::uuid and id = $2::uuid`, values);
+    },
+    async findMessageByIdentity(ownerId, identity) {
+      const rows = await query<MessageRow>(settings,
+        `select ${columns} from public.bank_messages where owner_id=$1::uuid
+          and (text_hash=$2 or ($3::text is not null and source=$4 and external_id=$3))
+         order by case when text_hash=$2 then 0 else 1 end,id limit 1`,
+        [ownerId, identity.textHash, identity.externalId, identity.source]);
+      return rows[0] ? fromRow(rows[0]) : null;
     },
     async correctDate(ownerId, textHash, occurredAt) {
       await query(
@@ -336,6 +346,11 @@ export class MemoryBankStore implements BankStore {
   async updateMessage(ownerId: string, id: string, patch: Partial<BankMessage>) {
     const message = this.messages.find((item) => item.ownerId === ownerId && item.id === id);
     if (message) Object.assign(message, patch);
+  }
+  async findMessageByIdentity(ownerId: string, identity: Pick<NewBankMessage, "source" | "externalId" | "textHash">) {
+    const matches = this.messages.filter(item => item.ownerId === ownerId && (item.textHash === identity.textHash || Boolean(identity.externalId && item.source === identity.source && item.externalId === identity.externalId)));
+    const match = matches.find(item => item.textHash === identity.textHash) ?? matches[0];
+    return match ? { ...match } : null;
   }
   async correctDate(ownerId: string, textHash: string, occurredAt: string) {
     const message = this.messages.find((item) => item.ownerId === ownerId && item.textHash === textHash && item.status === "needs_label");

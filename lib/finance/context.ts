@@ -57,7 +57,9 @@ export async function interpretWithContext(input: {
       category: item.category,
       description: item.description.slice(0, 80),
     }));
-  const ownHistory = history.filter((item) => !input.excludeClientId || item.clientId !== input.excludeClientId);
+  // Deterministic private payment notices are not an extra source of model
+  // history. The normal, user-requested ledger context remains unchanged.
+  const ownHistory = history.filter((item) => !item.paymentNotice && item.intent !== "automation:incoming-payment" && (!input.excludeClientId || item.clientId !== input.excludeClientId));
   const cue: ChatCue = {
     offTopicTurn: offTopicStreak(ownHistory) + 1,
     history: ownHistory.slice(-8).map((item) => ({ role: item.role, body: item.body.slice(0, 400) })),
