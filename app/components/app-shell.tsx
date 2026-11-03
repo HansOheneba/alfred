@@ -164,7 +164,7 @@ function Initial({ name, className = "size-8" }: { name: string; className?: str
   );
 }
 
-/** Authenticated application frame with the approved floating navigation. */
+/** Authenticated application frame: top bar navigation on wider screens, a bottom tab bar on phones. */
 export function AppShell({ current, name, fill = false, headerAction, children }: {
   current: Section;
   name: string;
@@ -172,7 +172,6 @@ export function AppShell({ current, name, fill = false, headerAction, children }
   headerAction?: ReactNode;
   children: ReactNode;
 }) {
-  const title = NAV.find((item) => item.section === current)?.label ?? "Alfred";
   const [appearance, setAppearance] = useAppearance();
   const chat = current === "chat";
   const viewport = useChatViewport(chat);
@@ -182,7 +181,10 @@ export function AppShell({ current, name, fill = false, headerAction, children }
       <header className={`alfred-ui-header${chat ? " alfred-ui-chatHeader" : ""}`}>
         <div className="alfred-ui-headerInner">
           <Link href="/" className="alfred-ui-brand"><span>Alfred</span></Link>
-          <span className="alfred-ui-pageTitle">{title}</span>
+          {/* Wider screens navigate from the top bar; phones use the bottom tab bar below. */}
+          <nav className="alfred-ui-topNav" aria-label="Main">
+            {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined} prefetch={false}><Icon className="size-4">{item.icon}</Icon><span>{item.label}</span></Link>)}
+          </nav>
           <div className="alfred-ui-headerActions">
             <PrivacyToggle/>
             {headerAction}
@@ -192,7 +194,7 @@ export function AppShell({ current, name, fill = false, headerAction, children }
         </div>
       </header>
       <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{children}</main>
-      <nav className="alfred-ui-dock" aria-label="Main">
+      <nav className="alfred-ui-dock" aria-label="Main (mobile)">
         {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined} prefetch={false}><Icon className="size-5">{item.icon}</Icon><span>{item.label}</span></Link>)}
       </nav>
     </div>
