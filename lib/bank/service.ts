@@ -32,7 +32,7 @@ export async function ingestBankMessages(
   profile: UserProfile,
   text: string,
   options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
-): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number }> {
+): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number; durableMessageIds: string[] }> {
   return ingestBankText(
     {
       bank: createSupabaseBankStore(settings),

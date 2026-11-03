@@ -5,6 +5,10 @@ const STATIC_CACHE = `${VERSION}-static`;
 const OFFLINE_URL = "/offline.html";
 const PRECACHE = [OFFLINE_URL, "/alfred.png", "/android-chrome-192x192.png"];
 
+// One registration owns the origin. Push handlers add no fetch cache and never
+// receive payment details; subscriptions still require an explicit settings tap.
+importScripts("/alfred-push-sw.js");
+
 self.addEventListener("install", (event) => {
   event.waitUntil(caches.open(STATIC_CACHE).then((cache) => cache.addAll(PRECACHE)));
   self.skipWaiting();

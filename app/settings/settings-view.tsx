@@ -8,27 +8,14 @@ import { Button, Card, Field, inputClass } from "@/app/components/ui";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
+import { AutomationsSection } from "@/app/settings/automations-section";
+import { resolveSettingsSection, SettingsNavigation, type SettingsSectionId } from "@/app/settings/settings-navigation";
 import { DataSection } from "@/app/settings/data-section";
 import { AccountRulesSection } from "@/app/settings/account-rules-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
 import type { HomeScreen } from "@/lib/web/home";
 import type { Ledger } from "@/lib/web/ledger";
 import { useOwnedSettingsData } from "@/app/settings/lazy-settings-data";
-
-const SECTIONS = [
-  { id: "profile", label: "Profile" },
-  { id: "replies", label: "Alfred's replies" },
-  { id: "budgets", label: "Budgets" },
-  { id: "goals", label: "Savings goals" },
-  { id: "reminders", label: "Reminders" },
-  { id: "telegram", label: "Telegram" },
-  { id: "bank", label: "Bank messages" },
-  { id: "rules", label: "Categorisation rules" },
-  { id: "app", label: "App & look" },
-  { id: "data", label: "Data & privacy" },
-] as const;
-
-type SectionId = (typeof SECTIONS)[number]["id"];
 
 const TIMEZONES = [
   "Africa/Accra",
@@ -70,7 +57,7 @@ export function SettingsView({
   ownerId?: string;
   refreshKey?: string;
 }) {
-  const [section, setSection] = useState<SectionId>("profile");
+  const [section, setSection] = useState<SettingsSectionId>("profile");
   const [form, setForm] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
@@ -81,8 +68,8 @@ export function SettingsView({
   // Deep links such as /settings#budgets open the matching section.
   useEffect(() => {
     const fromHash = () => {
-      const hash = window.location.hash.slice(1);
-      if (SECTIONS.some((item) => item.id === hash)) setSection(hash as SectionId);
+      const next = resolveSettingsSection(window.location.hash);
+      if (next) setSection(next);
     };
     fromHash();
     window.addEventListener("hashchange", fromHash);
@@ -94,7 +81,7 @@ export function SettingsView({
     document.querySelector<HTMLElement>(`[data-section="${section}"]`)?.scrollIntoView({ block: "nearest", inline: "center" });
   }, [section]);
 
-  function choose(id: SectionId) {
+  function choose(id: SettingsSectionId) {
     setSection(id);
     window.history.replaceState(null, "", `#${id}`);
   }
@@ -137,29 +124,7 @@ export function SettingsView({
       </header>
 
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
-        <nav
-          aria-label="Settings sections"
-          className="-mx-4 flex gap-1 overflow-x-auto px-4 py-2 md:sticky md:top-6 md:mx-0 md:w-52 md:shrink-0 md:flex-col md:overflow-visible md:px-0 md:py-0"
-        >
-          {SECTIONS.map((item) => {
-            const active = item.id === section;
-            return (
-              <button
-                key={item.id}
-                type="button"
-                data-section={item.id}
-                onClick={() => choose(item.id)}
-                aria-current={active ? "page" : undefined}
-                className={`min-h-11 shrink-0 whitespace-nowrap rounded-xl px-3 py-2 text-left text-sm font-medium leading-5 transition focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-accent ${
-                  active ? "bg-surface-2 text-ink" : "text-muted hover:bg-surface-2 hover:text-ink"
-                }`}
-              >
-                {active ? <span className="mr-2 inline-block size-1.5 rounded-full bg-accent align-middle" aria-hidden="true" /> : null}
-                {item.label}
-              </button>
-            );
-          })}
-        </nav>
+        <SettingsNavigation section={section} onChoose={choose} />
 
         <div className="min-w-0 flex-1">
           {section === "profile" ? (
@@ -272,6 +237,7 @@ export function SettingsView({
           ) : null}
 
           {section === "bank" ? finance.value ? <BankSection bank={finance.value.bank} currency={finance.value.currency} /> : <DeferredSection title="Bank messages" error={finance.error} onRetry={finance.retry} /> : null}
+          {section === "automations" ? <AutomationsSection key={ownerId ?? "session"} ownerId={ownerId} /> : null}
           {section === "rules" ? <AccountRulesSection /> : null}
           {section === "app" ? <AppSection home={home} /> : null}
           {section === "data" ? <DataSection /> : null}

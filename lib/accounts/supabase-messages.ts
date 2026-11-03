@@ -11,7 +11,7 @@ type MessageRow = {
   created_at: Date;
   client_id: string | null;
   intent: string | null;
-  meta: { chart?: ChatChart; ledgerChanged?: boolean } | null;
+  meta: { chart?: ChatChart; ledgerChanged?: boolean;paymentNotice?:ChatMessageRecord["paymentNotice"];newTopic?:boolean } | null;
 };
 
 function fromRow(row: MessageRow): ChatMessageRecord {
@@ -25,6 +25,8 @@ function fromRow(row: MessageRow): ChatMessageRecord {
     intent: row.intent,
     chart: row.meta?.chart ?? null,
     ledgerChanged: row.meta?.ledgerChanged,
+    paymentNotice:row.meta?.paymentNotice,
+    newTopic:row.meta?.newTopic,
   };
 }
 
@@ -67,7 +69,7 @@ async function insertMessage(settings: SupabaseSettings, message: NewChatMessage
   const body = message.body.slice(0, 4000);
   const clientId = message.clientId ?? null;
   const intent = message.intent ?? null;
-  const meta = message.chart || message.ledgerChanged !== undefined ? JSON.stringify({ ...(message.chart ? { chart: message.chart } : {}), ...(message.ledgerChanged !== undefined ? { ledgerChanged: message.ledgerChanged } : {}) }) : null;
+  const meta = message.chart || message.ledgerChanged !== undefined || message.paymentNotice || message.newTopic ? JSON.stringify({ ...(message.chart ? { chart: message.chart } : {}), ...(message.ledgerChanged !== undefined ? { ledgerChanged: message.ledgerChanged } : {}),...(message.paymentNotice?{paymentNotice:message.paymentNotice}:{}),...(message.newTopic?{newTopic:true}:{}) }) : null;
   if (clientId) {
     const rows = await query<MessageRow>(
       settings,

@@ -44,7 +44,10 @@ try {
   const migrationDir=new URL('../supabase/migrations/',import.meta.url);
   for(const name of (await readdir(migrationDir)).filter(name=>name.endsWith('.sql')).sort()) await db.exec(await readFile(new URL(name,migrationDir),'utf8'));
   await rows('insert into auth.users(id) values($1::uuid),($2::uuid)',[owner,stranger]);
-  for(const name of (await readdir(migrationDir)).filter(name=>name.endsWith('.sql')&&name>='20261102190000').sort()) await db.exec(await readFile(new URL(name,migrationDir),'utf8'));
+  // Rehearse only the explicitly rerunnable portability fix. Later migrations
+  // may create one-time triggers/policies and are governed by the live ledger;
+  // adding a future file must not silently expand this unrelated rerun test.
+  for(const name of ['20261102190000_portability_review_fixes.sql']) await db.exec(await readFile(new URL(name,migrationDir),'utf8'));
   assertions++; // only the additive forward migration is rerunnable; published migrations stay immutable
   const first=await stage();
   check((await receipt(first.id,stranger)).status,'missing','foreign owner cannot find or confirm preview');

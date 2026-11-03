@@ -10,12 +10,11 @@ import { bankAccess, type IngestDeps } from "@/lib/bank/ingest";
 import { chooseLabel, currentQuestion } from "@/lib/bank/reply";
 import { chatChoices, type ChatChoice } from "@/lib/accounts/chat-choices";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
-import { type ActionContext, type Delivery } from "@/lib/finance/action-router";
+import { type ActionContext } from "@/lib/finance/action-router";
 import { decidePending } from "@/lib/finance/pending";
 import { newActionId, newTransactionId } from "@/lib/finance/ids";
 import type { InterpretedAction } from "@/lib/finance/schemas";
-import { converse } from "@/lib/conversation/turn";
-import type { InlineButton } from "@/lib/telegram/client";
+import { converse, paymentNoticeFocus, type TurnReply } from "@/lib/conversation/turn";
 import { trackTurnData } from "@/lib/conversation/turn-data";
 import type { FinanceStore } from "@/lib/finance/store";
 import { userFacingError } from "@/lib/telegram/messages";
@@ -30,7 +29,7 @@ import { ACCOUNT_RULE_INTENT_GUIDANCE, createAccountRuleBotDeps, handleAccountRu
 export const STUDIO_CHAT_ID = 0;
 
 export type StudioTurn =
-  | { userId: number; text: string }
+  | { userId: number; text: string; replyToPayment?: ChatMessageRecord["paymentNotice"] | null; newTopic?: boolean }
   | { userId: number; decision: "confirm" | "cancel"; actionId: string };
 
 export type StudioResult = {
@@ -74,7 +73,7 @@ export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Pro
   if (!profile) return { text: "That user is not authorized for this console." };
   return handleProfileTurn(
     profile,
-    "text" in input ? { text: input.text } : { decision: input.decision, actionId: input.actionId },
+    "text" in input ? { text: input.text, replyToPayment: input.replyToPayment, newTopic: input.newTopic } : { decision: input.decision, actionId: input.actionId },
     deps,
   );
 }
@@ -82,9 +81,9 @@ export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Pro
 export async function handleProfileTurn(
   profile: UserProfile,
   input:
-    | { text: string; clientId?: string }
+    | { text: string; clientId?: string; replyToPayment?: ChatMessageRecord["paymentNotice"] | null; newTopic?: boolean }
     | { decision: "confirm" | "cancel"; actionId: string; clientId?: string }
-    | { choice: string; clientId?: string },
+    | { choice: string; clientId?: string; replyToPayment?: ChatMessageRecord["paymentNotice"] | null },
   deps: StudioDeps,
 ): Promise<StudioResult> {
   const tracked = trackTurnData(deps);
@@ -149,9 +148,9 @@ export async function handleProfileTurn(
   try {
     result =
       "text" in input
-        ? await answerText(input.text, ctx, deps, clientId, ledgerChanged)
+        ? await answerText(input.text, ctx, deps, clientId, ledgerChanged, input.replyToPayment, input.newTopic)
         : "choice" in input
-          ? await answerChoice(input.choice, ctx, deps, clientId, ledgerChanged)
+          ? await answerChoice(input.choice, ctx, deps, clientId, ledgerChanged, input.replyToPayment)
           : await answerDecision(input, ctx, deps, clientId, ledgerChanged);
   } catch (error) {
     logError("studio_action", error);
@@ -182,10 +181,12 @@ async function respond(
   ctx: ActionContext,
   deps: StudioDeps,
   clientId?: string,
-): Promise<Delivery & { intent?: string; buttons?: InlineButton[][] }> {
+  replyToPayment?: ChatMessageRecord["paymentNotice"] | null,
+  newTopic?: boolean,
+): Promise<TurnReply> {
   if (isAccountRuleCommand(text)) return { kind: "text", text: await handleAccountRuleBotCommand(text, ctx.profile.profileId, String(STUDIO_CHAT_ID), deps.accountRuleCommands) ?? "Use /rule help for the fixed command syntax.", intent: "account-rule:command" };
   if (isScopedAccountRuleIntent(text)) return { kind: "text", text: ACCOUNT_RULE_INTENT_GUIDANCE, intent: "account-rule:guidance" };
-  return converse(text, ctx, deps, { channel: "web", excludeClientId: clientId });
+  return converse(text, ctx, deps, { channel: "web", excludeClientId: clientId, replyToPayment, newTopic });
 }
 
 function ordered(rows: ChatMessageRecord[]): ChatMessageRecord[] {
@@ -203,7 +204,12 @@ async function answerText(
   deps: StudioDeps,
   clientId?: string,
   ledgerChanged: () => boolean = () => false,
+  replyToPayment?: ChatMessageRecord["paymentNotice"] | null,
+  newTopic?: boolean,
 ): Promise<StudioResult> {
+  const savedUser = clientId && deps.messages ? (await deps.messages.listByClientId(ctx.profile.profileId, clientId)).find((item) => item.role === "user") : undefined;
+  const isNewTopic = savedUser ? savedUser.newTopic === true : newTopic === true;
+  const boundPayment = isNewTopic ? null : await bindPaymentReply(deps, ctx.profile.profileId, clientId, replyToPayment);
   if (deps.messages && clientId) {
     await deps.messages.append({
       ownerId: ctx.profile.profileId,
@@ -211,12 +217,14 @@ async function answerText(
       body: text,
       channel: "web",
       clientId,
+      paymentNotice: boundPayment ?? undefined,
+      newTopic: isNewTopic || undefined,
     });
   }
-  const delivery = await respond(text, ctx, deps, clientId);
+  const delivery = await respond(text, ctx, deps, clientId, boundPayment, isNewTopic);
   if (deps.messages) {
     if (!clientId) {
-      await deps.messages.append({ ownerId: ctx.profile.profileId, role: "user", body: text, channel: "web" });
+      await deps.messages.append({ ownerId: ctx.profile.profileId, role: "user", body: text, channel: "web", paymentNotice: boundPayment ?? undefined, newTopic: isNewTopic || undefined });
     }
     await deps.messages.append({
       ownerId: ctx.profile.profileId,
@@ -227,6 +235,8 @@ async function answerText(
       intent: delivery.intent ?? null,
       chart: delivery.chart ?? null,
       ledgerChanged: ledgerChanged(),
+      paymentNotice: delivery.paymentNotice,
+      newTopic: delivery.newTopic,
     });
   }
   const messages =
@@ -243,24 +253,46 @@ function ingestFor(deps: StudioDeps, now: Date): IngestDeps | null {
 }
 
 /** A tapped answer button: files the payment without a model call, then asks the next one. */
-async function answerChoice(choice: string, ctx: ActionContext, deps: StudioDeps, clientId?: string, ledgerChanged: () => boolean = () => false): Promise<StudioResult> {
+async function answerChoice(choice: string, ctx: ActionContext, deps: StudioDeps, clientId?: string, ledgerChanged: () => boolean = () => false, replyToPayment?: ChatMessageRecord["paymentNotice"] | null): Promise<StudioResult> {
   const ingest = ingestFor(deps, ctx.now);
-  const chosen = ingest ? await chooseLabel(ingest, ctx.profile, choice) : null;
+  const bound = await bindPaymentReply(deps, ctx.profile.profileId, clientId, replyToPayment);
+  const focus = await paymentNoticeFocus(deps.messages, ctx.profile.profileId, { channel: "web", excludeClientId: clientId, replyToPayment: bound });
+  const chosen = !ingest || focus !== undefined && !focus?.requiresPurpose
+    ? null
+    : await chooseLabel(ingest, ctx.profile, choice, focus ? { learn: false, messageId: focus.bankMessageId, next: false } : {});
+  // The exact question stays bound after rejection or settlement, so a later
+  // bare reply cannot switch to an older question or confirmation.
+  const focused = focus ? await deps.bank?.getMessage(ctx.profile.profileId, focus.bankMessageId) : null;
+  const paymentNotice = focus?.requiresPurpose
+    ? { ...focus, requiresPurpose: Boolean(focused?.ownerId === ctx.profile.profileId && focused.status === "needs_label") }
+    : undefined;
   const said = chosen?.said ?? "Label";
   const text = chosen?.reply.text ?? "That button is no longer valid.";
   if (deps.messages) {
-    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "user", body: said, channel: "web", clientId });
-    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "assistant", body: text, channel: "web", clientId, intent: "bank:label", ledgerChanged: ledgerChanged() });
+    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "user", body: said, channel: "web", clientId, paymentNotice: focus ?? undefined });
+    await deps.messages.append({ ownerId: ctx.profile.profileId, role: "assistant", body: text, channel: "web", clientId, intent: "bank:label", ledgerChanged: ledgerChanged(), paymentNotice, newTopic: focus !== undefined || undefined });
   }
   const messages =
     clientId && deps.messages ? ordered(await deps.messages.listByClientId(ctx.profile.profileId, clientId)) : undefined;
   return { text, messages, choices: chatChoices(chosen?.reply.buttons) };
 }
 
+/** A failed submission keeps the target stored with its first user message. */
+async function bindPaymentReply(deps: StudioDeps, ownerId: string, clientId: string | undefined, requested: ChatMessageRecord["paymentNotice"] | null | undefined): Promise<ChatMessageRecord["paymentNotice"] | null> {
+  const saved = clientId && deps.messages ? (await deps.messages.listByClientId(ownerId, clientId)).find((item) => item.role === "user") : undefined;
+  const replyToPayment = saved ? saved.paymentNotice ?? null : requested;
+  return (await paymentNoticeFocus(deps.messages, ownerId, { channel: "web", excludeClientId: clientId, replyToPayment })) ?? null;
+}
+
 /** Answer buttons for the payment still being asked about, when the chat ends on that question. */
 export async function openChoices(profile: UserProfile, deps: StudioDeps, last: ChatMessageRecord | undefined): Promise<ChatChoice[][]> {
   const ingest = ingestFor(deps, deps.now());
-  if (!ingest || last?.role !== "assistant" || !last.intent?.startsWith("bank:")) return [];
+  if (!ingest || last?.role !== "assistant") return [];
+  if (last.paymentNotice || last.intent === "automation:incoming-payment") {
+    if (!last.paymentNotice?.requiresPurpose) return [];
+    return chatChoices((await currentQuestion(ingest, profile, { currentMessageId: last.paymentNotice.bankMessageId }))?.buttons);
+  }
+  if (!last.intent?.startsWith("bank:")) return [];
   return chatChoices((await currentQuestion(ingest, profile))?.buttons);
 }
 
