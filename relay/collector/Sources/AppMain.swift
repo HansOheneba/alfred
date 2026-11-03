@@ -69,6 +69,11 @@ struct SafeCollectorStatus: Encodable {
 func command(_ args: [String]) throws {
     try requireDeclaredSandbox()
     let directory = try containerSupport()
+    if args == ["--review-held"] {
+        // Explicit local outbox review only: no Messages access, remote account
+        // lookup, delivery, health check-in, setup, or service registration.
+        try runHeldAlertReview(directory: directory); return
+    }
     if args.first == "--configure" {
         var senders: [String] = []; var index = 1
         while index < args.count {
@@ -159,9 +164,21 @@ func command(_ args: [String]) throws {
         let args = Array(CommandLine.arguments.dropFirst())
         if args.isEmpty {
             let app = NSApplication.shared; app.setActivationPolicy(.accessory)
-            let alert = NSAlert(); alert.messageText = "Alfred collector is inactive"
-            alert.informativeText = "This local prototype does not read Messages, create credentials, send alerts or enable login startup when opened. App Sandbox and Messages/FDA compatibility remain unverified. Review the bundled README before any explicit setup."
-            alert.addButton(withTitle: "Quit"); alert.runModal(); return
+            let alert = NSAlert(); alert.messageText = "Alfred Collector"
+            alert.informativeText = "Opening this window does not start collection, read Messages or send alerts. You can review alerts already saved on this Mac. Connecting this Mac and turning collection on require separate setup."
+            alert.addButton(withTitle: "Quit")
+            alert.addButton(withTitle: "Review saved alerts")
+            if alert.runModal() == .alertSecondButtonReturn {
+                do {
+                    try requireDeclaredSandbox()
+                    try runHeldAlertReview(directory: containerSupport())
+                } catch {
+                    let notice = NSAlert(); notice.messageText = "Saved alerts aren’t available"
+                    notice.informativeText = (error as? CollectorError)?.description ?? "The saved alerts could not be checked. Nothing was changed or sent."
+                    notice.addButton(withTitle: "Done"); notice.runModal()
+                }
+            }
+            return
         }
         do { try command(args) }
         catch { let message = (error as? CollectorError)?.description ?? "Local operation failed. No raw message, credential or automatic reset is logged."; FileHandle.standardError.write(Data((message + "\n").utf8)); exit(1) }

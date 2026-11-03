@@ -188,14 +188,14 @@ The older guarded `relay/mac` implementation is retained as a disabled legacy
 path. Do not retry its denied initializer through another launcher. Its source
 now has safe defaults rather than the former automatic seven-day backfill.
 
-## Held alerts: assessed, not implemented
+## Held alerts: private Mac review
 
 These three cases need different handling:
 
 | Case | What is retained | Current user action |
 | --- | --- | --- |
 | Source quarantine | Private source references and reason counts; no copied unreadable/unknown-routing body | Automatic repair retries; safe counts in Automations |
-| Decoded alert held locally | Original private outbox payload after Alfred could not issue a durable processing receipt | Counts only; no Mac list, retry, ignore or manual resolution screen yet |
+| Decoded alert held locally | Original private outbox payload after Alfred could not issue a durable processing receipt | Mac review: Try again, Not a payment, Later |
 | Alfred payment needing a label | An owned, durably stored bank-message record | Existing authenticated Review and purpose replies |
 
 A locally held decoded alert has already been submitted to Alfred and may have
@@ -206,16 +206,36 @@ several movements: some may already have been stored or recorded while another
 was intentionally ignored or could not get a durable receipt. A held whole SMS
 therefore must not be described as “nothing recorded.”
 
-The smallest useful resolution screen belongs in the Mac app: show one held
-alert locally, with **Try again**, **Not a payment** and **Later**. It must check
-the confirmed account, preserve the original event/payload identity, keep an
-auditable disposition, and never generate a replacement identity to evade a
-duplicate receipt. “Not a payment” needs an explicit choice rather than automatic
-deletion. Manual financial recording would additionally need durable per-movement
+The Mac app now has an explicit **Review saved alerts** entry from its inactive
+opening notice and a `--review-held` command. It shows one decoded held alert
+locally, with **Try again**, **Not a payment** and **Later**. Review reads only
+the collector's private configuration, saved account confirmation and outbox;
+it does not read Messages, check the account online, deliver an alert, report
+health or start a service. Its window explicitly labels the connection as a
+saved confirmation, not a fresh online check. Missing setup shows a plain
+explanation instead of initializing state.
+
+Every decision rechecks the saved owner/key/provider scope and exact event,
+payload, hold and attempt version under the collector lock and a database
+transaction. A private, content-free audit makes retries idempotent. The ledger
+is added transactionally on an explicit decision; no baseline reset or capture
+schema migration is performed. Retry preserves the original event and payload
+and only makes it eligible for a future, separately authorized delivery run.
+That run still performs its existing fresh authenticated account check. Not a
+payment defaults to keeping the alert in a confirmation dialog; a confirmed
+choice removes the local pending body while keeping deduplication metadata and
+any existing server records. Later keeps the payload. Bounded pagination keeps
+alerts beyond the first hundred reachable; Refresh includes deferred items.
+
+The warning explains that some movements may already be in Alfred. No action
+records a payment or claims server acknowledgement. Manual financial recording
+would additionally need durable per-movement
 links/dispositions, an owner/event-bound idempotent server path and explicit
 confirmation. It must resolve only unresolved parts, never “record the whole
 alert” again, and cannot blindly reuse Review when the matching record is absent.
-No held-alert resolution command, UI or server mutation was added by this work.
+No manual financial resolution or new server mutation is added by Mac review.
+Native window compilation and synthetic state tests are separate from a real
+Mac runtime/UI verification; the app has not been launched or installed here.
 
 ## Activation remains a separate operation
 

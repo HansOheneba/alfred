@@ -16,5 +16,10 @@ swiftc -parse-as-library -module-cache-path "$TEMP_TEST/module-cache" \
   "$HERE/Sources/Core.swift" "$HERE/Sources/AccountIdentity.swift" "$HERE/Sources/CollectorHealth.swift" \
   "$HERE/tests/CollectorHealthTests.swift" -o "$TEMP_TEST/collector-health-tests"
 "$TEMP_TEST/collector-health-tests"
+swiftc -parse-as-library -module-cache-path "$TEMP_TEST/module-cache" \
+  "$HERE/Sources/Core.swift" "$HERE/Sources/AccountIdentity.swift" "$HERE/Sources/HeldReview.swift" \
+  "$HERE/tests/HeldReviewTests.swift" -o "$TEMP_TEST/held-review-tests"
+"$TEMP_TEST/held-review-tests"
 python3 "$HERE/tests/PolicyTests.py"
+python3 -B "$HERE/packaging-tests/test_packaging.py"
 zsh -n "$HERE/scripts/build.sh" "$HERE/scripts/test.sh"

@@ -10,7 +10,7 @@ import { DiscreetNotificationPreview, EMPTY_NOTIFICATION_PREFERENCES, Notificati
 
 const previewSettings: NotificationSettingsData = {
   ownerId: "00000000-0000-4000-8000-000000000001",
-  preferences: { ...EMPTY_NOTIFICATION_PREFERENCES, paymentMentions: true, paymentMentionsSince: "2026-11-03T10:00:00.000Z" },
+  preferences: { ...EMPTY_NOTIFICATION_PREFERENCES },
   push: { configured: false, publicKey: null, deliveryEnabled: false, schedulesEnabled: false },
   devices: [],
 };

@@ -32,8 +32,10 @@ Its minimum-version declaration matches the inspected Mach-O requirement; it
 does not establish successful Messages access on that OS. Intel Macs and older
 macOS releases are unsupported by this prototype. Source compilation alone
 would not establish their compatibility. A distributable release still needs a
-stable Developer ID signature, the reviewed distribution/notarization workflow,
-and an installer and update plan. The current ad-hoc signature is for local
+stable Developer ID signature, notarization and runtime verification. A copy-only
+installer and guarded release-candidate workflow are prepared in
+[PACKAGING.md](PACKAGING.md), without installing or activating the collector.
+The current ad-hoc signature is for local
 preparation only. The build manifest reports the inspected architecture and
 minimum OS; it must not be treated as a runtime or notarization result.
 
@@ -43,10 +45,12 @@ transactions and an injected transport. `AppMain.swift` is excluded, so the app
 entry point, real Messages path, private key prompt and HTTP delivery are not
 executed. A successful fixture run is not a runtime platform-access result.
 
-There is no installer or autostart registration in this prototype. Opening the
-app without arguments only shows an inactive notice and quits; it does not
-collect, deliver or request a key. This app-opening path remains unverified at
-runtime.
+The prepared installer only copies the app; no installer or autostart
+registration has been run. Opening the app without arguments shows an inactive
+notice; it does not collect, deliver or request a key. Choosing **Review saved
+alerts** explicitly opens the existing private local outbox, with no Messages
+or network access. Missing setup shows that there are no saved alerts to review.
+This app-opening and native review path remains unverified at runtime.
 
 ## Architecture and the Money Dashboard comparison
 
@@ -192,7 +196,19 @@ Unrecognized alerts stay in the private outbox for review and do not block later
 alerts. Network failures, malformed receipts and failed persistence retain the
 payload. A lost response can be retried against the same durable receipt without
 repeating ingestion; a receipt still does not prove settlement or a new financial
-record. The prototype has no ordinary-user screen to resolve held local alerts yet.
+record. The explicit **Review saved alerts** window now shows decoded held
+alerts privately on this Mac. It is available from the inactive app-opening
+notice or `--review-held`. It never reads Messages, contacts Alfred or starts
+collection. The saved account confirmation is clearly labelled as not freshly
+checked online. Actions recheck that local connection and the exact saved alert:
+**Try again** makes the original event eligible for a later authorized delivery;
+**Not a payment** requires confirmation, removes only the local pending copy and
+keeps duplicate protection; **Later** keeps it saved. None changes existing
+financial records or claims an Alfred acknowledgement. Source quarantine stays
+metadata-only and uses the existing repair retries. Decisions have a private,
+content-free audit and are atomic/idempotent; a stale window cannot act on a
+changed alert or the next item. The native window is compiled and state-tested
+with fixtures, not runtime-verified by launching the app.
 Protocol 2 ingests only its exact top-level text/sender/time fields; legacy
 Shortcut aliases cannot substitute another payload. The confirmed owner is also
 asserted before ingestion, so a mismatched recipient is rejected before a claim
@@ -226,8 +242,9 @@ permission or sandbox denial.
 
 | Argument | Effect |
 | --- | --- |
-| none | Show the inactive notice only; no configuration or collection |
+| none | Show the inactive notice; optionally open saved local alerts only after choosing Review saved alerts; no setup or collection |
 | `--status` | Read safe configuration/outbox metadata only; no Messages query, network request or reset |
+| `--review-held` | Open private local held-alert review; saved account confirmation only, no Messages, network, delivery or service operation |
 | `--configure --sender ID [--sender ID ...]` | Validate senders, privately accept an existing key, check the account without SMS, show its name/email and require `CONNECT`; save private config/binding exclusively; no baseline or service enablement |
 | `--verify-account` | Explicitly confirm an existing configuration through the same account check; cannot switch owner or reset baseline/queued alerts |
 | `--initialize` | Recheck the confirmed account, then establish a new explicit future-only high-water mark/date fence; no SMS body read, delivery or service enablement |

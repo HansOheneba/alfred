@@ -23,7 +23,7 @@ source,app=map(pathlib.Path,sys.argv[1:])
 (app/'Contents/Resources/LaunchAgent.plist.template').write_bytes((source/'LaunchAgent.plist.template').read_bytes())
 PY
 swiftc -O -parse-as-library -module-cache-path "$TEMP_BUILD/module-cache" \
-  "$HERE/Sources/Core.swift" "$HERE/Sources/MessageSource.swift" "$HERE/Sources/Transport.swift" "$HERE/Sources/AccountIdentity.swift" "$HERE/Sources/CollectorHealth.swift" "$HERE/Sources/AppMain.swift" \
+  "$HERE/Sources/Core.swift" "$HERE/Sources/MessageSource.swift" "$HERE/Sources/Transport.swift" "$HERE/Sources/AccountIdentity.swift" "$HERE/Sources/CollectorHealth.swift" "$HERE/Sources/HeldReview.swift" "$HERE/Sources/HeldReviewWindow.swift" "$HERE/Sources/AppMain.swift" \
   -o "$APP/Contents/MacOS/AlfredCollector"
 if ! codesign --force --sign - --entitlements "$HERE/Collector.entitlements" "$APP"; then
   # Diagnostic names only; no resource values, source contents or credentials.
