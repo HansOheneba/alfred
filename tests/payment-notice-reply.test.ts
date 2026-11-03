@@ -889,3 +889,171 @@ describe('outgoing notice duplicate-expense barrier',()=>{
   expect(reply.ledgerChanged).toBe(true);expect(await state.store.listTransactions(state.owner.profileId)).toMatchObject([{type:'expense',amount:'30.00',description:'lunch'}]);expect(reply.messages?.find(row=>row.role==='assistant')?.paymentNotice).toBeUndefined();
  });
 });
+
+describe("separate requests after a closed outgoing notice", () => {
+  const draft = (type: "income" | "expense", amount = "500.00", category = "Salary", description = "salary", overrides: Record<string, unknown> = {}): FinanceAction => ({ type: "create_transaction", explicit: true, transactions: [{ transaction_type: type, amount, currency: "GHS", category, description, date: "2026-11-03", payment_method: "", notes: "", ...overrides }] });
+  async function captured(state: ReturnType<typeof setup>, options: { amount?: string; principal?: string; fee?: string; linkedFee?: string } = {}) {
+    const message = await state.payment(1, { direction: "out", status: "recorded", amount: options.amount ?? "30.00", fee: options.fee ?? "0.00" });
+    const principal = await state.store.appendTransaction(expense({ amount: options.principal ?? options.amount ?? "30.00", transactionDate: "2026-11-03", sourceUpdateId: `bank:${message.id}` }));
+    let feeId: string | undefined;
+    if (options.linkedFee) feeId = (await state.store.appendTransaction(expense({ transactionId: "33333333-3333-4333-8333-333333333333", amount: options.linkedFee, category: "Fees", transactionDate: "2026-11-03", sourceUpdateId: `bank:${message.id}:fee` }))).transactionId;
+    await state.bank.updateMessage(state.owner.profileId, message.id, { transactionId: principal.transactionId, ...(feeId ? { feeTransactionId: feeId } : {}) });
+    return { message, notice: await state.notice(message, false) };
+  }
+
+  it("keeps repeated possible duplicates blocked, then confirms a different expense without reviving an older action", async () => {
+    const state = setup(request => request.text === "yes" ? { type: "answer_confirmation", decision: "confirm" } : draft("expense", request.text.includes("50") ? "50.00" : "30.00", request.text.includes("50") ? "Transport" : "Food", request.text.includes("50") ? "transport" : "lunch"));
+    const { notice } = await captured(state); await olderConfirmation(state);
+    const before = await state.store.listTransactions(state.owner.profileId);
+    for (const clientId of ["closed-out-duplicate-one", "closed-out-duplicate-two"]) {
+      const refused = await handleProfileTurn(state.owner, { text: "I spent 30 on lunch", clientId, replyToPayment: notice.paymentNotice }, state.deps);
+      expect(refused.text).toContain("Nothing was changed"); expect(refused.text).toContain("Start a new topic");
+      expect(refused.messages?.find(row => row.role === "assistant")?.paymentNotice).toEqual(notice.paymentNotice);
+    }
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual(before);
+    const separate = await handleProfileTurn(state.owner, { text: "I spent 50 on transport", clientId: "closed-out-different-expense", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(separate.actionId).toBe("synthetic-payment-reply"); expect(separate.ledgerChanged).toBe(false);
+    expect(separate.messages?.find(row => row.role === "assistant")).toMatchObject({ newTopic: true, paymentNotice: undefined });
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual(before);
+    await handleProfileTurn(state.owner, { text: "yes", clientId: "closed-out-different-yes", replyToPayment: null }, state.deps);
+    expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(2);
+    expect((await state.store.getPendingAction("older-confirmation"))?.status).toBe("pending");
+    await handleProfileTurn(state.owner, { text: "yes", clientId: "closed-out-late-yes", replyToPayment: null }, state.deps);
+    expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(2);
+    expect((await state.store.getPendingAction("older-confirmation"))?.status).toBe("pending");
+  });
+
+  it.each(["25.00", "30.00", "5.00", "27.00", "32.00"])("protects principal, fee and combined captured amounts (%s)", async amount => {
+    const state = setup(() => draft("expense", amount, "Food", "lunch"));
+    const { notice } = await captured(state, { amount: "30.00", principal: "25.00", linkedFee: "2.00" });
+    const before = await state.store.listTransactions(state.owner.profileId);
+    const reply = await handleProfileTurn(state.owner, { text: `I spent ${amount} on lunch`, clientId: `closed-out-fee-${amount}`, replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.actionId).toBeUndefined(); expect(reply.text).toContain("Nothing was changed"); expect(await state.store.listTransactions(state.owner.profileId)).toEqual(before);
+  });
+
+  it.each([
+    ["Record new salary income of GHS 500", "GHS", "2026-11-03"],
+    ["I received GHS500 salary", "GHS", "2026-11-03"],
+    ["I got 500 salary", "GHS", "2026-11-03"],
+    ["salary500", "GHS", "2026-11-03"],
+    ["Log salary income of usd 500", "USD", "2026-11-03"],
+    ["Record salary income of GHS500 on 2026-11-02", "GHS", "2026-11-02"],
+  ])("confirms an independently grounded income request (%s) and only its own action", async (text, currency, date) => {
+    const state = setup(() => draft("income", "500.00", "Salary", "salary", { currency, date }));
+    const { notice } = await captured(state); await olderConfirmation(state);
+    const reply = await handleProfileTurn(state.owner, { text, clientId: `closed-out-income-${currency}-${date}`, replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.actionId).toBe("synthetic-payment-reply"); expect(reply.ledgerChanged).toBe(false);
+    expect(reply.messages?.find(row => row.role === "assistant")).toMatchObject({ newTopic: true, paymentNotice: undefined });
+    expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(1);
+    const yes = { text: "yes", clientId: `closed-out-income-yes-${currency}-${date}`, replyToPayment: null };
+    await handleProfileTurn(state.owner, yes, state.deps); await handleProfileTurn(state.owner, yes, state.deps);
+    expect((await state.store.listTransactions(state.owner.profileId)).filter(row => row.type === "income")).toMatchObject([{ amount: "500.00", currency, transactionDate: date, category: "Salary" }]);
+    expect((await state.store.getPendingAction("older-confirmation"))?.status).toBe("pending");
+  });
+
+  it.each([
+    ["Record salary income of -500", {}], ["Record salary income of -GHS500", {}], ["Record salary income of −500", {}],
+    ["Record salary income of GHS500 and tax 100", {}], ["Record salary income of GHS500 USD", {}],
+    ["Record salary income of GHS500 on 2026-11-02", { date: "2026-11-03" }],
+    ["Record salary income of GHS500 on 2026-11-02", { date: undefined }],
+    ["Record salary income of GHS500 on 2026-11-31", { date: "2026-11-31" }],
+    ["Record salary income of GHS500", { amount: "600.00" }], ["Record salary income of GHS500", { currency: "USD" }],
+    ["Record income of GHS500 from dad", { category: "Gift", description: "gift" }],
+    ["Record business500 for supplies", { category: "Business", description: "supplies" }],
+    ["Record salary income of GHS500", { description: "未提供" }], ["Record salary income of GHS500", { notes: "invented detail" }],
+    ["That was salary of GHS500", {}], ["Record income of GHS500 as a refund", { category: "Refund", description: "refund" }],
+    ["Record salary income of GHS500 from a loan", {}], ["Maybe record salary income of GHS500", {}],
+    ["I received500 gift on behalf of Aunt", { category: "Gift", description: "gift" }],
+    ["Record salary income500 I owe Aunt", {}],
+    ["gift500 for my friend", { category: "Gift", description: "gift" }],
+    ["Record gift500 to my friend", { category: "Gift", description: "gift" }],
+    ["I made500 gift for John", { category: "Gift", description: "gift" }],
+    ["Record salary income of GHS 5 USD", { amount: "5.00" }],
+  ] as [string, Record<string, unknown>][])("rejects ambiguous or model-invented independent income (%s)", async (text, overrides) => {
+    const state = setup(() => draft("income", "500.00", "Salary", "salary", overrides));
+    const { notice } = await captured(state); const before = await state.store.listTransactions(state.owner.profileId);
+    const result = await handleProfileTurn(state.owner, { text, clientId: "closed-out-income-rejected", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(result.actionId).toBeUndefined(); expect(await state.store.listTransactions(state.owner.profileId)).toEqual(before);
+  });
+
+  it.each(["open-outgoing", "stale-closed-outgoing", "closed-incoming", "foreign-outgoing", "missing"])("keeps income held for %s source context", async kind => {
+    const state = setup(() => draft("income"));
+    const source = await state.payment(1, { direction: kind === "closed-incoming" ? "in" : "out", status: ["open-outgoing", "stale-closed-outgoing"].includes(kind) ? "needs_label" : "recorded", ...(kind === "foreign-outgoing" ? { ownerId: "foreign" } : {}) });
+    const notice = await state.notice(source, kind === "open-outgoing");
+    if (kind === "missing") state.deps.bank = null;
+    const result = await handleProfileTurn(state.owner, { text: "Record salary income of GHS500", clientId: `closed-income-source-${kind}`, replyToPayment: notice.paymentNotice }, state.deps);
+    expect(result.actionId).toBeUndefined(); expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+  });
+
+  it("does not use a full history scan or invent details to distinguish an outgoing expense", async () => {
+    const state = setup(() => draft("expense", "50.00", "Transport", "未提供"));
+    const { notice, message } = await captured(state);
+    const lookup = vi.spyOn(state.store, "findTransactionsBySource");
+    const reply = await handleProfileTurn(state.owner, { text: "I spent 50 on transport", clientId: "closed-out-invented-expense", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.actionId).toBeUndefined(); expect(lookup).not.toHaveBeenCalled();
+    expect((await state.bank.getMessage(state.owner.profileId, message.id))?.status).toBe("recorded");
+  });
+
+  it.each(["in", "out"] as const)("does not let a false closed flag bypass a server-open %s payment or revive old yes", async direction => {
+    const state = setup(request => request.text === "yes" ? { type: "answer_confirmation", decision: "confirm" } : draft("expense", "50.00", "Transport", "transport"));
+    const source = await state.payment(1, { direction, status: "needs_label", amount: "30.00" });
+    const notice = await state.notice(source, false); await olderConfirmation(state);
+    const result = await handleProfileTurn(state.owner, { text: "I spent 50 on transport", clientId: `server-open-false-closed-${direction}`, replyToPayment: notice.paymentNotice }, state.deps);
+    expect(result.actionId).toBeUndefined(); expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+    await handleProfileTurn(state.owner, { text: "yes", clientId: `server-open-old-yes-${direction}`, replyToPayment: null }, state.deps);
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]); expect((await state.store.getPendingAction("older-confirmation"))?.status).toBe("pending");
+  });
+
+  it.each([
+    ["I spent USD50 on transport", "expense", "50.00", "Transport", "transport", { currency: "USD" }],
+    ["I spent 30 on lunch on 2026-11-02", "expense", "30.00", "Food", "lunch", { date: "2026-11-02" }],
+  ] as [string, "income" | "expense", string, string, string, Record<string, unknown>][])("confirms clearly distinct explicit currency/date evidence (%s)", async (text, type, amount, category, description, overrides) => {
+    const state = setup(() => draft(type, amount, category, description, overrides));
+    const { notice, message } = await captured(state);
+    const lookup = vi.spyOn(state.store, "findTransactionsBySource");
+    const reply = await handleProfileTurn(state.owner, { text, clientId: "closed-out-separate-evidence", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.actionId).toBe("synthetic-payment-reply"); expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(1);
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(state.owner.profileId, `bank:${message.id}`);
+  });
+
+  it("conservatively retains an unresolved external match without listing history", async () => {
+    const state = setup(() => draft("expense", "50.00", "Transport", "transport"));
+    const source = await state.payment(1, { direction: "out", status: "matched", amount: "30.00" });
+    const manual = await state.store.appendTransaction(expense());
+    await state.bank.updateMessage(state.owner.profileId, source.id, { transactionId: manual.transactionId });
+    const notice = await state.notice(source, false), lookup = vi.spyOn(state.store, "findTransactionsBySource");
+    const reply = await handleProfileTurn(state.owner, { text: "I spent 50 on transport", clientId: "closed-out-external-match", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.actionId).toBeUndefined(); expect(reply.text).toContain("Start a new topic");
+    expect(lookup).toHaveBeenCalledExactlyOnceWith(state.owner.profileId, `bank:${source.id}`);
+  });
+
+  it.each(["I spent -50 on transport", "I spent -GHS50 on transport", "I spent −50 on transport", "I spent 50 on transport yesterday", "I spent 50 on transport on 2026-11-02", "I spent 50 on transport on 2026-11-31"])("does not turn signed or mismatched-date prose into a separate expense (%s)", async text => {
+    const state = setup(() => draft("expense", "50.00", "Transport", "transport"));
+    const { notice } = await captured(state), lookup = vi.spyOn(state.store, "findTransactionsBySource");
+    const result = await handleProfileTurn(state.owner, { text, clientId: "closed-out-unsafe-expense-prose", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(result.actionId).toBeUndefined(); expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(1); expect(lookup).not.toHaveBeenCalled();
+  });
+
+  it.each(["two-expenses", "two-incomes", "extra-note"])("rejects multiple model actions for one independent request (%s)", async kind => {
+    const entry = kind === "two-expenses" ? draft("expense", "50.00", "Transport", "transport") : draft("income");
+    const state = setup(() => ({ type: "several", actions: [entry, kind === "extra-note" ? { type: "remember_about_me", note: "An unrelated model-invented note" } : entry] }));
+    const addNote = vi.fn();
+    state.deps.notebook = { list: async () => [], add: addNote, remove: vi.fn() };
+    const { notice } = await captured(state);
+    const reply = await handleProfileTurn(state.owner, { text: kind === "two-expenses" ? "I spent 50 on transport" : "Record salary income of GHS500", clientId: `closed-out-several-${kind}`, replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.actionId).toBeUndefined(); expect(reply.text).toContain("Nothing was changed");
+    expect(await state.store.listPendingActions(state.owner.profileId)).toEqual([]); expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(1);
+    expect(addNote).not.toHaveBeenCalled();
+  });
+
+  it("checks both currency sides of a one-digit outgoing expense", async () => {
+    for (const conflict of [false, true]) {
+      const state = setup(() => draft("expense", "5.00", "Food", "lunch"));
+      const { notice } = await captured(state);
+      const reply = await handleProfileTurn(state.owner, { text: conflict ? "I spent GHS5 USD on lunch" : "I spent GHS5 on lunch", clientId: "closed-out-one-digit-currency", replyToPayment: notice.paymentNotice }, state.deps);
+      expect(reply.actionId).toBe(conflict ? undefined : "synthetic-payment-reply");
+      expect(await state.store.listPendingActions(state.owner.profileId)).toHaveLength(conflict ? 0 : 1);
+      expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(1);
+    }
+  });
+});

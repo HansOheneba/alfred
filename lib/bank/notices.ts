@@ -116,7 +116,8 @@ const ACTIVITY_STATE_SQL=`((b.kind in ('payment','unknown','card_hold') and (b.s
   or (b.kind='transfer_own' and b.status='transfer')
   or (b.kind in ('payment','loan_in','loan_out','loan_repay') and (b.status='loan' or (b.direction='out' and b.status in ('lent','paid_back')) or (b.direction='in' and b.status in ('borrowed','repaid'))))
   or (b.kind='payment' and b.status='invested')
-  or (b.kind='hold_settle' and b.status in ('needs_label','recorded','matched')))`;
+  or (b.kind='hold_settle' and b.status in ('needs_label','recorded','matched')))
+  and (b.kind not in ('card_hold','hold_settle') or b.direction='out')`;
 /** Recovery is bounded and independent of ingestion's duplicate response. No raw SMS is selected. */
 export async function recoverPaymentActivityMentions(settings:SupabaseSettings,ownerId:string,now=new Date(),deadlineAt=Date.now()+10_000,loaded?:{ownerId:string;preferences:NotificationPreferences}):Promise<number>{
   const prefs=loaded?.ownerId===ownerId?loaded.preferences:await loadNotificationPreferences(settings,ownerId);

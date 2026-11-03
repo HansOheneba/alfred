@@ -40,6 +40,14 @@ describe("simple Mac setup explanation", () => {
     expect(details).toContain("no filter can promise");
     expect(html.slice(0, html.indexOf("<details"))).not.toContain("DeepSeek");
   });
+  it("distinguishes pre-Start history from paused-period catch-up and older notices", () => {
+    const html = renderToStaticMarkup(createElement(MacAutomationCard));
+    expect(html).toContain("Messages from before your first Start stay out");
+    expect(html).toContain("Pausing stops automatic sending");
+    expect(html).toContain("Starting again catches up on eligible alerts received while paused and retries saved alerts");
+    expect(html).toContain("Alerts more than 24 hours old may update your records or appear in Review without a new chat announcement");
+    expect(html).not.toContain("No historical backfill");
+  });
 });
 
 describe("fictional Mac setup state", () => {

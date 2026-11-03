@@ -1,7 +1,8 @@
 # Money-style Alfred Sync: local review
 
 Prepared 3 November 2026 from merged main `bb0f978` on
-`fix/money-style-sms-setup-20261103`. This follow-up is local only.
+`fix/money-style-sms-setup-20261103`. This report records the local verification
+checkpoints; publication is tracked in [PR #27](https://github.com/HansOheneba/alfred/pull/27).
 
 ## Result
 
@@ -30,8 +31,9 @@ source updates. Device notifications remain a separate choice.
 
 ## Verification
 
-- Application: 1,433 tests across 127 files passed. A subsequent test-only wording
-  correction passed all 14 focused copy/guard tests; runtime source was unchanged.
+- Final local review follow-up: 1,497 application tests across 128 files passed.
+  The published `52fd5fb` checkpoint had 1,433 tests across 127 files; it does not
+  include the subsequent local review corrections described below.
 - Typecheck, Webpack production build and whitespace checks passed. Lint had zero
   errors and three existing unused-variable warnings.
 - Portability SQL: 381 synthetic assertions passed across the existing integration
@@ -39,10 +41,10 @@ source updates. Device notifications remain a separate choice.
 - Eight-file automation migration rehearsal: 40 in-memory assertions passed.
   Catalog-only readiness also tested old-schema refusal, new-schema acceptance,
   missing-function refusal and no financial/preference creation.
-- Native: 497 synthetic assertions, nine policy tests and 13 packaging tests
+- Native: 497 synthetic assertions, ten policy tests and 13 packaging tests
   passed. Optimized compilation, declared entitlements, ad-hoc signing, archive
   round trip, copy-only installer contents and bundled service scope passed.
-- Desktop and 390-pixel mobile previews showed both announcement directions,
+- The initial desktop and 390-pixel mobile previews showed both announcement directions,
   independent switches, safe outgoing purpose replies and no horizontal overflow.
   Preview console error log was empty. Preview choices were reset afterward.
 
@@ -51,9 +53,9 @@ source updates. Device notifications remain a separate choice.
 Generated artifacts are ignored and are not part of the source change:
 
 - `relay/collector/build/Alfred Sync.app.zip`
-  SHA-256 `5d779651ef5a5ca4f96232f4067c13f9f5669a9abdfe93b376a8a61c54486956`
+  SHA-256 `54cbfabc2583f76b0a083f7bf85788ff8a632d8b46b797d412f4c449b7721805`
 - `relay/collector/build/Alfred Sync DEVELOPMENT.pkg`
-  SHA-256 `0f75975f7ea20daaf26cc434a060b22206dbd15643f212f64782b10d39600da3`
+  SHA-256 `487fa5b7ad08cb66a8106c3e0cc571c136b7f0a7295dc144d6747831fcd2227d`
 - Build evidence: `relay/collector/build/final-verification-summary.json`.
 
 The app is an ad-hoc development candidate. Developer ID signing, notarization,
@@ -79,9 +81,11 @@ The outgoing-notice migration is the eighth reviewed automation migration; the
 live ledger must be reconciled before proposing any schema action. Push keys and
 recovery scheduling are separate from private chat capture.
 
-Nothing from this follow-up has been pushed, proposed in a new PR, deployed or
-applied to the live database. Publication and activation remain separate review
-steps.
+The reviewed initial commits were published as draft PR #27 at `52fd5fb` with the
+user's explicit approval. Both GitHub Actions jobs (web regression/build and
+pure macOS collector fixtures) passed in run `41708352223`. That is synthetic CI
+evidence, not a live setup result. No manual deployment, live database change
+or activation was performed. Subsequent changes require review before pushing.
 
 ## Approved opening: runtime follow-up
 
@@ -105,10 +109,55 @@ attempting to stop Alfred's own service even if OS status is unresolved. Blank
 Connect now prompts for a key before clearing the input. Twenty-four additional
 synthetic assertions cover these cases; the complete native suite now has 497.
 The corrected candidate was rebuilt and its signatures, archive round trip and
-copy-only installer contents reverified. The hashes above refer to that corrected
-candidate, which has not been opened or installed; the screenshot came from the
-preserved earlier review copy.
+copy-only installer contents reverified. It was later prepared for the user to
+open manually when computer controls were unavailable. The user then supplied
+a screenshot showing their account connected and the server-readiness gate
+still refusing Messages access. That confirms the setup-window connection path,
+not capture or background delivery. The remote main at that checkpoint remained
+`bb0f978`, whose account response lacks the new setup-readiness fields in PR #27.
+This client/server mismatch does not prove that a particular database table is
+missing. Generated candidates remain local; none was installed by the agent.
 
 No service registration, permission grant, actual Messages read, forwarding-key
 entry or delivery was performed by the agent. Actual automatic operation is
 still unverified; the UI screenshot is evidence of the window opening only.
+
+## PR review follow-up
+
+Claude's four review findings were independently checked and addressed locally:
+
+- A closed money-out notice no longer blocks every later transaction. One
+  grounded, clearly separate expense or income request gets its own confirmation.
+  Potential duplicates of the captured principal, fee and gross amounts remain
+  blocked. Unresolved external matches and ambiguous financial wording require
+  an explicit new topic. Owned source lookups are bounded; no transaction-history
+  scan or shared cache was added.
+- Actual server-open payment questions, owner isolation and the latest displayed
+  confirmation continue to override stale client metadata. Only one grounded
+  action can escape the notice context; multiple model actions, invented details,
+  signs, conflicting currencies and unsupported dates remain held. A non-vacuous
+  regression confirms `GHS5` can reach confirmation while `GHS5 USD` cannot.
+- Recovery selection now agrees with the generator and atomic writer about card
+  holds/settlements. Ten unsupported incoming rows or ten unsupported owners
+  cannot crowd out newer valid announcements. Unsupported source rows remain
+  unchanged and receive no receipt; valid recovery stays idempotent.
+- Start/Pause wording now states that eligible alerts received while paused are
+  caught up on resume. Alerts older than 24 hours may update records or Review
+  without a chat announcement. Messages before the first Start stay excluded.
+  Capture, baseline and service behavior were not changed.
+
+The final focused chat run passed 226 tests across five files. The complete
+application run passed 1,497 tests, TypeScript, production Webpack build and
+lint (zero errors, three existing unused-variable warnings). One earlier full
+run found the old “No historical backfill” wording assertion; it was updated to
+the first-Start/catch-up contract, and the final full run passed. Disposable
+synthetic audit probes were preserved outside the application's lint/typecheck
+tree. The 381 SQL assertions, nine archive tests and 40 activation-rehearsal
+assertions also passed. The verified native inputs and generated ZIP/installer
+hashes still match after reconnection.
+
+No new browser or native UI interaction was performed during this follow-up.
+Conservative phrasing such as “I got paid…” can still require clarification or
+an explicit new topic; Claude accepted that as non-blocking. These review fixes
+were prepared locally for review and have not been pushed or activated at this
+verification checkpoint.

@@ -68,8 +68,13 @@ notification. Live use requires the separate setup and verification below.
   start its own confirmation. Ordinary conversation can continue without
   leaving Alfred stuck on that payment. A later bare “yes” cannot revive an
   older pending action, and a purpose reply cannot duplicate incoming money.
-  A closed outgoing notice also cannot create its captured expense again. Start
-  a new topic explicitly before requesting a separate expense after that notice.
+  After a closed outgoing notice, one clearly separate expense or explicitly
+  grounded income request can start its own confirmation. Captured principal,
+  fee and fee-inclusive amounts remain protected; an unresolved external match
+  or ambiguous amount/currency/date needs “Start a new topic”. The source's
+  actual open-purpose state overrides stale client metadata. Multiple model
+  actions cannot ride along with one grounded request. Conservative income
+  wording such as “I got paid…” may still need that explicit topic boundary.
 - Web Push subscriptions and delivery records remain server-only. Notification
   payloads contain fixed discreet copy and fixed authenticated destinations,
   without amounts, names, balances, raw SMS or event identifiers. The existing
@@ -106,7 +111,14 @@ scope, not an exhaustive payment-provider directory. Selection is code-level;
 macOS file permissions do not restrict individual database rows.
 
 Alfred requires an explicit current-row baseline plus original-date fence. It
-never falls back to historical import if state is missing or corrupt. The
+never falls back to historical import if state is missing or corrupt. The first
+Start excludes earlier message history. Pause stops subsequent automatic sends
+without discarding saved alerts or advancing the scan position; an in-flight
+request may still finish. Starting again catches up on eligible selected-provider
+alerts received while paused and retries pending deliveries from the original
+collection window. Alerts more than 24 hours old may update records or appear in
+Review without a new private chat announcement; announcement opt-in times also
+apply. Some alerts still need review rather than automatic recording. The
 Messages file grants and SQLite WAL/SHM behavior on a target Mac remain unverified;
 fixture tests and a valid code signature are not permission or runtime proof.
 There is no automatic expansion to SHM write access.

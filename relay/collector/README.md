@@ -59,7 +59,12 @@ Pause revokes saved consent independently of the collector's work lock before
 unregistering its own service. It works without network/FDA and retains the
 outbox/baseline. Scheduled runs recheck consent before capture, each send and
 health reporting. An already initiated request may finish; Pause cannot recall
-an accepted alert. Review saved alerts remains private/local-only. The native
+an accepted alert. Starting again catches up on eligible selected-provider alerts
+received while paused and retries saved alerts; it does not start a new collection
+window. Messages from before the first Start remain excluded. Alerts more than
+24 hours old may update records or appear in Review without a new private chat
+announcement. A caught-up alert can still require review rather than create a
+financial entry automatically. Review saved alerts remains private/local-only. The native
 setup window opened in a user-approved local review. Real Messages permissions
 and service operation remain unverified at runtime.
 
@@ -177,6 +182,14 @@ not create a replacement baseline or trigger a historical scan.
 The window starts at explicit initialization. If a later step fails, the same
 baseline remains; a future approved retry may process eligible alerts queued
 since that original initialization rather than silently resetting the window.
+Pause likewise retains that original window and scan position: a later explicit
+Start catches up on eligible alerts received during the pause, not only alerts
+received after resuming. Pending deliveries are retained for retry. This is catch-up
+within the original collection window, not an import of pre-Start message history.
+Private chat announcements require payment and detection times within the past
+24 hours and after the relevant announcement opt-in; a later catch-up can update
+records or Review without a new announcement. Protocol-2 delivery rejects original
+received times more than 45 days old; those alerts are not silently accepted.
 
 ## Outbox, acknowledgements and sensitive data
 

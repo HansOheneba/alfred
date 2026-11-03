@@ -172,7 +172,9 @@ describe("clear inactive defaults and local preview", () => {
     const html = renderToStaticMarkup(createElement(MacAutomationCard));
     expect(html).toContain("cannot verify that it is installed, running or delivering");
     expect(html).toContain("GCB, generic MTN/Telecel and Achieve are not included");
-    expect(html).toContain("No historical backfill");
+    expect(html).toContain("Messages from before your first Start stay out");
+    expect(html).toContain("catches up on eligible alerts received while paused");
+    expect(html).toContain("without a new chat announcement");
     expect(html).toContain("Forwarded alerts are stored in Alfred");
     expect(html).toContain("Unfamiliar alerts may be processed by its AI provider");
   });

@@ -86,7 +86,7 @@ final class CollectorSetupWindow: NSObject, NSWindowDelegate, @unchecked Sendabl
         refresh.target = self; refresh.action = #selector(refreshStatus)
         review.target = self; review.action = #selector(reviewAlerts)
         done.target = self; done.action = #selector(closeWindow)
-        let privacyNote = NSTextField(wrappingLabelWithString: "Opening this app starts no collection. Start is an explicit choice to forward selected provider alerts to your confirmed Alfred account. Existing saved alerts and the original collection window are kept when paused or resumed.")
+        let privacyNote = NSTextField(wrappingLabelWithString: "Opening this app starts no collection. Messages from before your first Start stay out. Pausing stops automatic sending; starting again catches up on eligible alerts received while paused and keeps saved alerts. Older alerts may update your records or appear in Review without a new chat announcement.")
         privacyNote.textColor = .secondaryLabelColor
         let stack = NSStackView(views: [heading, introduction, section("1  Connect your account and choose providers"),
             keyRow, account, providerGrid, allProviders, section("2  Allow and check Messages access"), permission,
@@ -214,7 +214,7 @@ final class CollectorSetupWindow: NSObject, NSWindowDelegate, @unchecked Sendabl
     @objc private func startSync() {
         guard !busy, let state = snapshot, let identity = state.identity else { return }
         let prompt = NSAlert(); prompt.messageText = "Start syncing new payment alerts?"
-        prompt.informativeText = "Send selected provider alert text, sender and received time to \(identity.preferredName) (\(identity.email)) in Alfred. Providers: \(state.providers.joined(separator: ", ")). Personal senders and credential codes are excluded. Unfamiliar alerts may use Alfred’s configured parser. \(state.baselineAt == nil ? "Only alerts arriving from this start onward qualify; older Messages stay out." : "Resume the original collection window; eligible alerts since the first Start can be retried, and older history stays out.") The app will check once a minute while awake. Chat announcements and device nudges are separate choices in Alfred."
+        prompt.informativeText = "Send selected provider alert text, sender and received time to \(identity.preferredName) (\(identity.email)) in Alfred. Providers: \(state.providers.joined(separator: ", ")). Personal senders and credential codes are excluded. Unfamiliar alerts may use Alfred’s configured parser. \(state.baselineAt == nil ? "Only alerts arriving after your first Start qualify; messages from before it stay out." : "Starting again catches up on eligible alerts received while paused and retries saved alerts. Messages from before your first Start stay out.") Alerts more than 24 hours old may update your records or appear in Review without a new chat announcement. The app will check once a minute while awake. Chat announcements and device nudges are separate choices in Alfred."
         prompt.addButton(withTitle: "Cancel"); prompt.addButton(withTitle: "Start automatic checks")
         guard prompt.runModal() == .alertSecondButtonReturn else { return }
         perform("Checking setup and starting automatic checks…", success: "Start choice saved. See the schedule status above; macOS may still need background approval.") {
@@ -222,7 +222,7 @@ final class CollectorSetupWindow: NSObject, NSWindowDelegate, @unchecked Sendabl
         }
     }
     @objc private func pauseSync() {
-        perform("Pausing automatic checks…", success: "Automatic checks paused. Your account, saved alerts and original collection window were kept.") { try self.coordinator.pause() }
+        perform("Pausing automatic checks…", success: "Automatic sending is paused. An alert already being sent may still arrive. Starting again catches up on eligible alerts received while paused and retries saved alerts. Older alerts may update your records or appear in Review without a new chat announcement.") { try self.coordinator.pause() }
     }
     @objc private func refreshStatus() { perform("Checking saved setup…", success: "Saved setup refreshed. No Messages were read or sent.") {} }
     @objc private func reviewAlerts() {
