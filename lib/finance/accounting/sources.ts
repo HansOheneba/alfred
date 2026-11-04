@@ -27,6 +27,7 @@ export function sourceMovements(ownerId:string,transactions:TransactionRecord[],
   for (const message of [...messages].sort((a,b) => priority(a)-priority(b) || a.id.localeCompare(b.id))) {
     if (message.ownerId !== ownerId) continue;
     const transaction = transactionsById.get(message.transactionId ?? "");
+    const feeTransaction = transactionsById.get(message.feeTransactionId ?? "");
     const duplicate = message.transactionId !== null && claimedTransactions.has(message.transactionId);
     if (message.transactionId) claimedTransactions.add(message.transactionId);
     if (message.feeTransactionId) claimedTransactions.add(message.feeTransactionId);
@@ -41,6 +42,7 @@ export function sourceMovements(ownerId:string,transactions:TransactionRecord[],
       description:sourceDescription(message.direction,transaction?.description,message.counterparty),category,sourceCategory:category,
       sourceId:message.id,sourceKind:"bank",sourceFingerprint:hash({message,transaction:transaction ?? null}),
       legacyTransactionId:duplicate ? null : message.transactionId,feeTransactionId:duplicate ? null : message.feeTransactionId,
+      confirmedFeeMinor: !duplicate && feeTransaction?.status === "active" && feeTransaction.type === "expense" && feeTransaction.category === "Fees" && feeTransaction.currency === message.currency && feeTransaction.sourceUpdateId === `bank:${message.id}:fee` && toMinor(feeTransaction.amount) === toMinor(message.fee) ? toMinor(message.fee) : 0,
       legacyClassification:legacyLoan.has(message.status) ? "loan" : transaction && toMinor(transaction.amount)<0 ? "refund" : null,
       reportedBalanceMinor:message.balance === null ? null : toMinor(message.balance),sourceText:message.raw,sourceLabel:message.source,
     });
@@ -74,6 +76,19 @@ export function hydrateAccountingSources(saved:AccountingState,fresh:CashMovemen
   });
   // Removed sources remain visible as stale audit evidence, with no report or snapshot effect.
   for (const old of saved.movements) if (!freshIds.has(old.id)) movements.push({...old,status:"excluded",sourceStatus:"excluded",sourceMissing:true,sourceFingerprint:old.sourceMissing ? old.sourceFingerprint : hash({missing:old.id,previous:old.sourceFingerprint})});
+  for (const transfer of saved.transfers) {
+    if (!transfer.automatic) continue;
+    const outgoing = movements.find((row) => row.id === transfer.outgoing.movementId), incoming = movements.find((row) => row.id === transfer.incoming.movementId);
+    const current = outgoing && incoming && !outgoing.sourceMissing && !incoming.sourceMissing && outgoing.sourceFingerprint === transfer.outgoing.sourceFingerprint && incoming.sourceFingerprint === transfer.incoming.sourceFingerprint && outgoing.accountId && incoming.accountId && outgoing.accountId !== incoming.accountId && outgoing.direction === "out" && incoming.direction === "in" && outgoing.currency === incoming.currency && outgoing.amountMinor === incoming.amountMinor;
+    if (current) continue;
+    for (const [movement, previous] of [[outgoing, transfer.automatic.outgoing], [incoming, transfer.automatic.incoming]] as const) {
+      // A later user classification wins. Only the stale automatic exclusion is invalidated.
+      if (movement?.status === "transfer" && movement.sourceStatus === "transfer" && !movement.sourceMissing) {
+        movement.status = previous.movementStatus === "transfer" ? "review" : previous.movementStatus;
+        movement.automaticTransferStale = true;
+      }
+    }
+  }
   const snapshots=[...saved.snapshots];
   for (const movement of movements) {
     if (!movement.accountId || movement.occurredAt===null || movement.reportedBalanceMinor===undefined || movement.reportedBalanceMinor===null || !freshIds.has(movement.id)) continue;

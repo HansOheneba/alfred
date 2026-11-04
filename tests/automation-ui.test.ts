@@ -65,6 +65,16 @@ describe("explicit browser notification setup", () => {
 });
 
 describe("private owner-scoped notification settings", () => {
+  it("defaults missing preview consent off, accepts explicit boolean consent and never invents an opt-in timestamp", () => {
+    const old = payload();
+    const { paymentPreview, ...oldPreferences } = old.preferences;
+    expect(paymentPreview).toBe(false);
+    const absent = parseNotificationSettings({ ...old, preferences: oldPreferences }, owner);
+    expect(absent.preferences.paymentPreview).toBe(false);
+    expect(parseNotificationSettings({ ...old, preferences: { ...old.preferences, paymentPreview: true } }, owner).preferences.paymentPreview).toBe(true);
+    expect(() => parseNotificationSettings({ ...old, preferences: { ...old.preferences, paymentPreview: "yes" } }, owner)).toThrow();
+    expect(absent.preferences).not.toHaveProperty("paymentPreviewSince");
+  });
   it("rejects a late response belonging to another account", () => {
     expect(() => parseNotificationSettings(payload(), "00000000-0000-4000-8000-000000000999")).toThrow("session changed");
   });
@@ -103,8 +113,8 @@ describe("private owner-scoped notification settings", () => {
     const input={...payload(),push:{configured:true,publicKey,deliveryEnabled:true,schedulesEnabled:true,recoveryReady:false}};
     const html=renderToStaticMarkup(createElement(NotificationsSection,{initial:parseNotificationSettings(input,owner),ownerId:owner}));
     const switches=html.match(/<button[^>]*role="switch"[^>]*>/g)??[];
-    expect(switches).toHaveLength(4);expect(switches.slice(0,2).every(button=>!/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
-    expect(switches.slice(2).every(button=>/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches).toHaveLength(5);expect(switches.slice(0,3).every(button=>!/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches.slice(3).every(button=>/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
     const enable = html.match(/<button[^>]*>Enable notifications<\/button>/)?.[0];
     expect(enable).toBeDefined(); expect(enable).toMatch(/\sdisabled(?:=|\s|>)/);
     expect(html).toContain('aria-labelledby="bill-reminders-title"');
@@ -118,7 +128,9 @@ describe("private owner-scoped notification settings", () => {
     const html=renderToStaticMarkup(createElement(NotificationsSection,{initial:parseNotificationSettings(input,owner),ownerId:owner}));
     expect(html).toContain("Device notifications");
     expect(html).toContain("Enable notifications");
-    expect(html).toContain("Get a private alert for new payments");
+    expect(html).toContain("Tap a payment alert to continue in Chat");
+    expect(html).toContain("Show amounts in notifications");
+    expect(html).toContain("on your lock screen");
     expect(html).not.toMatch(/scheduled|recovery|VAPID|cron|schema/i);
     expect(html).not.toMatch(/notification was shown|guaranteed delivery|notification was delivered/i);
     expect(html).not.toMatch(/wait until 7am|after 7am|quiet-hour payment/i);
@@ -133,7 +145,7 @@ describe("clear inactive defaults and local preview", () => {
   it("renders all choices off and performs no permission, registration or network action during SSR", () => {
     const fetcher = vi.fn(); vi.stubGlobal("fetch", fetcher);
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial: parseNotificationSettings(payload(), owner), ownerId: owner }));
-    expect(html.match(/aria-checked="false"/g)).toHaveLength(4);
+    expect(html.match(/aria-checked="false"/g)).toHaveLength(5);
     expect(html).not.toContain('id="payment-push-title"');
     const enable = html.match(/<button[^>]*>Enable notifications<\/button>/)?.[0];
     expect(enable).toBeDefined(); expect(enable).toMatch(/\sdisabled(?:=|\s|>)/);
@@ -145,6 +157,10 @@ describe("clear inactive defaults and local preview", () => {
     const html = renderToStaticMarkup(createElement(DiscreetNotificationPreview));
     expect(html).toContain("There’s a private update for you");
     expect(html).not.toMatch(/GH₵|GHS|Sample Sender|250/);
+  });
+  it("shows financial example details only in an explicitly enabled preview", () => {
+    const html = renderToStaticMarkup(createElement(DiscreetNotificationPreview, { showAmounts: true }));
+    expect(html).toContain("GH₵1.00");expect(html).toContain("Hubtel wallet → MTN MoMo");
   });
   it("keeps production deployments closed while permitting local and hosted fictional previews", () => {
     expect(localAutomationPreviewAllowed({ NODE_ENV: "production", ALFRED_LOCAL_PREVIEW: "1" })).toBe(false);

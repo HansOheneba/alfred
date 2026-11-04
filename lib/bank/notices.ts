@@ -5,10 +5,12 @@ import { formatAmount, toMinor } from "@/lib/finance/money";
 import { loadNotificationPreferences, type NotificationPreferences } from "@/lib/notifications/store";
 import { query } from "@/lib/supabase/connection";
 import { knownPaymentPurpose,type StoredPaymentPurpose } from "./purpose";
+import type { OwnTransferNotice } from "./own-transfers";
+import { transferMention } from "./transfer-mention";
 
 /** Deterministic private app copy; excluded from push payloads and model history. */
 export type MentionCandidate = Pick<BankMessage,
-  "id"|"ownerId"|"channel"|"direction"|"kind"|"amount"|"currency"|"counterparty"|"occurredAt"|"status"|"transactionId"|"feeTransactionId"|"readBy"> & { createdAt: string;purpose?:StoredPaymentPurpose|null;fee?:string;principalType?:string|null;principalAmount?:string|null;principalCurrency?:string|null };
+  "id"|"ownerId"|"channel"|"direction"|"kind"|"amount"|"currency"|"counterparty"|"occurredAt"|"status"|"transactionId"|"feeTransactionId"|"readBy"> & { createdAt: string;purpose?:StoredPaymentPurpose|null;fee?:string;principalType?:string|null;principalAmount?:string|null;principalCurrency?:string|null;transfer?:OwnTransferNotice|null };
 export type PaymentMention = {clientId:string;body:string;intent:"automation:incoming-payment"|"automation:outgoing-payment";ledgerChanged:boolean;requiresPurpose:boolean};
 export const MENTION_MAX_AGE_MS = 24 * 60 * 60_000;
 
@@ -52,6 +54,9 @@ export function paymentActivityMention(message:MentionCandidate):PaymentMention|
     amount=formatAmount(message.amount,message.currency);
     if(message.fee&&toMinor(message.fee)>0)fee=` The alert also lists ${formatAmount(message.fee,message.currency)} in fees.`;
   }catch{return null;}
+  const ownTransfer=transferMention(message,message.transfer);
+  if(ownTransfer)return {clientId:`bank_notice_${createHash('sha256').update(`${message.ownerId}\0${message.id}`).digest('hex')}`,...ownTransfer,body:ownTransfer.body+fee,
+    intent:message.direction==='in'?'automation:incoming-payment':'automation:outgoing-payment'};
   const name=/https?:\/\/|www\.|[<>\[\]`]/i.test(message.counterparty)?'':message.counterparty.replace(/[\u0000-\u001f\u007f\p{Cf}]/gu,' ').replace(/\s+/g,' ').trim().slice(0,80);
   const party=name?` ${message.direction==='in'?'from':'to'} ${name}`:'';
   const uncertain=message.readBy==='model'||message.kind==='unknown';

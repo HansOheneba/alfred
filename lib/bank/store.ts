@@ -144,6 +144,21 @@ function fromRow(row: MessageRow): BankMessage {
   };
 }
 
+/** Bounded automatic-transfer preflight. Never fetches an owner's full message history per arriving SMS. */
+export async function listBankTransferWindow(settings: SupabaseSettings, ownerId: string, newBankIds: string[]): Promise<BankMessage[]> {
+  if (!newBankIds.length) return [];
+  const rows = await query<MessageRow>(settings, `select ${columns} from public.bank_messages b
+    where b.owner_id=$1::uuid and b.amount>0 and b.kind in ('payment','transfer_own')
+      and b.status in ('needs_label','transfer') and b.transaction_id is null
+      and exists(select 1 from public.bank_messages pivot where pivot.owner_id=$1::uuid and pivot.id=any($2::uuid[])
+        and pivot.amount=b.amount and pivot.currency=b.currency
+        and b.occurred_at between pivot.occurred_at-interval '10 minutes' and pivot.occurred_at+interval '10 minutes'
+        and (b.id=pivot.id or b.direction<>pivot.direction))
+    order by b.occurred_at,b.id limit 401`, [ownerId, newBankIds]);
+  // An unusual burst is ambiguous. Never turn truncation into a unique pairing.
+  return rows.length > 400 ? [] : rows.map(fromRow);
+}
+
 export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
   return {
     async insertMessage(row) {

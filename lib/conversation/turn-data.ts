@@ -61,6 +61,20 @@ export function trackTurnData(deps: StudioDeps) {
           return result;
         },
       } : deps.accountRuleCommands,
+      transferConversations: deps.transferConversations ? {
+        ...deps.transferConversations,
+        inspect: deps.transferConversations.inspect.bind(deps.transferConversations),
+        confirm: async (...args: Parameters<typeof deps.transferConversations.confirm>) => {
+          const result = await deps.transferConversations!.confirm(...args);
+          if (result.changed) invalidate();
+          return result;
+        },
+        reject: async (...args: Parameters<typeof deps.transferConversations.reject>) => {
+          const result = await deps.transferConversations!.reject(...args);
+          if (result.changed) invalidate();
+          return result;
+        },
+      } : deps.transferConversations,
     } satisfies StudioDeps,
   };
 }

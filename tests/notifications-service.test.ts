@@ -5,7 +5,7 @@ import type { NotificationStore,QueuedDelivery } from "@/lib/notifications/store
 import type { SupabaseSettings } from "@/lib/config";
 const now=new Date("2026-11-03T12:00:00Z"),configuration={} as PushConfiguration;
 const delivery:QueuedDelivery={id:"1",ownerId:"owner",subscriptionId:"device",kind:"payment",eventKey:"payment:fixture",resourceId:"fixture",targetDate:null,attempts:1,subscription:{endpoint:"https://fcm.googleapis.com/fcm/send/fixture",keys:{p256dh:"synthetic",auth:"synthetic"},expirationTime:null}};
-function fakeStore(){return {pending:vi.fn(async()=>[delivery]),claim:vi.fn(async()=>delivery),finish:vi.fn(async()=>{}),cancel:vi.fn(async()=>true),unsubscribe:vi.fn(async()=>{})} as unknown as NotificationStore;}
+function fakeStore(){return {pending:vi.fn(async()=>[delivery]),claim:vi.fn(async()=>delivery),finish:vi.fn(async()=>{}),cancel:vi.fn(async()=>true),unsubscribe:vi.fn(async()=>{}),paymentConsent:vi.fn(async()=>({preview:false})),paymentDetails:vi.fn(async()=>({targetId:delivery.resourceId!,details:{amount:"1.00",currency:"GHS",direction:"in"}}))} as unknown as NotificationStore;}
 describe("privacy-safe notification delivery state machine",()=>{
  it("separates accepted, definite rejection, bounded retry and ambiguous sends",()=>{
   expect(pushResult(201,1,now).status).toBe("accepted");expect(pushResult(403,1,now).status).toBe("rejected");
@@ -29,6 +29,39 @@ describe("privacy-safe notification delivery state machine",()=>{
  it("never blindly retries connection uncertainty and deletes gone devices",async()=>{
   const store=fakeStore();await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra",send:async()=>{throw new PushFailure("connection");}});expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"unconfirmed",reason:"connection-unconfirmed"});
   const gone=fakeStore();await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store:gone,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra",send:async()=>new Response(null,{status:410})});expect(gone.unsubscribe).toHaveBeenCalledWith("owner",{id:"device"});
+ });
+ it("uses the latest preview choice without storing financial copy in queued jobs",async()=>{
+  const store=fakeStore(),send=vi.fn(async()=>new Response(null,{status:201}));
+  vi.mocked(store.paymentConsent).mockResolvedValue({preview:true});
+  await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,send,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
+  expect(send).toHaveBeenCalledWith(delivery.subscription,configuration,"payment",delivery.resourceId,{amount:"1.00",currency:"GHS",direction:"in"});
+  const privateStore=fakeStore(),privateSend=vi.fn(async()=>new Response(null,{status:201}));
+  await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store:privateStore,send:privateSend,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
+  expect(privateSend).toHaveBeenCalledWith(delivery.subscription,configuration,"payment",delivery.resourceId);
+ });
+ it("does not send a missing source, and retries preparation failures before transport only",async()=>{
+  const store=fakeStore(),send=vi.fn();vi.mocked(store.paymentDetails).mockResolvedValue(null);
+  const result=await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,send,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
+  expect(result.skipped).toBe(1);expect(send).not.toHaveBeenCalled();
+  expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"canceled",reason:"payment-source-unavailable"});
+  const unavailable=fakeStore();vi.mocked(unavailable.paymentConsent).mockRejectedValue(new Error("private database error"));
+  const deferred=await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store:unavailable,send,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
+  expect(deferred.retrying).toBe(1);expect(send).not.toHaveBeenCalled();
+  expect(unavailable.finish).toHaveBeenCalledWith("owner","1",expect.objectContaining({status:"queued",reason:"payment-preparation-unavailable"}));
+ });
+ it("honours preview opt-out made while source details are loading and canonicalises paired retry tags",async()=>{
+  const store=fakeStore(),send=vi.fn(async()=>new Response(null,{status:201}));
+  let preview=true;
+  vi.mocked(store.paymentConsent).mockImplementation(async()=>({preview}));
+  vi.mocked(store.paymentDetails).mockImplementation(async()=>{preview=false;return {targetId:"canonical-outgoing",details:{amount:"1.00",currency:"GHS",direction:"in",transfer:{fromAccount:"Hubtel wallet",toAccount:"MTN MoMo"}}};});
+  await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,send,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
+  expect(send).toHaveBeenCalledWith(delivery.subscription,configuration,"payment","canonical-outgoing");
+ });
+ it("cancels a claimed payment if final consent or source eligibility changed before transport",async()=>{
+  const store=fakeStore(),send=vi.fn();vi.mocked(store.paymentConsent).mockResolvedValue(null);
+  const result=await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,send,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
+  expect(result.skipped).toBe(1);expect(send).not.toHaveBeenCalled();
+  expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"canceled",reason:"payment-consent-or-source-changed"});
  });
  it("leaves excess device work queued and never claims without completion budget",async()=>{
   const store=fakeStore(),rows=Array.from({length:5},(_,i)=>({...delivery,id:String(i)}));

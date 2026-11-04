@@ -2,7 +2,8 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { GET, POST } from "@/app/api/chat/route";
 
-const mocks = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), open: vi.fn(), profile: vi.fn(), history: vi.fn(), choices: vi.fn(), turn: vi.fn(), allow: vi.fn(), network: vi.fn() }));
+const mocks = vi.hoisted(() => ({ auth: vi.fn(), connection: vi.fn(), open: vi.fn(), profile: vi.fn(), history: vi.fn(), choices: vi.fn(), turn: vi.fn(), allow: vi.fn(), network: vi.fn(), paymentEntry: vi.fn() }));
+vi.mock("@/app/chat/payment-entry", async importOriginal => ({ ...await importOriginal<typeof import("@/app/chat/payment-entry")>(), loadPaymentChatEntry: mocks.paymentEntry }));
 vi.mock("next/server", () => ({ connection: mocks.connection }));
 vi.mock("@/lib/supabase/session", () => ({ getAuthUser: mocks.auth }));
 vi.mock("@/lib/env", () => ({ getStudioSettings: () => ({ supabase: { projectRef: "synthetic-only" } }) }));
@@ -25,6 +26,7 @@ beforeEach(() => {
   mocks.history.mockResolvedValue([message]); mocks.choices.mockResolvedValue([[choice]]);
   mocks.allow.mockResolvedValue(true);
   mocks.turn.mockResolvedValue({ text: "Filed", messages: [message], choices: [[choice]], ledgerChanged: true });
+  mocks.paymentEntry.mockResolvedValue({ state: "unavailable" });
   mocks.network.mockImplementation(() => { throw new Error("Synthetic API tests must never request a network service"); });
   vi.stubGlobal("fetch", mocks.network);
 });
@@ -71,6 +73,35 @@ describe("owner-stamped private Chat history and payment choices", () => {
     expect(response.status).toBe(500);
     expect(response.headers.get("cache-control")).toBe("private, no-store");
     expect(await response.json()).not.toHaveProperty("messages");
+  });
+
+  it("opens the requested owned payment older than recent history and derives its own answer choices", async () => {
+    const bankMessageId = "11111111-1111-4111-8111-111111111111";
+    const target = { ...message, id: "older-source-message", clientId: "older-source-client", body: "Current fictional payment question", createdAt: "2026-11-02T08:00:00Z", paymentNotice: { bankMessageId, requiresPurpose: true } };
+    mocks.paymentEntry.mockResolvedValue({ state: "ready", bankMessageId, message: target });
+    const response = await GET(new Request(`https://fictional.example/api/chat?payment=${bankMessageId}`));
+    const body = await response.json();
+    expect(body.messages.map((row: { id: string }) => row.id)).toEqual([target.id, message.id]);
+    expect(body.paymentEntry).toMatchObject({ state: "ready", bankMessageId });
+    expect(mocks.paymentEntry).toHaveBeenCalledExactlyOnceWith(expect.any(Object), ownerId, bankMessageId);
+    expect(mocks.choices).toHaveBeenCalledExactlyOnceWith(profile, { synthetic: true }, target);
+    expect(mocks.turn).not.toHaveBeenCalled();
+  });
+
+  it("keeps missing and foreign alert links neutral and never substitutes a later payment's answer choices", async () => {
+    const response = await GET(new Request("https://fictional.example/api/chat?payment=11111111-1111-4111-8111-111111111111"));
+    expect(await response.json()).toMatchObject({ ok: true, paymentEntry: { state: "unavailable" } });
+    expect(mocks.choices).toHaveBeenCalledExactlyOnceWith(profile, { synthetic: true }, undefined);
+  });
+
+  it("does not resolve the source before authentication or invitation checks", async () => {
+    for (const status of [401, 403]) {
+      mocks.auth.mockResolvedValue(status === 401 ? null : { id: ownerId });
+      mocks.open.mockResolvedValue("not_invited");
+      const response = await GET(new Request("https://fictional.example/api/chat?payment=11111111-1111-4111-8111-111111111111"));
+      expect(response.status).toBe(status);
+      expect(mocks.paymentEntry).not.toHaveBeenCalled();
+    }
   });
 });
 

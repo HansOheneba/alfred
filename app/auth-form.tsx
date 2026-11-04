@@ -9,6 +9,7 @@ import { Spinner } from "@/app/components/status";
 import { buttonClassName } from "@/app/components/button-styles";
 import type { OtpVerifyType } from "@/lib/auth/issue-otp";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { paymentSignInReturn } from "@/app/chat/payment-link";
 
 type AuthMode = "sign-in" | "sign-up";
 type Method = "code" | "password";
@@ -24,7 +25,7 @@ function isVerifyType(value: string | undefined): value is OtpVerifyType {
   return value === "magiclink" || value === "signup";
 }
 
-export function AuthForm({ mode }: { mode: AuthMode }) {
+export function AuthForm({ mode, returnTo }: { mode: AuthMode; returnTo?: string }) {
   const router = useRouter();
   const signUp = mode === "sign-up";
   const [email, setEmail] = useState("");
@@ -119,7 +120,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
         setError(verifyError.message);
         return;
       }
-      router.push("/");
+      router.push(paymentSignInReturn(returnTo));
       router.refresh();
     } catch {
       setError("Alfred could not reach the sign-in service.");
@@ -139,7 +140,7 @@ export function AuthForm({ mode }: { mode: AuthMode }) {
         setError(signInError.message);
         return;
       }
-      router.push("/");
+      router.push(paymentSignInReturn(returnTo));
       router.refresh();
     } catch {
       setError("Alfred could not reach the sign-in service.");

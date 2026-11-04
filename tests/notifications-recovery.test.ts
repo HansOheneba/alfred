@@ -32,7 +32,7 @@ beforeAll(async()=>{
  create table profiles(id uuid primary key,timezone text);create table bank_messages(id uuid primary key,owner_id uuid,channel text,kind text,status text,amount numeric,created_at timestamptz,occurred_at timestamptz,direction text default 'in',counterparty text default 'Fixture',transaction_id uuid,fee_transaction_id uuid,currency text default 'GHS');
  create table transactions(owner_id uuid,transaction_id uuid,status text,type text,category text,amount numeric,currency text,source_update_id text);
  create table bills(id uuid primary key,owner_id uuid,active boolean,next_date date,cadence text);`);
- for(const file of ["20261103110000_notifications.sql","20261103200000_notification_recovery.sql","20261103233000_payment_activity_notices.sql","20261103235000_fee_notice_readiness.sql"])await db.exec(await readFile(new URL("../supabase/migrations/"+file,import.meta.url),"utf8"));
+ for(const file of ["20261103110000_notifications.sql","20261103200000_notification_recovery.sql","20261103233000_payment_activity_notices.sql","20261103235000_fee_notice_readiness.sql","20261104110000_notification_previews.sql"])await db.exec(await readFile(new URL("../supabase/migrations/"+file,import.meta.url),"utf8"));
  const pair=await webcrypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveBits"]);
  subscription={endpoint:"https://fcm.googleapis.com/fcm/send/synthetic-recovery",keys:{p256dh:Buffer.from(await webcrypto.subtle.exportKey("raw",pair.publicKey)).toString("base64url"),auth:Buffer.alloc(16,9).toString("base64url")}};
 });

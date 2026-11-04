@@ -2,6 +2,7 @@
 export const AUTOMATION_PREVIEW_PATHS = [
   "/preview/automations",
   "/preview/automations/mac-setup",
+  "/preview/automations/transfer",
   "/preview/sms-automation",
 ] as const;
 

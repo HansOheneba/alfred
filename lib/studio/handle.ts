@@ -8,6 +8,9 @@ import { createSupabasePeopleStore, payeeNamesFrom, type PeopleStore } from "@/l
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
 import { bankAccess, type IngestDeps } from "@/lib/bank/ingest";
 import { chooseLabel, currentQuestion } from "@/lib/bank/reply";
+import { parseLabelCallback } from "@/lib/bank/notify";
+import { answerTransferConversation } from "@/lib/bank/transfer-conversation";
+import { createTransferConversationDeps, type TransferConversationDeps } from "@/lib/bank/own-transfers";
 import { chatChoices, type ChatChoice } from "@/lib/accounts/chat-choices";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import { type ActionContext } from "@/lib/finance/action-router";
@@ -61,6 +64,8 @@ export type StudioDeps = {
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
   accountRuleCommands?: AccountRuleBotDeps | null;
+  /** Deterministic, owner-scoped pairing of the two captured bank alerts. */
+  transferConversations?: TransferConversationDeps | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -186,6 +191,11 @@ async function respond(
 ): Promise<TurnReply> {
   if (isAccountRuleCommand(text)) return { kind: "text", text: await handleAccountRuleBotCommand(text, ctx.profile.profileId, String(STUDIO_CHAT_ID), deps.accountRuleCommands) ?? "Use /rule help for the fixed command syntax.", intent: "account-rule:command" };
   if (isScopedAccountRuleIntent(text)) return { kind: "text", text: ACCOUNT_RULE_INTENT_GUIDANCE, intent: "account-rule:guidance" };
+  if (!newTopic && replyToPayment) {
+    const transfer = await answerTransferConversation({ text, ownerId: ctx.profile.profileId, focus: replyToPayment,
+      clientId, messages: deps.messages, service: deps.transferConversations });
+    if (transfer) return transfer;
+  }
   return converse(text, ctx, deps, { channel: "web", excludeClientId: clientId, replyToPayment, newTopic });
 }
 
@@ -257,6 +267,10 @@ async function answerChoice(choice: string, ctx: ActionContext, deps: StudioDeps
   const ingest = ingestFor(deps, ctx.now);
   const bound = await bindPaymentReply(deps, ctx.profile.profileId, clientId, replyToPayment);
   const focus = await paymentNoticeFocus(deps.messages, ctx.profile.profileId, { channel: "web", excludeClientId: clientId, replyToPayment: bound });
+  const transferChoice = parseLabelCallback(choice);
+  if (deps.transferConversations && focus && transferChoice?.code === "t" && transferChoice.messageId === focus.bankMessageId) {
+    return answerText("My own money", ctx, deps, clientId, ledgerChanged, focus);
+  }
   const chosen = !ingest || focus !== undefined && !focus?.requiresPurpose
     ? null
     : await chooseLabel(ingest, ctx.profile, choice, focus ? { learn: false, messageId: focus.bankMessageId, next: false } : {});
@@ -347,5 +361,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     people: createSupabasePeopleStore(settings.supabase),
     notebook: createSupabaseNotebookStore(settings.supabase),
     accountRuleCommands: createAccountRuleBotDeps(settings.supabase),
+    transferConversations: createTransferConversationDeps(settings.supabase),
   };
 }

@@ -25,7 +25,10 @@ of scheduler registration or notification display on a device.
    Do not recreate a migration ledger over an existing schema or rerun completed SQL.
    The fee-notice follow-up requires `20261103235000_fee_notice_readiness.sql`
    before the matching application is enabled; the read-only catalog check
-   includes that helper. Applying it changes notice policy, not financial data.
+   includes that helper. Also apply the reviewed
+   `20261104110000_notification_previews.sql` migration before the matching
+   application: it adds the off-by-default **Show amounts in notifications**
+   preference. Applying these changes notice policy/settings, not financial data.
 2. In the server's secret manager, supply Alfred's own `VAPID_PUBLIC_KEY`,
    `VAPID_PRIVATE_KEY` and `VAPID_SUBJECT`. Preserve an existing matching pair;
    copying Money's keys or rotating a working pair is not needed. Enable

@@ -12,7 +12,7 @@ import { deliverBankAutomation } from "@/lib/bank/automation";
 
 const settings = {} as SupabaseSettings, owner = profile(42), now = new Date("2026-11-03T12:00:00Z");
 function preferences(patch: Partial<NotificationPreferences> = {}): NotificationPreferences {
-  return { paymentMentions: false, outgoingMentions: false, outgoingMentionsSince: null, paymentPush: false, billReminders: true, weeklyOverview: true,
+  return { paymentMentions: false, outgoingMentions: false, outgoingMentionsSince: null, paymentPush: false, paymentPreview: false, billReminders: true, weeklyOverview: true,
     paymentMentionsSince: null, paymentPushSince: null, billRemindersSince: now.toISOString(), weeklyOverviewSince: now.toISOString(), ...patch };
 }
 beforeEach(() => {

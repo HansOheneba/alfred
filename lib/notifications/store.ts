@@ -2,26 +2,29 @@ import { createHash } from "node:crypto";
 import type { SupabaseSettings } from "@/lib/config";
 import { query } from "@/lib/supabase/connection";
 import { validateSubscription, type QueuedPushKind, type PushSubscriptionRecord } from "./push";
+import { paymentPushDetails, type PaymentPushContext } from "./payment-copy";
+import { paymentTargetId } from "./payment-target";
+import { loadOwnTransferNotice } from "@/lib/bank/own-transfers";
 
 export type NotificationPreferences = {
-  paymentMentions: boolean; outgoingMentions: boolean; paymentPush: boolean; billReminders: boolean; weeklyOverview: boolean;
+  paymentMentions: boolean; outgoingMentions: boolean; paymentPush: boolean; paymentPreview: boolean; billReminders: boolean; weeklyOverview: boolean;
   paymentMentionsSince: string | null; outgoingMentionsSince: string | null; paymentPushSince: string | null;
   billRemindersSince: string | null; weeklyOverviewSince: string | null;
 };
-export type PreferencePatch = Partial<Pick<NotificationPreferences,"paymentMentions"|"outgoingMentions"|"paymentPush"|"billReminders"|"weeklyOverview">>;
+export type PreferencePatch = Partial<Pick<NotificationPreferences,"paymentMentions"|"outgoingMentions"|"paymentPush"|"paymentPreview"|"billReminders"|"weeklyOverview">>;
 export const DEFAULT_NOTIFICATION_PREFERENCES: NotificationPreferences = {
-  paymentMentions:false,outgoingMentions:false,paymentPush:false,billReminders:false,weeklyOverview:false,
+  paymentMentions:false,outgoingMentions:false,paymentPush:false,paymentPreview:false,billReminders:false,weeklyOverview:false,
   paymentMentionsSince:null,outgoingMentionsSince:null,paymentPushSince:null,billRemindersSince:null,weeklyOverviewSince:null,
 };
 type PreferenceRow = {
-  payment_mentions:boolean;outgoing_mentions:boolean;payment_push:boolean;bill_reminders:boolean;weekly_overview:boolean;
+  payment_mentions:boolean;outgoing_mentions:boolean;payment_push:boolean;payment_preview:boolean;bill_reminders:boolean;weekly_overview:boolean;
   payment_mentions_since:Date|string|null;outgoing_mentions_since:Date|string|null;payment_push_since:Date|string|null;
   bill_reminders_since:Date|string|null;weekly_overview_since:Date|string|null;
 };
 export type Execute = <T extends Record<string,unknown>>(settings:SupabaseSettings,sql:string,values?:unknown[])=>Promise<T[]>;
 const date = (value: Date|string|null) => value instanceof Date ? value.toISOString() : value;
 const preferences = (row?:PreferenceRow):NotificationPreferences => row ? {
-  paymentMentions:row.payment_mentions,outgoingMentions:row.outgoing_mentions,paymentPush:row.payment_push,billReminders:row.bill_reminders,weeklyOverview:row.weekly_overview,
+  paymentMentions:row.payment_mentions,outgoingMentions:row.outgoing_mentions,paymentPush:row.payment_push,paymentPreview:row.payment_preview===true,billReminders:row.bill_reminders,weeklyOverview:row.weekly_overview,
   paymentMentionsSince:date(row.payment_mentions_since),outgoingMentionsSince:date(row.outgoing_mentions_since),paymentPushSince:date(row.payment_push_since),
   billRemindersSince:date(row.bill_reminders_since),weeklyOverviewSince:date(row.weekly_overview_since),
 } : {...DEFAULT_NOTIFICATION_PREFERENCES};
@@ -31,7 +34,7 @@ export type QueuedDelivery = {
 };
 type DeliveryRow = {id:string;owner_id:string;subscription_id:string;kind:QueuedPushKind;event_key:string;resource_id:string|null;target_date:string|null;attempts:number;subscription:PushSubscriptionRecord};
 const fromDelivery=(r:DeliveryRow):QueuedDelivery=>({id:r.id,ownerId:r.owner_id,subscriptionId:r.subscription_id,kind:r.kind,eventKey:r.event_key,resourceId:r.resource_id,targetDate:r.target_date,attempts:r.attempts,subscription:r.subscription});
-export const PREFERENCE_COLUMNS = `payment_mentions,outgoing_mentions,payment_push,bill_reminders,weekly_overview,payment_mentions_since,outgoing_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since`;
+export const PREFERENCE_COLUMNS = `payment_mentions,outgoing_mentions,payment_push,payment_preview,bill_reminders,weekly_overview,payment_mentions_since,outgoing_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since`;
 
 export function createNotificationStore(settings:SupabaseSettings,execute:Execute=query) {
   return {
@@ -42,14 +45,14 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
     async update(ownerId:string,patch:PreferencePatch):Promise<NotificationPreferences> {
       // Null means preserve. A false->true transition establishes a new opt-in
       // window; changing epochs prevents old queued work reviving after re-enable.
-      const values=[ownerId,patch.paymentMentions??null,patch.paymentPush??null,patch.billReminders??null,patch.weeklyOverview??null,patch.outgoingMentions??null];
+      const values=[ownerId,patch.paymentMentions??null,patch.paymentPush??null,patch.billReminders??null,patch.weeklyOverview??null,patch.outgoingMentions??null,patch.paymentPreview??null];
       const rows=await execute<PreferenceRow>(settings,`insert into public.notification_preferences as p
-        (owner_id,payment_mentions,payment_push,bill_reminders,weekly_overview,outgoing_mentions,payment_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since,outgoing_mentions_since,payment_epoch,bill_epoch,weekly_epoch)
-        values($1::uuid,coalesce($2::boolean,false),coalesce($3::boolean,false),coalesce($4::boolean,false),coalesce($5::boolean,false),coalesce($6::boolean,false),
+        (owner_id,payment_mentions,payment_push,bill_reminders,weekly_overview,outgoing_mentions,payment_preview,payment_mentions_since,payment_push_since,bill_reminders_since,weekly_overview_since,outgoing_mentions_since,payment_epoch,bill_epoch,weekly_epoch)
+        values($1::uuid,coalesce($2::boolean,false),coalesce($3::boolean,false),coalesce($4::boolean,false),coalesce($5::boolean,false),coalesce($6::boolean,false),coalesce($7::boolean,false),
           case when $2 then now() end,case when $3 then now() end,case when $4 then now() end,case when $5 then now() end,case when $6 then now() end,
           case when $3 then 1 else 0 end,case when $4 then 1 else 0 end,case when $5 then 1 else 0 end)
         on conflict(owner_id) do update set
-          payment_mentions=coalesce($2,p.payment_mentions),outgoing_mentions=coalesce($6,p.outgoing_mentions),payment_push=coalesce($3,p.payment_push),
+          payment_mentions=coalesce($2,p.payment_mentions),outgoing_mentions=coalesce($6,p.outgoing_mentions),payment_push=coalesce($3,p.payment_push),payment_preview=coalesce($7,p.payment_preview),
           bill_reminders=coalesce($4,p.bill_reminders),weekly_overview=coalesce($5,p.weekly_overview),
           payment_mentions_since=case when $2=false then null when $2=true and not p.payment_mentions then now() else p.payment_mentions_since end,
           outgoing_mentions_since=case when $6=false then null when $6=true and not p.outgoing_mentions then now() else p.outgoing_mentions_since end,
@@ -61,6 +64,42 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
           weekly_epoch=p.weekly_epoch+case when $5 is not null and $5 is distinct from p.weekly_overview then 1 else 0 end,
           updated_at=now() returning ${PREFERENCE_COLUMNS}`,values);
       return preferences(rows[0]);
+    },
+    async paymentDetails(ownerId:string,messageId:string):Promise<PaymentPushContext|null> {
+      const targetId=paymentTargetId(messageId);if(!targetId)return null;
+      const rows=await execute<{amount:string;currency:string;direction:string;kind:string;status:string}>(settings,`select amount::text,currency,direction,kind,status
+        from public.bank_messages b where owner_id=$1::uuid and id=$2::uuid and b.channel in ('mac','shortcut') and b.amount>0
+          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+          and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')`,[ownerId,messageId]);
+      const details=paymentPushDetails(rows[0]);if(!details)return null;
+      if(rows[0]?.kind==="transfer_own"&&rows[0]?.status==="transfer"){
+        const transfer=await loadOwnTransferNotice(settings,ownerId,messageId);
+        const outgoing=paymentTargetId(transfer?.outgoingBankMessageId);
+        if(transfer?.state==="paired"&&transfer.ownerId===ownerId&&outgoing&&
+          [transfer.outgoingBankMessageId,transfer.incomingBankMessageId].includes(messageId)&&
+          transfer.amount===details.amount&&transfer.currency===details.currency&&transfer.fromAccount.id!==transfer.toAccount.id){
+          details.transfer={fromAccount:transfer.fromAccount.label,toAccount:transfer.toAccount.label};
+          return {targetId:outgoing,details:paymentPushDetails(details)!};
+        }
+      }
+      return {targetId,details};
+    },
+    /** Final read after potentially slow source/pair loading. A claimed job cannot
+     * outlive opt-out, a new activation epoch, device removal or a source change. */
+    async paymentConsent(ownerId:string,deliveryId:string,details:PaymentPushContext["details"],now:Date):Promise<{preview:boolean}|null> {
+      const rows=await execute<{payment_preview:boolean}>(settings,`select p.payment_preview from public.notification_deliveries d
+        join public.notification_preferences p on p.owner_id=d.owner_id
+        join public.push_subscriptions s on s.owner_id=d.owner_id and s.id=d.subscription_id
+        join public.bank_messages b on b.owner_id=d.owner_id and b.id=d.resource_id
+        where d.owner_id=$1::uuid and d.id=$2::uuid and d.kind='payment' and d.status='attempted'
+          and p.payment_push and d.preference_epoch=p.payment_epoch and (s.expires_at is null or s.expires_at>$3::timestamptz)
+          and b.channel in ('mac','shortcut') and b.amount>0 and b.amount=$4::numeric and b.currency=$5 and b.direction=$6
+          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+          and (not $7::boolean or (b.kind='transfer_own' and b.status='transfer'))
+          and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
+          and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')`,
+        [ownerId,deliveryId,now.toISOString(),details.amount,details.currency,details.direction,details.transfer!==undefined]);
+      return rows[0]?{preview:rows[0].payment_preview===true}:null;
     },
     async devices(ownerId:string):Promise<{id:string;createdAt:string}[]> {
       const rows=await execute<{id:string;created_at:Date|string}>(settings,`select id::text,created_at from public.push_subscriptions where owner_id=$1::uuid and (expires_at is null or expires_at>now()) order by created_at`,[ownerId]);
@@ -91,8 +130,9 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
         from public.notification_preferences p join public.bank_messages b on b.owner_id=p.owner_id
         join public.push_subscriptions s on s.owner_id=p.owner_id
         where p.owner_id=$1::uuid and b.id=$2::uuid and p.payment_push and p.payment_push_since is not null
-          and b.channel in ('mac','shortcut') and b.amount>0 and b.kind='payment'
-          and b.status in ('needs_label','recorded') and b.occurred_at>=p.payment_push_since and b.created_at>=p.payment_push_since
+          and b.channel in ('mac','shortcut') and b.amount>0
+          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+          and b.occurred_at>=p.payment_push_since and b.created_at>=p.payment_push_since
           and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
           and b.occurred_at>=s.created_at and (s.expires_at is null or s.expires_at>now())
         on conflict(owner_id,subscription_id,event_key) do nothing returning id::text`,[ownerId,messageId]);
@@ -120,7 +160,8 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
         where d.id=$2::uuid and d.owner_id=$1::uuid and s.id=d.subscription_id and s.owner_id=d.owner_id and p.owner_id=d.owner_id
           and d.status='queued' and d.attempts<3 and d.next_attempt_at<=$3::timestamptz
           and (s.expires_at is null or s.expires_at>$3::timestamptz)
-          and ((d.kind='payment' and p.payment_push and d.preference_epoch=p.payment_epoch and exists(select 1 from public.bank_messages b where b.id=d.resource_id and b.owner_id=d.owner_id and b.kind='payment' and b.status in ('needs_label','recorded') and b.channel in ('mac','shortcut') and b.amount>0
+          and ((d.kind='payment' and p.payment_push and d.preference_epoch=p.payment_epoch and exists(select 1 from public.bank_messages b where b.id=d.resource_id and b.owner_id=d.owner_id
+            and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer')) and b.channel in ('mac','shortcut') and b.amount>0
             and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
             and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')))
             or (d.kind='bill' and p.bill_reminders and d.preference_epoch=p.bill_epoch and exists(select 1 from public.bills b where b.id=d.resource_id and b.owner_id=d.owner_id and b.active))
@@ -141,7 +182,7 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
             join public.bank_messages b on b.owner_id=p.owner_id and b.id=d.resource_id
             where p.owner_id=d.owner_id and p.payment_push and p.payment_epoch=d.preference_epoch
               and (s.expires_at is null or s.expires_at>$3::timestamptz)
-              and b.kind='payment' and b.status in ('needs_label','recorded') and b.channel in ('mac','shortcut') and b.amount>0
+              and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer')) and b.channel in ('mac','shortcut') and b.amount>0
               and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
               and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')
           )) returning d.id::text`,[ownerId,id,now.toISOString()]);

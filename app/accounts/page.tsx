@@ -14,11 +14,15 @@ export default function AccountsPage({ searchParams }: PageProps = {}) {
   return <Suspense fallback={<AppShell current="accounts" name=""><AccountsLoading /></AppShell>}><AccountsScreen searchParams={searchParams} /></Suspense>;
 }
 async function AccountsScreen({ searchParams }: PageProps = {}) {
+  // Older installed workers and already delivered notifications used Accounts.
+  // Preserve their opaque locator, but continue in the authenticated Chat flow.
+  const requestedPayment = paymentTargetRequest((await searchParams)?.payment);
+  if (requestedPayment.id) redirect(`/chat?payment=${requestedPayment.id}`);
   const account = await signedInAccount();
   if (account.kind === "signed-out") redirect("/");
   if (account.kind === "error") return <AppShell current="accounts" name=""><AccountsErrorState message={account.message} /></AppShell>;
   let initialPayload: AccountsPayload | null = null;
-  let paymentRequest = paymentTargetRequest((await searchParams)?.payment);
+  let paymentRequest = requestedPayment;
   let version = "unavailable";
   try {
     const result = await loadAccountingState(account.settings.supabase, account.profile.profileId);

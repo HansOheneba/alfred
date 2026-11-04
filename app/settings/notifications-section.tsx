@@ -7,7 +7,7 @@ import { Spinner } from "@/app/components/status";
 import type { NotificationPreferences } from "@/lib/notifications/store";
 
 export const EMPTY_NOTIFICATION_PREFERENCES: NotificationPreferences = {
-  paymentMentions: false, outgoingMentions: false, paymentPush: false, billReminders: false, weeklyOverview: false,
+  paymentMentions: false, outgoingMentions: false, paymentPush: false, paymentPreview: false, billReminders: false, weeklyOverview: false,
   paymentMentionsSince: null, outgoingMentionsSince: null, paymentPushSince: null, billRemindersSince: null, weeklyOverviewSince: null,
 };
 export type NotificationSettingsData = {
@@ -16,8 +16,9 @@ export type NotificationSettingsData = {
   push: { configured: boolean; publicKey: string | null; deliveryEnabled: boolean; schedulesEnabled: boolean; recoveryReady?: boolean };
   devices: { id: string; createdAt: string }[];
 };
-type PreferenceKey = "paymentMentions" | "outgoingMentions" | "paymentPush" | "billReminders" | "weeklyOverview";
-const preferenceKeys: PreferenceKey[] = ["paymentMentions", "outgoingMentions", "paymentPush", "billReminders", "weeklyOverview"];
+type EpochPreferenceKey = "paymentMentions" | "outgoingMentions" | "paymentPush" | "billReminders" | "weeklyOverview";
+type PreferenceKey = EpochPreferenceKey | "paymentPreview";
+const preferenceKeys: EpochPreferenceKey[] = ["paymentMentions", "outgoingMentions", "paymentPush", "billReminders", "weeklyOverview"];
 const unavailable = "Notification settings could not be loaded. Please try again.";
 
 /** Ignore all extra server fields, including subscription endpoints or private keys. */
@@ -28,9 +29,11 @@ export function parseNotificationSettings(value: unknown, expectedOwner?: string
   if (payload?.ok !== true || typeof payload.ownerId !== "string" || !prefs || !push || !Array.isArray(payload.devices)) throw new Error(unavailable);
   if (expectedOwner && payload.ownerId !== expectedOwner) throw new Error("Your session changed. Reload this page to continue.");
   if (!preferenceKeys.every((key) => typeof prefs[key] === "boolean") || !["configured", "deliveryEnabled", "schedulesEnabled"].every((key) => typeof push[key] === "boolean")) throw new Error(unavailable);
+  if (prefs.paymentPreview !== undefined && typeof prefs.paymentPreview !== "boolean") throw new Error(unavailable);
   if (push.recoveryReady !== undefined && typeof push.recoveryReady !== "boolean") throw new Error(unavailable);
   if (push.publicKey !== null && (typeof push.publicKey !== "string" || !/^[A-Za-z0-9_-]{87}$/.test(push.publicKey))) throw new Error(unavailable);
   const preferences = { ...EMPTY_NOTIFICATION_PREFERENCES };
+  preferences.paymentPreview = prefs.paymentPreview === true;
   for (const key of preferenceKeys) {
     preferences[key] = prefs[key] as boolean;
     const sinceKey = `${key}Since` as keyof Pick<NotificationPreferences, "paymentMentionsSince" | "outgoingMentionsSince" | "paymentPushSince" | "billRemindersSince" | "weeklyOverviewSince">;
@@ -141,6 +144,8 @@ function confirmedPreferences(value: unknown): NotificationPreferences {
   const payload = value as Record<string, unknown> | null;
   if (!payload) throw new Error("The saved choices could not be confirmed. Reload to check them.");
   const preferences = { ...EMPTY_NOTIFICATION_PREFERENCES };
+  if (payload.paymentPreview !== undefined && typeof payload.paymentPreview !== "boolean") throw new Error("The saved choices could not be confirmed. Reload to check them.");
+  preferences.paymentPreview = payload.paymentPreview === true;
   for (const key of preferenceKeys) {
     const sinceKey = `${key}Since` as keyof Pick<NotificationPreferences, "paymentMentionsSince" | "outgoingMentionsSince" | "paymentPushSince" | "billRemindersSince" | "weeklyOverviewSince">;
     const since = payload[sinceKey];
@@ -151,10 +156,10 @@ function confirmedPreferences(value: unknown): NotificationPreferences {
   return preferences;
 }
 
-export function DiscreetNotificationPreview() {
+export function DiscreetNotificationPreview({ showAmounts = false }: { showAmounts?: boolean }) {
   return <div className="rounded-xl border border-line bg-bg p-4" aria-label="Example lock screen notification">
     <p className="text-xs font-medium text-muted">Alfred <span className="float-right font-normal text-faint">now</span></p>
-    <p className="mt-2 text-sm leading-6 text-ink">There’s a private update for you. Open Alfred to review.</p>
+    <p className="mt-2 text-sm leading-6 text-ink">{showAmounts ? "Transfer · GH₵1.00 · Hubtel wallet → MTN MoMo." : "There’s a private update for you. Open Alfred to review."}</p>
   </div>;
 }
 
@@ -342,10 +347,11 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
           {currentLinked ? <><Button onClick={() => void testNotification()} disabled={busy || !deviceReady}>Send test</Button><Button variant="ghost" onClick={() => void removeDevice(currentDevice!)} disabled={busy}>Turn off this device</Button></> : <Button variant="primary" onClick={() => void allowThisBrowser()} disabled={busy || !visibleData || !pushReady || (!preview && (!supported || reconnectNeeded))}>Enable notifications</Button>}
         </div>
       </div>
-      <p className="mt-2 text-xs leading-5 text-muted">Get a private alert for new payments. Payment details stay inside Alfred.</p>
+      <p className="mt-2 text-xs leading-5 text-muted">Tap a payment alert to continue in Chat.</p>
       {reconnectNeeded ? <p className="mt-3 text-xs leading-5 text-muted">An older connection needs to be removed first. Keep this account in a separate browser profile if the connection belongs to someone else.</p> : !supported && !preview ? <p className="mt-3 text-xs leading-5 text-muted">On iPhone or iPad, add Alfred to your Home Screen and open it there first.</p> : !pushReady && !preview && visibleData ? <p className="mt-3 text-xs leading-5 text-muted">Device notifications aren’t ready yet. Your chat choices still work.</p> : null}
       {visibleData && (currentLinked || preferences.paymentPush || visibleData.devices.length > 0) ? <div className="mt-4 border-t border-line"><NotificationChoice id="payment-push" title="Payment notifications" description="Applies to your connected devices." checked={preferences.paymentPush} disabled={busy || (!preferences.paymentPush && !pushReady)} onChange={value => void savePreference("paymentPush", value)} /></div> : null}
-      {currentLinked ? <details className="mt-3 border-t border-line pt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted">Notification preview</summary><DiscreetNotificationPreview /></details> : null}
+      {visibleData ? <div className="mt-4 border-t border-line"><NotificationChoice id="payment-preview" title="Show amounts in notifications" description="Shows amounts and matched account names on your lock screen. Applies to your connected devices." checked={preferences.paymentPreview} disabled={busy} onChange={value => void savePreference("paymentPreview", value)} /></div> : null}
+      {currentLinked ? <details className="mt-3 border-t border-line pt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted">Notification preview</summary><DiscreetNotificationPreview showAmounts={preferences.paymentPreview} /></details> : null}
       {visibleData && visibleData.devices.some(device => device.id !== currentDevice) ? <details className="mt-3 border-t border-line pt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted">Other connected devices</summary><ul className="space-y-2 pb-2">{visibleData.devices.filter(device => device.id !== currentDevice).map((device, index) => <li key={device.id} className="flex items-center justify-between gap-3 text-sm"><span>Device {index + 1}</span><Button size="sm" variant="ghost" onClick={() => void removeDevice(device.id)} disabled={busy}>Remove</Button></li>)}</ul></details> : null}
     </Card>
     <details className="rounded-xl border border-line bg-surface px-5 py-1 sm:px-6">

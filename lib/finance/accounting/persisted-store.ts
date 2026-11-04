@@ -1,5 +1,5 @@
 import type { SupabaseSettings } from "../../config";
-import { createSupabaseBankStore } from "../../bank/store";
+import { createSupabaseBankStore, type BankMessage } from "../../bank/store";
 import { listRawTransactions } from "../../supabase/finance-store";
 import { query } from "../../supabase/connection";
 import { loadAccountRules } from "../../account-rules/store";
@@ -9,7 +9,7 @@ import { actionFingerprint, applyAccountingAction } from "./reducer";
 import { hydrateAccountingSources, sourceMovements } from "./sources";
 import { AccountingError, emptyAccountingState, type AccountingAction, type AccountingState, type CashMovement } from "./types";
 
-export type AccountingResult={state:AccountingState;availability:"ready"|"migration-required";sourceVersion:string|null;rawTransactions:TransactionRecord[]};
+export type AccountingResult={state:AccountingState;availability:"ready"|"migration-required";sourceVersion:string|null;rawTransactions:TransactionRecord[];bankMessages?:BankMessage[]};
 async function sourceVersion(settings:SupabaseSettings,ownerId:string) {
   const rows=await query<{version:string}>(settings,"select public.alfred_accounting_source_version($1::uuid) as version",[ownerId]);
   return rows[0].version;
@@ -37,7 +37,7 @@ export async function loadAccountingState(settings:SupabaseSettings,ownerId:stri
   // are generated normally. Reapply categories after hydration so manual overrides win.
   const bound=applyAccountRules({...base,movements:fresh},rules.state);
   const hydrated=hydrateAccountingSources(base,bound.movements);
-  return {state:applyAccountRules(hydrated,rules.state),availability,sourceVersion:versionAfter,rawTransactions:raw};
+  return {state:applyAccountRules(hydrated,rules.state),availability,sourceVersion:versionAfter,rawTransactions:raw,bankMessages:messages};
 }
 
 export async function saveAccountingAction(settings:SupabaseSettings,ownerId:string,action:AccountingAction):Promise<AccountingResult> {
@@ -58,5 +58,5 @@ export async function saveAccountingAction(settings:SupabaseSettings,ownerId:str
   if (result?.status==="conflict") throw new AccountingError("This request ID was used for a different action.","conflict");
   if (result?.status==="stale" || result?.status==="source_changed") throw new AccountingError("Financial records or source evidence changed. Refresh before saving.","stale");
   if (!result?.state) throw new AccountingError("The database did not confirm the financial change.","conflict");
-  return {state:result.state,availability:"ready",sourceVersion:current.sourceVersion,rawTransactions:current.rawTransactions};
+  return {state:result.state,availability:"ready",sourceVersion:current.sourceVersion,rawTransactions:current.rawTransactions,bankMessages:current.bankMessages};
 }

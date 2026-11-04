@@ -4,8 +4,9 @@ import { query } from "@/lib/supabase/connection";
 import { createNotificationStore, type NotificationStore, type QueuedDelivery } from "./store";
 import { PushFailure, pushConfiguration, sendWebPush, type PushConfiguration, type QueuedPushKind, type PushSubscriptionRecord } from "./push";
 import { loadRecoveryStatus, recoveryConfiguration } from "./recovery";
+import type { PaymentPushDetails } from "./payment-copy";
 
-type Sender=(subscription:PushSubscriptionRecord,configuration:PushConfiguration,kind:QueuedPushKind,targetId?:string)=>Promise<Response>;
+type Sender=(subscription:PushSubscriptionRecord,configuration:PushConfiguration,kind:QueuedPushKind,targetId?:string,details?:PaymentPushDetails)=>Promise<Response>;
 export type DeliveryOptions={now?:Date;store?:NotificationStore;send?:Sender;configuration?:PushConfiguration|null;deliveryEnabled?:boolean;timeZone?:string;maxAttemptsPerRun?:number;timeBudgetMs?:number;clock?:()=>number;recoveryReady?:boolean};
 export type DeliverySummary={configured:boolean;enabled:boolean;recoveryReady:boolean;attempted:number;accepted:number;retrying:number;rejected:number;unconfirmed:number;skipped:number;deferred:number};
 export function localClock(now:Date,timeZone:string):{day:string;hour:number;weekday:string} {
@@ -32,8 +33,9 @@ export async function recoverPaymentNotifications(settings:SupabaseSettings,owne
   const deadline=options.deadlineAt??Date.now()+5_000,limit=Math.max(1,Math.min(options.limit??10,50));
   if(Date.now()>=deadline)return 0;
   const missing=await query<{id:string}>(settings,`select b.id::text from public.bank_messages b join public.notification_preferences p on p.owner_id=b.owner_id
-    where b.owner_id=$1::uuid and p.payment_push and b.channel in ('mac','shortcut') and b.kind='payment' and b.amount>0
-      and b.status in ('needs_label','recorded') and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since
+    where b.owner_id=$1::uuid and p.payment_push and b.channel in ('mac','shortcut') and b.amount>0
+      and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+      and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since
       and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
       and exists(select 1 from public.push_subscriptions s where s.owner_id=b.owner_id and s.created_at<=b.occurred_at
         and (s.expires_at is null or s.expires_at>now()) and not exists(select 1 from public.notification_deliveries d
@@ -79,14 +81,30 @@ export async function drainOwnerNotifications(settings:SupabaseSettings,ownerId:
     }
     result.attempted++;
     let outcome:ReturnType<typeof pushResult>;
+    let transportStarted=false;
     try {
-      const send:Sender=options.send??((subscription,config,kind,targetId)=>sendWebPush(subscription,config,kind,undefined,targetId));
-      const response=await send(claim.subscription,configuration,claim.kind,claim.kind==="payment"?claim.resourceId??undefined:undefined);
+      let details:PaymentPushDetails|undefined;
+      let target=claim.kind==="payment"?claim.resourceId??undefined:undefined;
+      if(claim.kind==="payment"){
+        const source=claim.resourceId?await store.paymentDetails(ownerId,claim.resourceId):null;
+        if(!source){await store.finish(ownerId,claim.id,{status:"canceled",reason:"payment-source-unavailable"});result.skipped++;return;}
+        target=source.targetId;
+        // A queued job never stores financial copy. Recheck after source loading,
+        // so turning previews off also covers work that has already been queued.
+        const consent=await store.paymentConsent(ownerId,claim.id,source.details,now);
+        if(!consent){await store.finish(ownerId,claim.id,{status:"canceled",reason:"payment-consent-or-source-changed"});result.skipped++;return;}
+        if(consent.preview)details=source.details;
+      }
+      const send:Sender=options.send??((subscription,config,kind,targetId,payment)=>sendWebPush(subscription,config,kind,undefined,targetId,payment));
+      transportStarted=true;
+      const response=details?await send(claim.subscription,configuration,claim.kind,target,details):await send(claim.subscription,configuration,claim.kind,target);
       outcome=pushResult(response.status,claim.attempts,now);
       if(response.status===404||response.status===410)await store.unsubscribe(ownerId,{id:claim.subscriptionId});
     } catch(error) {
       // Unclassified errors could have occurred after a send; never retry them.
-      outcome=pushResult(error instanceof PushFailure?error.stage:"connection",claim.attempts,now);
+      outcome=transportStarted?pushResult(error instanceof PushFailure?error.stage:"connection",claim.attempts,now):{
+        ...pushResult("encryption",claim.attempts,now),reason:"payment-preparation-unavailable",
+      };
     }
     await store.finish(ownerId,claim.id,outcome);
     if(outcome.status==="accepted")result.accepted++;
