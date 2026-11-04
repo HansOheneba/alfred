@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 import { recoverIncomingPaymentMentions } from "@/lib/bank/notices";
 
 const settings = {} as SupabaseSettings, ownerId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", now = new Date("2026-11-03T12:00:00Z");
-const prefs: NotificationPreferences = { paymentMentions: true, paymentPush: false, billReminders: false, weeklyOverview: false, outgoingMentions: false, outgoingMentionsSince: null,
+const prefs: NotificationPreferences = { paymentMentions: true, paymentPush: false, paymentPreview: false, billReminders: false, weeklyOverview: false, outgoingMentions: false, outgoingMentionsSince: null,
   paymentMentionsSince: "2026-11-03T11:00:00Z", paymentPushSince: null, billRemindersSince: null, weeklyOverviewSince: null };
 beforeEach(() => { mocks.query.mockResolvedValue([]); mocks.preferences.mockResolvedValue({ ...prefs, paymentMentions: false }); });
 afterEach(() => vi.resetAllMocks());

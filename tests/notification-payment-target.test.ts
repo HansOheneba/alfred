@@ -34,34 +34,21 @@ describe('authenticated payment locator resolution',()=>{
       expect(ownedPaymentMovement({...saved,movements:[{...saved.movements[0],...patch}]},owner,target)).toBeNull();
     }
   });
-  it('opens the existing exact Details panel from the authenticated server page without a financial write',async()=>{
+  it('forwards an older notification to Chat without opening a classification modal or reading finance',async()=>{
     const fetch=vi.spyOn(globalThis,'fetch');
-    const markup=renderToStaticMarkup(await screen(target));
-    expect(markup).toContain('role="dialog"');expect(markup).toContain('aria-label="Movement details"');
-    expect(markup).toContain('Fictional selected payment');
-    expect(markup).not.toContain('That payment isn’t available');
-    expect(mocks.load).toHaveBeenCalledExactlyOnceWith({fixture:true},owner);
+    await expect(screen(target)).rejects.toMatchObject({digest:expect.stringContaining(`/chat?payment=${target}`)});
+    expect(mocks.account).not.toHaveBeenCalled();expect(mocks.load).not.toHaveBeenCalled();
     expect(fetch).not.toHaveBeenCalled();fetch.mockRestore();
   });
-  it('requires sign-in before reading any financial state for a notification target',async()=>{
+  it('preserves the locator for Chat sign-in without reading any financial state',async()=>{
     mocks.account.mockResolvedValue({kind:'signed-out'});
-    await expect(screen(target)).rejects.toThrow('NEXT_REDIRECT');
+    await expect(screen(target)).rejects.toMatchObject({digest:expect.stringContaining(`/chat?payment=${target}`)});
     expect(mocks.load).not.toHaveBeenCalled();
   });
-  it.each(['missing','other-owner','missing-source','malformed','repeated'] as const)('shows the same safe unavailable state for %s',async condition=>{
-    let saved=state();
-    if(condition==='missing')saved.movements=[];
-    if(condition==='other-owner'){
-      // A different signed-in account receives only its own state, never the target owner's row.
-      mocks.account.mockResolvedValue({kind:'ready',profile:{profileId:other,preferredName:'Other fictional',currency:'GHS'},settings:{supabase:{fixture:true}}});
-      saved={...saved,ownerId:other,movements:[]};
-    }
-    if(condition==='missing-source')saved.movements[0].sourceMissing=true;
-    mocks.load.mockResolvedValue({state:saved,availability:'ready'});
-    const markup=renderToStaticMarkup(await screen(condition==='malformed'?'https://evil.invalid':condition==='repeated'?[target,target]:target));
+  it.each(['malformed','repeated'] as const)('rejects %s locators without a modal or arbitrary redirect',async condition=>{
+    const markup=renderToStaticMarkup(await screen(condition==='malformed'?'https://evil.invalid':[target,target]));
     expect(markup).toContain('That payment isn’t available in this account.');
     expect(markup).not.toContain('role="dialog"');
     expect(markup).not.toContain('https://evil.invalid');
-    if(condition==='other-owner')expect(mocks.load).toHaveBeenCalledExactlyOnceWith({fixture:true},other);
   });
 });

@@ -3,6 +3,7 @@ import { readFile } from "node:fs/promises";
 import vm from "node:vm";
 import { describe, expect, it } from "vitest";
 import { authorization, encryptedBody, endpointAllowed, notificationPayload, PushFailure, pushConfiguration, sendWebPush, validateSubscription, type PushConfiguration, type PushSubscriptionRecord } from "@/lib/notifications/push";
+import { paymentPushBody, paymentPushDetails } from "@/lib/notifications/payment-copy";
 
 function fixture() {
   const client = createECDH("prime256v1"); client.generateKeys();
@@ -64,21 +65,41 @@ describe("private Web Push transport", () => {
     const id='11111111-1111-4111-8111-111111111111';
     const payload=notificationPayload('payment',id);
     expect(payload.targetId).toBe(id);
-    expect(payload.notification.navigate).toBe('https://alfred.hansopoku.com/accounts?payment='+id);
+    expect(payload.notification.navigate).toBe('https://alfred.hansopoku.com/chat?payment='+id);
     expect(payload.notification.body).toBe(notificationPayload('payment').notification.body);
     for(const target of ['',id.toUpperCase().replace('11111111','AAAAAAAA'),id+'?next=https://evil.invalid','https://evil.invalid/',`bank:${id}`])expect(()=>notificationPayload('payment',target)).toThrow('Invalid payment target');
     for(const kind of ['test','bill','weekly'] as const)expect(()=>notificationPayload(kind,id)).toThrow('Invalid payment target');
     expect(()=>notificationPayload('constructor' as 'payment')).toThrow('Invalid notification kind');
   });
+  it('formats only structured payment amounts and validated transfer labels', () => {
+    const id='11111111-1111-4111-8111-111111111111';
+    for(const amount of ['0.01','0.50','1.00','10000.15']){
+      const details={amount,currency:'GHS',direction:'in' as const};
+      const payload=notificationPayload('payment',id,details);
+      expect(payload.payment).toEqual(details);
+      expect(payload.notification.body).toBe(paymentPushBody(details));
+      expect(payload.notification.body).toContain(amount==='10000.15'?'GH₵10,000.15':'GH₵'+amount);
+      expect(payload.notification.navigate).toBe('https://alfred.hansopoku.com/chat?payment='+id);
+    }
+    expect(paymentPushBody({amount:'1',currency:'USD',direction:'out'})).toBe('Money out · −USD 1.00. Open Alfred to chat.');
+    expect(paymentPushBody({amount:'1.00',currency:'GHS',direction:'out',transfer:{fromAccount:'Hubtel wallet',toAccount:'MTN MoMo'}})).toBe('Transfer · GH₵1.00 · Hubtel wallet → MTN MoMo.');
+    expect(paymentPushBody({amount:'1.00',currency:'GHS',direction:'in',transfer:{}})).toBe('Transfer · GH₵1.00 between your accounts.');
+    for(const amount of ['0','0.00','-1.00','1e2','1.001','Infinity','NaN','01.00','99999999999.99'])expect(paymentPushDetails({amount,currency:'GHS',direction:'in'})).toBeNull();
+    for(const currency of ['ghs','GH₵','GHS\n'])expect(paymentPushDetails({amount:'1',currency,direction:'in'})).toBeNull();
+    expect(paymentPushDetails({amount:'1',currency:'GHS',direction:'out',transfer:{fromAccount:'x\nPRIVATE',toAccount:'MTN'}})?.transfer).toEqual({});
+    for(const kind of ['test','bill','weekly'] as const)expect(()=>notificationPayload(kind,undefined,{amount:'1',currency:'GHS',direction:'in'})).toThrow('Invalid payment details');
+    expect(()=>notificationPayload('payment',undefined,{amount:'1',currency:'GHS',direction:'in'})).toThrow('Invalid payment details');
+  });
   it('encrypts the validated target and fixed explicit-test copy using fake transport only', async () => {
     const f=fixture(),cfg=vapid(),target='11111111-1111-4111-8111-111111111111';
     let calls=0;
-    const fake=async (_url:unknown,options?:RequestInit)=>{calls++;const payload=decrypt(options!.body as Uint8Array,f);expect(payload).toEqual(notificationPayload(payload.kind,payload.targetId));return new Response(null,{status:201});};
+    const fake=async (_url:unknown,options?:RequestInit)=>{calls++;const payload=decrypt(options!.body as Uint8Array,f);expect(payload).toEqual(notificationPayload(payload.kind,payload.targetId,payload.payment));return new Response(null,{status:201});};
     await sendWebPush(f.subscription,cfg,'payment',fake,target);
     await sendWebPush(f.subscription,cfg,'test',fake);
-    expect(calls).toBe(2);
+    await sendWebPush(f.subscription,cfg,'payment',fake,target,{amount:'0.50',currency:'GHS',direction:'out'});
+    expect(calls).toBe(3);
     await expect(sendWebPush(f.subscription,cfg,'payment',fake,'https://evil.invalid')).rejects.toMatchObject({stage:'encryption'});
-    expect(calls).toBe(2);
+    expect(calls).toBe(3);
   });
   it("uses encrypted fake transport with redirects disabled and no raw private details", async () => {
     const f=fixture(),cfg=vapid();let calls=0;
@@ -128,12 +149,36 @@ describe("notification-only service worker",()=>{
     expect(shown[0].options.tag).toBe(shown[2].options.tag);
     expect(JSON.stringify(shown)).not.toMatch(/PRIVATE_FICTIONAL_DETAILS|evil/);
     for(const item of shown){handlers.get('notificationclick')!({notification:{close:()=>{},data:item.options.data},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;}
-    expect(opened).toEqual([first,second,first].map(id=>'https://alfred.hansopoku.com/accounts?payment='+id));
+    expect(opened).toEqual([first,second,first].map(id=>'https://alfred.hansopoku.com/chat?payment='+id));
     for(const targetId of ['https://evil.invalid',first+'&owner=other',['bad']]){handlers.get('notificationclick')!({notification:{close:()=>{},data:{kind:'payment',targetId}},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;}
     expect(opened.slice(3)).toEqual(Array(3).fill('https://alfred.hansopoku.com/chat'));
     handlers.get('push')!({data:{json:()=>({kind:'test',targetId:first,body:'PRIVATE_FICTIONAL_DETAILS'})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
     expect(shown.at(-1)?.options).toMatchObject({body:'This is a test notification from Alfred.',data:{kind:'test'}});
     handlers.get('notificationclick')!({notification:{close:()=>{},data:shown.at(-1)!.options.data},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
     expect(opened.at(-1)).toBe('https://alfred.hansopoku.com/settings');
+  });
+  it('shows only validated structured financial previews and keeps legacy or malformed payloads discreet',async()=>{
+    const source=await readFile(new URL('../public/alfred-push-sw.js',import.meta.url),'utf8');
+    const handlers=new Map<string,(event:unknown)=>void>();const shown:{body:string;data:unknown}[]=[];let done:Promise<unknown>|undefined;
+    const worker={registration:{showNotification:async(_title:string,options:typeof shown[number])=>{shown.push(options);}},addEventListener:(name:string,fn:(event:unknown)=>void)=>handlers.set(name,fn)};
+    vm.runInNewContext(source,{self:worker,URL,Object});
+    const targetId='11111111-1111-4111-8111-111111111111';
+    for(const payment of [
+      {amount:'0.5',currency:'GHS',direction:'in'},
+      {amount:'12345.67',currency:'USD',direction:'out'},
+      {amount:'1.00',currency:'GHS',direction:'in',transfer:{fromAccount:'Hubtel wallet',toAccount:'MTN MoMo'}},
+      {amount:'1',currency:'GHS',direction:'out',transfer:{fromAccount:'bad\nSMS',toAccount:'MoMo'}},
+    ]){
+      handlers.get('push')!({data:{json:()=>({kind:'payment',targetId,payment,notification:{body:'UNTRUSTED_RAW_SMS',navigate:'https://evil.invalid'}})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
+      expect(shown.at(-1)?.body).toBe(paymentPushBody(payment as Parameters<typeof paymentPushBody>[0]));
+      expect(JSON.stringify(shown.at(-1)?.data)).not.toMatch(/amount|currency|Hubtel/);
+    }
+    for(const payment of [undefined,{amount:'-1',currency:'GHS',direction:'in'},{amount:'1.001',currency:'GHS',direction:'in'},{amount:'1',currency:'GHS\nPRIVATE',direction:'in'}]){
+      handlers.get('push')!({data:{json:()=>({kind:'payment',targetId,payment})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
+      expect(shown.at(-1)?.body).toBe(notificationPayload('payment').notification.body);
+    }
+    handlers.get('push')!({data:{json:()=>({kind:'test',targetId,payment:{amount:'1',currency:'GHS',direction:'in'}})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
+    expect(shown.at(-1)?.body).toBe('This is a test notification from Alfred.');
+    expect(JSON.stringify(shown)).not.toMatch(/UNTRUSTED_RAW_SMS|evil|bad\\nSMS/);
   });
 });

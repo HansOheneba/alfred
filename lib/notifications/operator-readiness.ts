@@ -56,6 +56,12 @@ export async function operatorDatabase(
   try {
     const rows = await execute<{ complete: boolean }>(settings, `select
       to_regclass('public.alfred_schema_migrations') is not null
+      and exists (
+        select 1 from pg_attribute a
+        join pg_class c on c.oid=a.attrelid join pg_namespace n on n.oid=c.relnamespace
+        where n.nspname='public' and c.relname='notification_preferences'
+          and a.attname='payment_preview' and a.atttypid='boolean'::regtype and a.attnotnull and not a.attisdropped
+      )
       and not exists (
         select 1 from unnest($1::text[]) expected(name)
         left join pg_namespace n on n.nspname='public'

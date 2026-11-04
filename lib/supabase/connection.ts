@@ -52,8 +52,12 @@ function full(error: unknown): boolean {
 
 function failedQuery(error: unknown): DatabaseError {
   const detail = error instanceof Error ? error.message : "unknown";
-  if (/password|SUPABASE_DB/i.test(detail)) return new DatabaseError("The ledger query failed.");
-  return new DatabaseError(`The ledger query failed: ${detail}`);
+  const rawCode = error && typeof error === "object" && "code" in error ? String(error.code) : "";
+  // Preserve only PostgreSQL's fixed-format classification, never arbitrary driver fields or values.
+  // Known SQLSTATE classes only: five-letter Node codes such as EPIPE/EPERM are not SQL errors.
+  const sqlState = /^(?:[0-5][0-9A-Z]|F0|HV|P0|XX)[0-9A-Z]{3}$/.test(rawCode) ? rawCode : undefined;
+  if (/password|SUPABASE_DB/i.test(detail)) return new DatabaseError("The ledger query failed.", sqlState);
+  return new DatabaseError(`The ledger query failed: ${detail}`, sqlState);
 }
 
 export async function query<T extends QueryResultRow>(

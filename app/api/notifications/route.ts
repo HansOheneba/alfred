@@ -6,7 +6,7 @@ import { notificationJSON, privateJSON, sameOrigin, displayedOwnerMatches } from
 import { loadRecoveryStatus } from "@/lib/notifications/recovery";
 import { notificationPolicyAvailable } from "@/lib/notifications/schema-ready";
 
-const patch=z.object({paymentMentions:z.boolean().optional(),outgoingMentions:z.boolean().optional(),paymentPush:z.boolean().optional(),billReminders:z.boolean().optional(),weeklyOverview:z.boolean().optional()}).strict().refine(value=>Object.keys(value).length>0,"Choose a notification preference.");
+const patch=z.object({paymentMentions:z.boolean().optional(),outgoingMentions:z.boolean().optional(),paymentPush:z.boolean().optional(),paymentPreview:z.boolean().optional(),billReminders:z.boolean().optional(),weeklyOverview:z.boolean().optional()}).strict().refine(value=>Object.keys(value).length>0,"Choose a notification preference.");
 export async function GET():Promise<Response> {
   try {
     const owner=await requireOwner();if(owner instanceof Response)return owner;

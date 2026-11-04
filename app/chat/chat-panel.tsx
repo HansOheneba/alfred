@@ -7,6 +7,8 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { followUpsFor, type Suggestion } from "@/app/chat/follow-ups";
 import { CHAT_CONTEXT_ERROR, CHAT_SESSION_CHANGED, invalidateAfterChatOutcome, loadOwnedChatContext } from "@/app/chat/context-data";
 import { createChatEmptyStatusRefresh } from "@/app/chat/empty-status";
+import type { PaymentChatEntry } from "@/app/chat/payment-entry";
+import { linkedPaymentReplyContext, paymentLinkId } from "@/app/chat/payment-link";
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
@@ -67,6 +69,9 @@ export function ChatPanel({
   ledger,
   financialsEmpty: initialFinancialsEmpty = false,
   initialQuestion = "",
+  initialPaymentEntry = null,
+  initialPaymentTarget = null,
+  requestData = fetch,
 }: {
   ownerId: string;
   name: string;
@@ -78,6 +83,10 @@ export function ChatPanel({
   /** From the server's cheap empty-account check; the full summary loads only for the context sheet. */
   financialsEmpty?: boolean;
   initialQuestion?: string;
+  initialPaymentEntry?: PaymentChatEntry | null;
+  initialPaymentTarget?: string | null;
+  /** Explicit transport seam for the guarded, fictional local preview. */
+  requestData?: typeof fetch;
 }) {
   const [text, setText] = useState(initialQuestion);
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
@@ -85,6 +94,8 @@ export function ChatPanel({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [newTopic, setNewTopic] = useState(false);
+  const [paymentEntry, setPaymentEntry] = useState(initialPaymentEntry);
+  const [activePaymentTarget, setActivePaymentTarget] = useState(paymentLinkId(initialPaymentTarget));
   const [statsOpen, setStatsOpen] = useState(false);
   const [contextLedger, setContextLedger] = useState<Ledger | null>(ledger ?? null);
   const [contextLoading, setContextLoading] = useState(false);
@@ -93,7 +104,7 @@ export function ChatPanel({
   // Keep the last confirmed answer during rechecks. null means status is unavailable
   // or the owner changed; it never proves a fresh account.
   const [knownEmpty, setKnownEmpty] = useState<boolean | null>(ledger ? getGettingStartedState(ledger).isEmpty : initialFinancialsEmpty);
-  const emptyStatus = useMemo(() => createChatEmptyStatusRefresh(ownerId, setKnownEmpty), [ownerId]);
+  const emptyStatus = useMemo(() => createChatEmptyStatusRefresh(ownerId, setKnownEmpty, requestData), [ownerId, requestData]);
   const contextDirty = useRef(!ledger);
   const contextRequest = useRef<AbortController | null>(null);
   const contextOwner = useRef(ownerId);
@@ -101,7 +112,9 @@ export function ChatPanel({
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const sending = useRef(false);
-  const stickToBottom = useRef(true);
+  const stickToBottom = useRef(!initialPaymentTarget);
+  const selectedPaymentArticle = useRef<HTMLElement>(null);
+  const paymentEntryScrolled = useRef(false);
   const observedAssistant = useRef(initialMessages.filter((message) => message.role === "assistant").at(-1)?.id);
   const refreshQueued = useRef(false);
   const threadRefresh = useRef<ReturnType<typeof createOwnedChatThreadRefresh> | null>(null);
@@ -114,7 +127,7 @@ export function ChatPanel({
     setContextLoading(true);
     setContextError("");
     try {
-      const next = await loadOwnedChatContext(requestedOwner, request.signal);
+      const next = await loadOwnedChatContext(requestedOwner, request.signal, requestData);
       if (request.signal.aborted || contextOwner.current !== requestedOwner) return;
       setContextLedger(next);
       setKnownEmpty(getGettingStartedState(next).isEmpty);
@@ -127,7 +140,7 @@ export function ChatPanel({
         setContextLoading(false);
       }
     }
-  }, [ownerId]);
+  }, [ownerId, requestData]);
 
   const invalidateContext = useCallback(() => {
     contextDirty.current = true;
@@ -163,6 +176,7 @@ export function ChatPanel({
   const publishThread = useCallback((payload: ThreadRefreshPayload) => {
     setMessages((current) => mergeThread(current, payload.messages.map(serverMessage)));
     setChoices(payload.choices);
+    if (payload.paymentEntry !== undefined) setPaymentEntry(payload.paymentEntry);
     const assistant = payload.messages.filter((message) => message.role === "assistant").at(-1);
     if (assistant && assistant.id !== observedAssistant.current) {
       observedAssistant.current = assistant.id;
@@ -195,6 +209,16 @@ export function ChatPanel({
     window.addEventListener(STATS_EVENT, open);
     return () => window.removeEventListener(STATS_EVENT, open);
   }, []);
+
+  useEffect(() => {
+    if (paymentEntry?.state !== "ready" || !activePaymentTarget || paymentEntryScrolled.current) return;
+    const node = selectedPaymentArticle.current;
+    if (!node) return;
+    paymentEntryScrolled.current = true;
+    stickToBottom.current = false;
+    node.scrollIntoView({ block: "center" });
+    node.focus({ preventScroll: true });
+  }, [paymentEntry, activePaymentTarget, messages]);
 
   useEffect(() => {
     const node = threadRef.current;
@@ -243,6 +267,12 @@ export function ChatPanel({
           };
           if (!active || row.owner_id !== ownerId || !row.id || (row.role !== "user" && row.role !== "assistant")) return;
           if (row.channel !== "web" && row.channel !== "telegram") return;
+          // The selected alert is rendered from current owned source evidence,
+          // not a possibly stale notice body racing its push delivery.
+          if (activePaymentTarget && row.role === "assistant" && row.intent?.startsWith("automation:") && row.meta?.paymentNotice?.bankMessageId === activePaymentTarget) {
+            refreshThread();
+            return;
+          }
           const incoming: ThreadMessage = {
             id: row.id,
             role: row.role,
@@ -269,10 +299,10 @@ export function ChatPanel({
       active = false;
       void supabase.removeChannel(channel);
     };
-  }, [ownerId, afterOutcome, refreshThread]);
+  }, [ownerId, afterOutcome, refreshThread, activePaymentTarget]);
 
   useEffect(() => {
-    const refresh = createOwnedChatThreadRefresh(ownerId, publishThread);
+    const refresh = createOwnedChatThreadRefresh(ownerId, publishThread, requestData, activePaymentTarget);
     threadRefresh.current = refresh;
     if (loadInitialChoices) refreshThread();
     function onVisible() { if (document.visibilityState === "visible") refreshThread(); }
@@ -282,7 +312,7 @@ export function ChatPanel({
       if (threadRefresh.current === refresh) threadRefresh.current = null;
       document.removeEventListener("visibilitychange", onVisible);
     };
-  }, [ownerId, publishThread, refreshThread, loadInitialChoices]);
+  }, [ownerId, publishThread, refreshThread, loadInitialChoices, activePaymentTarget, requestData]);
 
   function onThreadScroll() {
     const node = threadRef.current;
@@ -303,7 +333,7 @@ export function ChatPanel({
     const original = turnId ? messages.find((message) => message.role === "user" && message.clientId === turnId) : undefined;
     const startsNewTopic = typeof body.text === "string" && (original ? Boolean(original.newTopic) : newTopic);
     const replyToPayment = (typeof body.text === "string" || typeof body.choice === "string")
-      ? startsNewTopic ? undefined : paymentReplyContext(messages, turnId)
+      ? startsNewTopic ? undefined : linkedPaymentReplyContext(messages, turnId, paymentEntry ? paymentEntry.state === "ready" ? paymentEntry.message.paymentNotice : null : undefined)
       : undefined;
     if (userText && turnId) {
       setMessages((current) => {
@@ -322,7 +352,7 @@ export function ChatPanel({
             createdAt: new Date().toISOString(),
             clientId: turnId,
             status: "sending",
-            paymentNotice: replyToPayment,
+            paymentNotice: replyToPayment ?? undefined,
             newTopic: startsNewTopic || undefined,
           },
         ]);
@@ -332,7 +362,7 @@ export function ChatPanel({
       stickToBottom.current = true;
     }
     try {
-      const response = await fetch("/api/chat", {
+      const response = await requestData("/api/chat", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ ...body, clientId: turnId, ...((typeof body.text === "string" || typeof body.choice === "string") ? { replyToPayment: replyToPayment ?? null } : {}), ...(startsNewTopic ? { newTopic: true } : {}) }),
@@ -353,6 +383,10 @@ export function ChatPanel({
         return;
       }
       setChoices(payload.choices ?? []);
+      // The saved reply now carries the binding; future ordinary conversation
+      // follows that response rather than reselecting the notification forever.
+      setPaymentEntry(null);
+      setActivePaymentTarget(null);
       const incoming = (payload.messages ?? []).map((message, index, all) => {
         const view = serverMessage(message);
         const isLastAssistant = message.role === "assistant" && index === all.length - 1;
@@ -400,7 +434,7 @@ export function ChatPanel({
       const form = new FormData();
       form.set("clientId", turnId);
       form.set("image", await shrinkImage(file));
-      const response = await fetch("/api/chat/image", { method: "POST", body: form });
+      const response = await requestData("/api/chat/image", { method: "POST", body: form });
       const payload = (await response.json().catch(() => ({}))) as {
         ok?: boolean;
         text?: string;
@@ -475,16 +509,18 @@ export function ChatPanel({
       <section className="alfred-production-chat-conversation" data-empty={empty} aria-label="Chat with Alfred">
         <h1 className="sr-only">Chat</h1>
 
+        {paymentEntry?.state === "unavailable" ? <p className="mx-6 mt-3 text-sm text-muted" role="status">I couldn&apos;t open that payment alert. Your conversation is still here.{activePaymentTarget ? <> <button type="button" className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={refreshThread}>Try again</button></> : null}</p> : null}
+
         <div ref={threadRef} tabIndex={0} className="alfred-production-chat-scroll" aria-busy={busy} onScroll={onThreadScroll}>
           {!empty ? (
             <div className="alfred-production-chat-thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
               {messages.map((message, index) => message.role === "assistant" ? (
-                <article key={threadKey(message)} className="alfred-production-chat-assistant">
+                <article key={threadKey(message)} ref={paymentEntry?.state === "ready" && message.clientId === paymentEntry.message.clientId ? selectedPaymentArticle : undefined} tabIndex={paymentEntry?.state === "ready" && message.clientId === paymentEntry.message.clientId ? -1 : undefined} data-payment-selected={paymentEntry?.state === "ready" && message.clientId === paymentEntry.message.clientId || undefined} className="alfred-production-chat-assistant">
                   <div className="alfred-production-chat-messageIdentity"><AlfredMark size="size-6" /><span>Alfred</span>{message.channel === "telegram" ? <TelegramBadge /> : null}</div>
                   <div className="alfred-production-chat-assistantContent">
                     <p>{message.text}</p>
                     {message.chart ? <ReplyChart chart={message.chart} /> : null}
-                    {message === last && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
+                    {(paymentEntry?.state === "ready" ? message.clientId === paymentEntry.message.clientId : message === last) && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
                     {message.actionId && !message.settled ? <div className="alfred-production-chat-decisions"><button type="button" disabled={busy} className={buttonClassName({ variant: "primary", size: "sm", className: "is-primary" })} onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}>Confirm</button><button className={buttonClassName({ variant: "secondary", size: "sm" })} type="button" disabled={busy} onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}>Cancel</button></div> : null}
                   </div>
                 </article>
@@ -519,7 +555,7 @@ export function ChatPanel({
             </Link>
           </div> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
-          {paymentReplyContext(messages) ? <div className="mb-2 flex flex-wrap items-center gap-2 px-2 text-xs text-muted" aria-label="Payment reply context"><span>{newTopic ? "Your next message starts a new topic." : "Replying about this payment alert."}</span>{!newTopic ? <button type="button" disabled={busy} className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={() => { setNewTopic(true); setChoices([]); inputRef.current?.focus(); }}>Start a new topic</button> : null}</div> : null}
+          {paymentEntry?.state === "ready" || paymentReplyContext(messages) ? <div className="mb-2 flex flex-wrap items-center gap-2 px-2 text-xs text-muted" aria-label="Payment reply context"><span>{newTopic ? "Your next message starts a new topic." : "Replying about this payment alert."}</span>{!newTopic ? <button type="button" disabled={busy} className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={() => { setNewTopic(true); setChoices([]); inputRef.current?.focus(); }}>Start a new topic</button> : null}</div> : null}
           {showFollowUps && !choices.length ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
@@ -636,10 +672,10 @@ async function shrinkImage(file: File): Promise<Blob> {
   }
 }
 
-type ThreadRefreshPayload = { messages: ServerMessage[]; choices: ChatChoice[][] };
+type ThreadRefreshPayload = { messages: ServerMessage[]; choices: ChatChoice[][]; paymentEntry?: PaymentChatEntry | null };
 
 /** Component-local fresh reads; late requests and other owners never publish history or answers. */
-export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload: ThreadRefreshPayload) => void, request: typeof fetch = fetch) {
+export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload: ThreadRefreshPayload) => void, request: typeof fetch = fetch, paymentTarget?: string | null) {
   let active = true;
   let sequence = 0;
   let current: AbortController | null = null;
@@ -654,10 +690,12 @@ export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload:
       const version = sequence, controller = new AbortController();
       current = controller;
       try {
-        const response = await request("/api/chat", { cache: "no-store", credentials: "same-origin", signal: controller.signal });
-        const payload = await response.json() as { ok?: boolean; ownerId?: string; messages?: ServerMessage[]; choices?: ChatChoice[][] };
+        const target = paymentLinkId(paymentTarget);
+        const response = await request(target ? `/api/chat?payment=${target}` : "/api/chat", { cache: "no-store", credentials: "same-origin", signal: controller.signal });
+        const payload = await response.json() as { ok?: boolean; ownerId?: string; messages?: ServerMessage[]; choices?: ChatChoice[][]; paymentEntry?: PaymentChatEntry | null };
         if (!active || controller.signal.aborted || sequence !== version || !response.ok || payload.ok !== true || payload.ownerId !== ownerId || !Array.isArray(payload.messages)) return;
-        publish({ messages: payload.messages, choices: payload.choices ?? [] });
+        if (payload.paymentEntry?.state === "ready" && payload.paymentEntry.bankMessageId !== target) return;
+        publish({ messages: payload.messages, choices: payload.choices ?? [], ...(payload.paymentEntry !== undefined ? { paymentEntry: payload.paymentEntry } : {}) });
       } catch { /* Keep the saved thread; a future visibility/realtime event can retry. */ }
       finally { if (current === controller) current = null; }
     },

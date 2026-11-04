@@ -16,15 +16,22 @@ export type CashMovement = {
   appliedRuleId?: string;
   ruleConflict?: boolean;
   sourceMissing?: boolean;
+  /** A stale automatic transfer returns to review while preserving a confirmed standalone fee once. */
+  automaticTransferStale?: boolean;
+  confirmedFeeMinor?: number;
   /** Durable historical import evidence, distinct from SMS ingestion. */
   importProvenance?: { namespace: string; sourceId: string; sourceFingerprint?: string };
 };
 export type BalanceSnapshot = { id: string; accountId: string; balanceMinor: number; occurredAt: string; sourceId: string; sourceMovementId: string | null; sourceFingerprint?: string };
 export type MovementReference = { movementId: string; sourceFingerprint: string };
-export type TransferLink = { id: string; outgoing: MovementReference; incoming: MovementReference; createdAt: string };
+export type TransferLink = { id: string; outgoing: MovementReference; incoming: MovementReference; createdAt: string;
+  automatic?: { version: 1; pairedRevision: number;
+    outgoing: { movementStatus: MovementStatus; bankStatus: "needs_label" | "transfer"; bankKind: "payment" | "transfer_own" };
+    incoming: { movementStatus: MovementStatus; bankStatus: "needs_label" | "transfer"; bankKind: "payment" | "transfer_own" } };
+};
 export type SettlementReturn = MovementReference & { principalMinor: number };
 export type SettlementLink = { id: string; kind: "refund" | "loan"; original: MovementReference; returns: SettlementReturn[]; createdAt: string };
-export type AccountingData = { accounts: FinancialAccount[]; movements: CashMovement[]; snapshots: BalanceSnapshot[]; transfers: TransferLink[]; settlements: SettlementLink[] };
+export type AccountingData = { accounts: FinancialAccount[]; movements: CashMovement[]; snapshots: BalanceSnapshot[]; transfers: TransferLink[]; settlements: SettlementLink[]; transferRejections?: string[] };
 export type AccountingAudit = { id: string; requestId: string; action: string; actionFingerprint: string; at: string; revision: number; before: AccountingData };
 export type AccountingState = AccountingData & { ownerId: string; revision: number; audit: AccountingAudit[] };
 type Command = { expectedRevision: number; requestId: string };

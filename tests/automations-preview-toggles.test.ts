@@ -103,6 +103,15 @@ function view(props: Parameters<typeof NotificationsSection>[0] = { preview: tru
 }
 
 describe("fictional Automations preview controls", () => {
+  it("changes sample lock-screen amount consent separately without enabling a device or calling a server", async () => {
+    const screen = view();
+    expect(screen.choice("payment-preview").props["aria-checked"]).toBe(false);
+    await screen.click(screen.choice("payment-preview"));
+    expect(screen.choice("payment-preview").props["aria-checked"]).toBe(true);
+    expect(screen.checked()).toEqual([false,false,false,false,false]);
+    expect(screen.button("Send test")).toBeUndefined();
+    expect(fetcher).not.toHaveBeenCalled();expect(permission).not.toHaveBeenCalled();expect(register).not.toHaveBeenCalled();
+  });
   it.each(["payment-mentions", "outgoing-mentions", "bill-reminders", "weekly-overview"])("autosaves sample %s independently without a permission or account request", async (id) => {
     const screen = view();
     expect(screen.checked()).toEqual([false, false, false, false, false]);
@@ -181,6 +190,35 @@ function production(options: { linked?: boolean; preferences?: Partial<Notificat
 }
 
 describe("acknowledged notification actions", () => {
+  it("requires acknowledgment for lock-screen amount consent and preserves unrelated choices and cutoffs", async () => {
+    const fixture = production({preferences:{paymentMentions:true,paymentMentionsSince:"2026-11-03T10:00:00Z",paymentPush:true,billReminders:true}});
+    const screen=view({ownerId:fixture.initial.ownerId});await screen.instance.settle();
+    let resolve!:(response:Response)=>void;
+    const pending=new Promise<Response>(done=>{resolve=done;});
+    fetcher.mockImplementation((path,init)=>(init as RequestInit|undefined)?.method==="PATCH"?pending:fixture.responder(path as string,init as RequestInit));
+    (screen.choice("payment-preview").props.onClick as ()=>void)();await screen.instance.settle();
+    expect(screen.choice("payment-preview").props["aria-checked"]).toBe(false);
+    expect(screen.choice("payment-preview").props.disabled).toBe(true);
+    resolve(Response.json({ok:false},{status:503}));await screen.instance.settle();
+    expect(screen.choice("payment-preview").props["aria-checked"]).toBe(false);
+    fetcher.mockImplementation(fixture.responder);
+    await screen.click(screen.choice("payment-preview"));
+    expect(screen.choice("payment-preview").props["aria-checked"]).toBe(true);
+    expect(fixture.saved()).toMatchObject({paymentPreview:true,paymentMentions:true,paymentMentionsSince:"2026-11-03T10:00:00Z",paymentPush:true,billReminders:true});
+    const change=fetcher.mock.calls.filter(([,init])=>(init as RequestInit|undefined)?.method==="PATCH").at(-1)!;
+    expect(JSON.parse((change[1] as RequestInit).body as string)).toEqual({paymentPreview:true});
+    expect((change[1] as RequestInit).headers).toMatchObject({"x-alfred-owner":fixture.initial.ownerId});
+    expect(fixture.ask).not.toHaveBeenCalled();expect(fixture.browserRegister).not.toHaveBeenCalled();
+  });
+  it("discards stale in-flight amount consent after switching accounts",async()=>{
+    const fixture=production();const screen=view({ownerId:fixture.initial.ownerId});await screen.instance.settle();
+    const other="00000000-0000-4000-8000-000000000003";let resolve!:(response:Response)=>void;
+    const pending=new Promise<Response>(done=>{resolve=done;});
+    fetcher.mockImplementation((_path,init)=>(init as RequestInit|undefined)?.method==="PATCH"?pending:Promise.resolve(Response.json({ok:true,...fixture.initial,ownerId:other})));
+    (screen.choice("payment-preview").props.onClick as ()=>void)();screen.instance.render({ownerId:other});await screen.instance.settle();
+    resolve(Response.json({ok:true,preferences:{...fixture.initial.preferences,paymentPreview:true}}));await screen.instance.settle();
+    expect(screen.choice("payment-preview").props["aria-checked"]).toBe(false);expect(text(screen.instance.value)).not.toContain("Saved.");
+  });
   it("does not request permission, register, save or send a test when Settings opens", async () => {
     const fixture = production(); const screen = view({ ownerId: fixture.initial.ownerId }); await screen.instance.settle();
     expect(fixture.ask).not.toHaveBeenCalled(); expect(fixture.browserRegister).not.toHaveBeenCalled();
@@ -228,7 +266,7 @@ describe("acknowledged notification actions", () => {
     await screen.click(screen.button("Enable notifications"));
     expect(fixture.ask).toHaveBeenCalledOnce(); expect(fixture.browserRegister).toHaveBeenCalledOnce();
     expect(screen.checked()).toEqual([true, false, true, true, false]);
-    expect(fixture.saved()).toMatchObject({ paymentMentions: true, outgoingMentions: false, paymentPush: true, billReminders: true, weeklyOverview: false });
+    expect(fixture.saved()).toMatchObject({ paymentMentions: true, outgoingMentions: false, paymentPush: true, paymentPreview: false, billReminders: true, weeklyOverview: false });
     expect(text(screen.instance.value)).toContain("Payment notifications enabled on this device");
     expect(fetcher.mock.calls.some(([path]) => String(path).endsWith("/test"))).toBe(false);
   });
@@ -295,8 +333,8 @@ describe("production boundaries and responsive preview markup", () => {
     const initial = sample(); initial.push = { ...initial.push, ...push };
     const html = renderToStaticMarkup(createElement(NotificationsSection, { initial, ownerId: initial.ownerId }));
     const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
-    expect(switches).toHaveLength(4); expect(switches.slice(0, 2).every((button) => !/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
-    expect(switches.slice(2).every((button) => /\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches).toHaveLength(5); expect(switches.slice(0, 3).every((button) => !/\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
+    expect(switches.slice(3).every((button) => /\sdisabled(?:=|\s|>)/.test(button))).toBe(true);
     expect(html).not.toContain("Reset preview choices"); expect(html).not.toContain("Save preview choices");
     expect(fetcher).not.toHaveBeenCalled();
   });
@@ -308,7 +346,7 @@ describe("production boundaries and responsive preview markup", () => {
   it("renders compact demo controls with touch targets and wrapping mobile/desktop layout", () => {
     const html = renderToStaticMarkup(createElement(AutomationsSettingsPreview));
     const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
-    expect(switches).toHaveLength(4); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
+    expect(switches).toHaveLength(5); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
     expect(html).toContain("flex flex-col gap-6 md:flex-row md:items-start");
     expect(html).toContain("min-w-0 flex-1"); expect(html).toContain("flex flex-wrap items-center justify-between gap-3");
     expect(html).toContain("Demo · sample choices only");

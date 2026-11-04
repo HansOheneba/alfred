@@ -21,6 +21,19 @@ beforeEach(()=>{
  mocks.subscribe.mockResolvedValue("device");mocks.unsubscribe.mockResolvedValue(undefined);mocks.deviceForEndpoint.mockResolvedValue(null);
 });
 describe("notification API authorization and private responses",()=>{
+ it.each([true,false])("changes only explicit preview consent to %s without needing push activation or changing other choices",async(paymentPreview)=>{
+  mocks.configuration.mockReturnValue({ready:false,publicKey:null,config:null});
+  mocks.recovery.mockResolvedValue({ready:false});mocks.policy.mockResolvedValue(false);
+  const response=await PATCH(request("/api/notifications","PATCH",{paymentPreview}));
+  expect(response.status).toBe(200);expect(mocks.update).toHaveBeenCalledWith(ownerId,{paymentPreview});
+  expect(mocks.recovery).not.toHaveBeenCalled();expect(mocks.subscribe).not.toHaveBeenCalled();expect(mocks.dispatch).not.toHaveBeenCalled();
+ });
+ it("rejects malformed or stale-account preview consent",async()=>{
+  expect((await PATCH(request("/api/notifications","PATCH",{paymentPreview:"yes"}))).status).toBe(400);
+  expect((await PATCH(request("/api/notifications","PATCH",{paymentPreview:true,paymentPreviewSince:"2000-01-01"}))).status).toBe(400);
+  const stale=request("/api/notifications","PATCH",{paymentPreview:true});stale.headers.set("x-alfred-owner","00000000-0000-4000-8000-000000000002");
+  expect((await PATCH(stale)).status).toBe(409);expect(mocks.update).not.toHaveBeenCalled();
+ });
  it("keeps device opt-in unavailable when the new policy migration is missing despite an old healthy heartbeat",async()=>{
   mocks.policy.mockResolvedValue(false);
   const payload=await (await GET()).json();

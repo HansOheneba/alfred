@@ -105,6 +105,14 @@ describe("private read-only operator checks", () => {
     expect(result).toEqual({ database: "unavailable", recovery: "not-checked" });
     expect(JSON.stringify(result)).not.toContain("synthetic-private");
   });
+  it("requires the explicit preview preference migration before reporting schema readiness", async () => {
+    await db.exec("alter table public.notification_preferences drop column payment_preview");
+    try {
+      expect(await operatorDatabase(settings, { env: environment, execute })).toEqual({ database: "incomplete", recovery: "not-checked" });
+    } finally {
+      await db.exec(await readFile(new URL("../supabase/migrations/20261104110000_notification_previews.sql", import.meta.url), "utf8"));
+    }
+  });
 
   it("does not mistake a stale or configuration-changed check-in for live recovery", async () => {
     const now = new Date();

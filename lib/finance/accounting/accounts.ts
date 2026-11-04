@@ -117,6 +117,11 @@ export function validateAccountData(state: AccountingState): void {
     currency(movement.currency);
     integer(movement.amountMinor, "Movement principal", 0);
     integer(movement.feeMinor, "Movement fee", 0);
+    if (movement.confirmedFeeMinor !== undefined) {
+      integer(movement.confirmedFeeMinor, "Confirmed source fee", 0);
+      if (movement.confirmedFeeMinor > movement.feeMinor) throw new AccountingError("Confirmed fee exceeds its source fee.");
+    }
+    if (movement.automaticTransferStale !== undefined && typeof movement.automaticTransferStale !== "boolean") throw new AccountingError("Automatic transfer state is invalid.");
     integer(movement.taxMinor ?? 0, "Movement tax", 0);
     integer(movement.amountMinor + movement.feeMinor + (movement.taxMinor ?? 0), "Movement gross amount", 1);
     if (!STATUSES.has(movement.status) || !["in", "out", "internal"].includes(movement.direction) || !SOURCE_KINDS.has(movement.sourceKind)) throw new AccountingError("Movement classification is invalid.");
@@ -131,12 +136,23 @@ export function validateAccountData(state: AccountingState): void {
   const linked = new Set<string>();
   for (const transfer of state.transfers) {
     instant(transfer.createdAt, "Transfer creation time");
+    if (transfer.automatic) {
+      if (transfer.automatic.version !== 1) throw new AccountingError("Automatic transfer policy version is invalid.");
+      integer(transfer.automatic.pairedRevision, "Automatic transfer revision", 1);
+      for (const previous of [transfer.automatic.outgoing, transfer.automatic.incoming]) {
+        if (!previous || !STATUSES.has(previous.movementStatus) || !["needs_label", "transfer"].includes(previous.bankStatus) || !["payment", "transfer_own"].includes(previous.bankKind)) throw new AccountingError("Automatic transfer provenance is invalid.");
+      }
+    }
     for (const reference of [transfer.outgoing, transfer.incoming]) {
       requireText(reference.sourceFingerprint, "Transfer source fingerprint");
       if (!state.movements.some((row) => row.id === reference.movementId)) throw new AccountingError("Transfer movement was not found.", "not_found");
       if (linked.has(reference.movementId)) throw new AccountingError("A movement cannot belong to multiple transfer links.", "conflict");
       linked.add(reference.movementId);
     }
+  }
+  if (state.transferRejections !== undefined) {
+    if (!Array.isArray(state.transferRejections) || state.transferRejections.length > 50_000 || new Set(state.transferRejections).size !== state.transferRejections.length) throw new AccountingError("Transfer corrections are invalid.");
+    for (const id of state.transferRejections) requireText(id, "Rejected transfer ID", 200);
   }
   for (const settlement of state.settlements) {
     for (const reference of [settlement.original, ...settlement.returns]) {

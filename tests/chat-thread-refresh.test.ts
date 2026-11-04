@@ -38,4 +38,15 @@ describe("fresh chat answers and history", () => {
     const refresh = createOwnedChatThreadRefresh(ownerId, publish, request);
     await refresh.refresh(); expect(publish).not.toHaveBeenCalled();
   });
+  it("refreshes the exact notification target and rejects a mismatched source response", async () => {
+    const target = "11111111-1111-4111-8111-111111111111", publish = vi.fn();
+    const request = vi.fn(async () => Response.json({ ...body("Current source question"), paymentEntry: { state: "unavailable" } }));
+    const refresh = createOwnedChatThreadRefresh(ownerId, publish, request, target);
+    await refresh.refresh();
+    expect(request).toHaveBeenCalledExactlyOnceWith(`/api/chat?payment=${target}`, expect.objectContaining({ cache: "no-store", credentials: "same-origin" }));
+    expect(publish.mock.calls[0][0].paymentEntry).toEqual({ state: "unavailable" });
+    request.mockResolvedValueOnce(Response.json({ ...body("Wrong source"), paymentEntry: { state: "ready", bankMessageId: "22222222-2222-4222-8222-222222222222" } }));
+    await refresh.refresh();
+    expect(publish).toHaveBeenCalledTimes(1);
+  });
 });

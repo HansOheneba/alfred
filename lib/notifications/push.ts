@@ -1,5 +1,6 @@
 import { DASHBOARD_URL } from "@/lib/config";
 import { paymentTargetId } from './payment-target';
+import { paymentPushBody, paymentPushDetails, type PaymentPushDetails } from './payment-copy';
 
 /** Subscription secrets are server-only; never put endpoints or keys in logs. */
 export type PushSubscriptionRecord = {
@@ -88,18 +89,21 @@ const copy: Record<PushKind, { title: string; body: string; path: string }> = {
   weekly: { title: "Alfred", body: "Your private overview is ready. Open Alfred to review.", path: "/dashboard" },
   test: { title: "Alfred", body: "This is a test notification from Alfred.", path: "/settings" },
 };
-/** Fixed private copy; the optional opaque locator is resolved under the signed-in owner. */
-export function notificationPayload(kind: PushKind, targetId?: string) {
+/** Payment numbers are explicitly requested; the locator still resolves under the signed-in owner. */
+export function notificationPayload(kind: PushKind, targetId?: string, details?: PaymentPushDetails) {
   if (!Object.hasOwn(copy, kind)) throw new Error("Invalid notification kind.");
   const selected = copy[kind];
   const target = targetId === undefined ? null : paymentTargetId(targetId);
   if (targetId !== undefined && (kind !== 'payment' || !target)) throw new Error('Invalid payment target.');
-  const path = target ? `/accounts?payment=${target}` : selected.path;
+  const payment = details === undefined ? null : paymentPushDetails(details);
+  if (details !== undefined && (kind !== 'payment' || !target || !payment)) throw new Error('Invalid payment details.');
+  const path = target ? `/chat?payment=${target}` : selected.path;
   return {
     web_push: 8030,
     kind,
     ...(target ? { targetId: target } : {}),
-    notification: { title: selected.title, body: selected.body, navigate: DASHBOARD_URL + path, silent: false },
+    ...(payment ? { payment } : {}),
+    notification: { title: selected.title, body: payment ? paymentPushBody(payment) : selected.body, navigate: DASHBOARD_URL + path, silent: false },
   };
 }
 async function hkdf(input: Bytes, salt: Bytes, info: Bytes, length: number): Promise<Bytes> {
@@ -136,11 +140,11 @@ export async function authorization(endpoint: string, config: PushConfiguration,
 }
 export type PushFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export async function sendWebPush(
-  subscription: PushSubscriptionRecord, config: PushConfiguration, kind: PushKind, fetcher: PushFetcher = fetch, targetId?: string,
+  subscription: PushSubscriptionRecord, config: PushConfiguration, kind: PushKind, fetcher: PushFetcher = fetch, targetId?: string, details?: PaymentPushDetails,
 ): Promise<Response> {
   let auth: string, body: Bytes;
   try { auth = await authorization(subscription.endpoint, config); } catch { throw new PushFailure("authorization"); }
-  try { body = await encryptedBody(subscription, notificationPayload(kind, targetId)); } catch { throw new PushFailure("encryption"); }
+  try { body = await encryptedBody(subscription, notificationPayload(kind, targetId, details)); } catch { throw new PushFailure("encryption"); }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {

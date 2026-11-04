@@ -4,8 +4,8 @@ export const CHAT_CONTEXT_ERROR = "Your financial summary could not be loaded. Y
 export const CHAT_SESSION_CHANGED = "Your session changed. Reload this page to continue.";
 
 /** Verify the response belongs to the owner who opened this conversation. */
-export async function loadOwnedChatContext(ownerId: string, signal: AbortSignal): Promise<Ledger> {
-  const response = await fetch("/api/chat/context", { cache: "no-store", credentials: "same-origin", signal });
+export async function loadOwnedChatContext(ownerId: string, signal: AbortSignal, request: typeof fetch = fetch): Promise<Ledger> {
+  const response = await request("/api/chat/context", { cache: "no-store", credentials: "same-origin", signal });
   const payload = await response.json() as { ok?: boolean; ownerId?: string; ledger?: Ledger };
   if (!response.ok || payload.ok !== true || !payload.ledger) throw new Error(CHAT_CONTEXT_ERROR);
   if (payload.ownerId !== ownerId) throw new Error(CHAT_SESSION_CHANGED);

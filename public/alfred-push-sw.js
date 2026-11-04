@@ -11,19 +11,40 @@ function paymentTarget(value) {
 }
 function noticePath(kind, targetId) {
   const target = kind === 'payment' ? paymentTarget(targetId) : null;
-  return target ? '/accounts?payment=' + target : Object.hasOwn(notices, kind) ? notices[kind].path : '/chat';
+  return target ? '/chat?payment=' + target : Object.hasOwn(notices, kind) ? notices[kind].path : '/chat';
 }
+function paymentBody(value) {
+  if (!value || typeof value !== 'object' || Array.isArray(value) ||
+      typeof value.amount !== 'string' || !/^(?:0|[1-9]\d{0,9})(?:\.\d{1,2})?$/.test(value.amount) || !/[1-9]/.test(value.amount) ||
+      typeof value.currency !== 'string' || !/^[A-Z]{3}$/.test(value.currency) || (value.direction !== 'in' && value.direction !== 'out')) return null;
+  const [whole, fraction = ''] = value.amount.split('.');
+  const amount = (value.currency === 'GHS' ? 'GH₵' : value.currency + ' ') + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + fraction.padEnd(2, '0');
+  if (value.transfer !== undefined) {
+    if (!value.transfer || typeof value.transfer !== 'object' || Array.isArray(value.transfer)) return null;
+    const label = input => typeof input === 'string' && input.trim().length > 0 && input.trim().length <= 60 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(input.trim()) ? input.trim() : null;
+    const from = label(value.transfer.fromAccount), to = label(value.transfer.toAccount);
+    return from && to ? 'Transfer · ' + amount + ' · ' + from + ' → ' + to + '.' : 'Transfer · ' + amount + ' between your accounts.';
+  }
+  return (value.direction === 'in' ? 'Money in · +' : 'Money out · −') + amount + '. Open Alfred to chat.';
+}
+self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
+self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 self.addEventListener('push', event => {
-  // Ignore caller-provided financial text and links, including nested notification fields.
-  let kind = 'payment', targetId = null;
+  // Only the structured, server-selected preview is eligible for financial copy.
+  // Arbitrary nested notification text and links remain ignored. Old payloads
+  // without a structured preview keep the discreet copy.
+  let kind = 'payment', targetId = null, payment = null;
   try {
     const supplied = event.data.json();
     if (typeof supplied.kind === 'string' && Object.hasOwn(notices, supplied.kind)) kind = supplied.kind;
-    if (supplied.kind === 'payment') targetId = paymentTarget(supplied.targetId);
+    if (supplied.kind === 'payment') {
+      targetId = paymentTarget(supplied.targetId);
+      if (targetId) payment = paymentBody(supplied.payment);
+    }
   } catch {}
   const notice = notices[kind];
   event.waitUntil(self.registration.showNotification('Alfred', {
-    body: notice.body, data: { kind, ...(targetId ? { targetId } : {}) },
+    body: payment || notice.body, data: { kind, ...(targetId ? { targetId } : {}) },
     // A retry replaces this payment's notice, without replacing a different payment.
     ...(targetId ? { tag: 'alfred-payment-' + targetId } : kind !== 'payment' ? { tag: 'alfred-' + kind } : {}),
   }));

@@ -13,6 +13,7 @@ import { DbRateLimiter } from "@/lib/security/db-rate-limit";
 import { createStudioDeps, handleProfileTurn, openChoices } from "@/lib/studio/handle";
 import { getAuthUser } from "@/lib/supabase/session";
 import { userFacingError } from "@/lib/telegram/messages";
+import { includePaymentChatEntry, loadPaymentChatEntry } from "@/app/chat/payment-entry";
 
 export const maxDuration = 60;
 
@@ -31,7 +32,7 @@ function present(message: ChatMessageRecord) {
   };
 }
 
-export async function GET(): Promise<Response> {
+export async function GET(request?: Request): Promise<Response> {
   await connection();
   const user = await getAuthUser();
   const headers = { "cache-control": "private, no-store" };
@@ -41,13 +42,19 @@ export async function GET(): Promise<Response> {
     if ((await openAccount(settings.supabase, user)) === "not_invited") {
       return Response.json({ ok: false, text: NOT_INVITED }, { status: 403, headers });
     }
-    const history = await createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80);
+    const requestedPayment = request ? new URL(request.url).searchParams.getAll("payment") : [];
+    const [recent, paymentEntry] = await Promise.all([
+      createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80),
+      requestedPayment.length ? loadPaymentChatEntry(settings.supabase, user.id, requestedPayment.length === 1 ? requestedPayment[0] : requestedPayment)
+        .catch((error) => { logError("web_chat_payment_entry", error); return { state: "unavailable" } as const; }) : Promise.resolve(null),
+    ]);
+    const history = includePaymentChatEntry(recent, paymentEntry);
     const profile = await createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id);
     // Buttons are a convenience: the history still loads if they can't be worked out.
     const choices = profile
-      ? await openChoices(profile, createStudioDeps(settings), history.at(-1)).catch((error) => (logError("web_chat_choices", error), []))
+      ? await openChoices(profile, createStudioDeps(settings), paymentEntry?.state === "ready" ? paymentEntry.message : requestedPayment.length ? undefined : history.at(-1)).catch((error) => (logError("web_chat_choices", error), []))
       : [];
-    return Response.json({ ok: true, ownerId: user.id, messages: history.map(present), choices }, { headers });
+    return Response.json({ ok: true, ownerId: user.id, messages: history.map(present), choices, ...(requestedPayment.length ? { paymentEntry } : {}) }, { headers });
   } catch (error) {
     logError("web_chat_history", error);
     return Response.json({ ok: false, text: userFacingError(error) }, { status: 500, headers });

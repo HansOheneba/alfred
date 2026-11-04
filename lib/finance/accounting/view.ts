@@ -28,7 +28,10 @@ export function accountingReportRows(state: AccountingState): LedgerRow[] {
     if((sourceCounts.get(JSON.stringify([movement.sourceKind,movement.sourceId]))??0)>1) continue;
     // Changed source evidence invalidates both transfer legs; no partial old exclusion survives.
     const status=movement.status==="transfer" && movement.sourceStatus!=="transfer" && state.transfers.some((link) => link.outgoing.movementId===movement.id || link.incoming.movementId===movement.id) && !currentTransfers.has(movement.id) ? movement.sourceStatus ?? "review" : movement.status;
-    if (status !== "confirmed" && status !== "transfer" && status !== "hold") continue;
+    if (status !== "confirmed" && status !== "transfer" && status !== "hold") {
+      if (movement.sourceKind === "bank" && movement.feeTransactionId && !movement.sourceMissing && Number.isSafeInteger(movement.confirmedFeeMinor) && (movement.confirmedFeeMinor ?? 0) > 0 && movement.confirmedFeeMinor! <= movement.feeMinor) add(movement,`accounting-fee:${movement.id}`,"expense",movement.confirmedFeeMinor!,"Fees",`${movement.description} · fee`);
+      continue;
+    }
     const effect = effects.get(movement.id);
     if (status !== "transfer" && movement.direction !== "internal" && movement.legacyClassification !== "loan") {
       if (movement.legacyClassification === "refund") add(movement,`accounting:${movement.id}`,"expense",-movement.amountMinor,movement.category,movement.description);
@@ -61,7 +64,8 @@ export function projectAccountingTransactions(raw:TransactionRecord[],state:Acco
   ));
   const managedIds = new Set(managed.map((movement) => movement.id));
   const managedById = new Map(managed.map((movement) => [movement.id,movement]));
-  const replacedIds = new Set(managed.flatMap((movement) => [movement.legacyTransactionId,movement.feeTransactionId]).filter((id):id is string => id !== null));
+  // Missing bank evidence cannot claim an active transaction that now appears as its own fresh source.
+  const replacedIds = new Set(managed.flatMap((movement) => movement.sourceMissing ? [] : [movement.legacyTransactionId,movement.feeTransactionId]).filter((id):id is string => id !== null));
   const derived = accountingReportRows(state).filter((row) => managedIds.has(row.id.replace(/^accounting(?:-fee|-tax)?:/,""))).map((row):TransactionRecord => ({
     transactionId:row.id,createdAt:managedById.get(row.id.replace(/^accounting(?:-fee|-tax)?:/,""))?.occurredAt ?? `${row.date}T00:00:00.000Z`,transactionDate:row.date,userId:state.ownerId,type:row.type,amount:row.amount,currency:row.currency,category:row.category,description:row.description,paymentMethod:row.paymentMethod,notes:"Accounting projection; edit source/link in Accounts.",status:"active",updatedAt:new Date(0).toISOString(),sourceUpdateId:row.id,rowNumber:0,
   }));

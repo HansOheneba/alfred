@@ -1,9 +1,11 @@
-import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
+import { beforeAll, beforeEach, afterAll, describe, expect, it, vi } from "vitest";
 import { readFile } from "node:fs/promises";
 import { webcrypto } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { createNotificationStore, type Execute } from "@/lib/notifications/store";
 import type { SupabaseSettings } from "@/lib/config";
+const transferLookup=vi.hoisted(()=>vi.fn());
+vi.mock("@/lib/bank/own-transfers",()=>({loadOwnTransferNotice:transferLookup}));
 const a="00000000-0000-4000-8000-000000000001",b="00000000-0000-4000-8000-000000000002";
 const message="00000000-0000-4000-8000-000000000010";
 const settings={} as SupabaseSettings;
@@ -32,13 +34,14 @@ describe("owner-scoped durable notification storage",()=>{
     await db.exec(await readFile(new URL("../supabase/migrations/20261103200000_notification_recovery.sql",import.meta.url),"utf8"));
     await db.exec(await readFile(new URL("../supabase/migrations/20261103233000_payment_activity_notices.sql",import.meta.url),"utf8"));
     await db.exec(await readFile(new URL("../supabase/migrations/20261103235000_fee_notice_readiness.sql",import.meta.url),"utf8"));
+    await db.exec(await readFile(new URL("../supabase/migrations/20261104110000_notification_previews.sql",import.meta.url),"utf8"));
     const pair=await webcrypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveBits"]);
     subscription={endpoint:"https://fcm.googleapis.com/fcm/send/synthetic-fixture",keys:{p256dh:Buffer.from(await webcrypto.subtle.exportKey("raw",pair.publicKey)).toString("base64url"),auth:Buffer.alloc(16,7).toString("base64url")}};
   });
-  beforeEach(async()=>{await db.exec("truncate notification_deliveries,push_subscriptions,notification_preferences,bank_messages,bills cascade");});
+  beforeEach(async()=>{transferLookup.mockReset();transferLookup.mockResolvedValue(null);await db.exec("truncate notification_deliveries,push_subscriptions,notification_preferences,bank_messages,bills,transactions cascade");});
   afterAll(async()=>{await db.close();});
   it("defaults off, creates fresh opt-in cutoffs and preserves omitted preferences",async()=>{
-    expect(await store().preferences(a)).toMatchObject({paymentMentions:false,outgoingMentions:false,outgoingMentionsSince:null,paymentPush:false,billReminders:false,weeklyOverview:false});
+    expect(await store().preferences(a)).toMatchObject({paymentMentions:false,outgoingMentions:false,outgoingMentionsSince:null,paymentPush:false,paymentPreview:false,billReminders:false,weeklyOverview:false});
     const first=await store().update(a,{paymentMentions:true,paymentPush:true});
     expect(first.paymentMentionsSince).not.toBeNull();expect(first.paymentPushSince).not.toBeNull();
     expect((await store().update(a,{weeklyOverview:true})).paymentPushSince).toBe(first.paymentPushSince);
@@ -71,6 +74,7 @@ describe("owner-scoped durable notification storage",()=>{
       const since="2026-11-01T10:00:00.000Z";
       await legacy.query("insert into notification_preferences(owner_id,payment_mentions,payment_mentions_since) values($1::uuid,true,$2::timestamptz)",[a,since]);
       await legacy.exec(await readFile(new URL("../supabase/migrations/20261103233000_payment_activity_notices.sql",import.meta.url),"utf8"));
+      await legacy.exec(await readFile(new URL("../supabase/migrations/20261104110000_notification_previews.sql",import.meta.url),"utf8"));
       const legacyExecute:Execute=async<T extends Record<string,unknown>>(_s:SupabaseSettings,text:string,values:unknown[]=[]) => (await legacy.query<T>(text,values)).rows;
       expect(await createNotificationStore(settings,legacyExecute).preferences(a)).toMatchObject({paymentMentions:true,paymentMentionsSince:since,outgoingMentions:false,outgoingMentionsSince:null});
     } finally { await legacy.close(); }
@@ -87,17 +91,83 @@ describe("owner-scoped durable notification storage",()=>{
     expect((await store().pending(a,new Date(Date.now()+2000))).length).toBe(1);
     expect(await store().pending(b,new Date(Date.now()+2000))).toEqual([]);
   });
-  it("excludes historical imports, manual records, own transfers and skipped alerts",async()=>{
+  it("keeps existing users discreet and preserves all activation windows when previews change",async()=>{
+    const original=await store().update(a,{paymentMentions:true,outgoingMentions:true,paymentPush:true,billReminders:true,weeklyOverview:true});
+    expect(original.paymentPreview).toBe(false);
+    expect(await store().update(a,{paymentPreview:true})).toEqual({...original,paymentPreview:true});
+    expect(await store().update(a,{paymentPreview:false})).toEqual(original);
+    expect((await store().preferences(b)).paymentPreview).toBe(false);
+    await store().update(a,{paymentPreview:true});
+    expect((await store().update(a,{billReminders:false})).paymentPreview).toBe(true);
+  });
+  it("loads only the exact owned structured source, without raw SMS or counterparty text",async()=>{
+    await insertMessage();
+    expect(await store().paymentDetails(a,message)).toEqual({targetId:message,details:{amount:"10.00",currency:"GHS",direction:"in"}});
+    expect(await store().paymentDetails(b,message)).toBeNull();
+    expect(await store().paymentDetails(a,"invalid")).toBeNull();
+  });
+  it("uses canonical outgoing targets and account names only for an exact current owned pair",async()=>{
+    await insertMessage(a,message,{kind:"transfer_own",status:"transfer"});
+    const outgoing="00000000-0000-4000-8000-000000000011";
+    const paired={state:"paired",ownerId:a,outgoingBankMessageId:outgoing,incomingBankMessageId:message,amount:"10.00",currency:"GHS",fromAccount:{id:"hubtel",label:"Hubtel wallet"},toAccount:{id:"momo",label:"MTN MoMo"}};
+    transferLookup.mockResolvedValue(paired);
+    expect(await store().paymentDetails(a,message)).toEqual({targetId:outgoing,details:{amount:"10.00",currency:"GHS",direction:"in",transfer:{fromAccount:"Hubtel wallet",toAccount:"MTN MoMo"}}});
+    expect(transferLookup).toHaveBeenCalledWith(settings,a,message);
+    for(const invalid of [{...paired,state:"candidate"},{...paired,ownerId:b},{...paired,amount:"11.00"},{...paired,currency:"USD"},{...paired,incomingBankMessageId:"00000000-0000-4000-8000-000000000099"}]){
+      transferLookup.mockResolvedValue(invalid);
+      expect(await store().paymentDetails(a,message)).toEqual({targetId:message,details:{amount:"10.00",currency:"GHS",direction:"in"}});
+    }
+  });
+  it("excludes historical imports, manual records, unconfirmed transfer guesses and skipped alerts",async()=>{
     await store().update(a,{paymentPush:true});await store().subscribe(a,subscription);
     for(const [i,overrides]of [{old:true},{channel:"manual"},{kind:"transfer_own"},{status:"skipped"}].entries()){
       const id=`00000000-0000-4000-8000-${String(20+i).padStart(12,"0")}`;await insertMessage(a,id,overrides);expect(await store().enqueuePayment(a,id)).toBe(0);
     }
+  });
+  it("keeps confirmed own-account transfer alerts immediate and idempotent",async()=>{
+    await store().update(a,{paymentPush:true});await store().subscribe(a,subscription);
+    await insertMessage(a,message,{kind:"transfer_own",status:"transfer"});
+    expect(await store().enqueuePayment(a,message)).toBe(1);expect(await store().enqueuePayment(a,message)).toBe(0);
+    const at=new Date(Date.now()+2000),pending=await store().pending(a,at);
+    expect(pending).toHaveLength(1);expect(await store().claim(a,pending[0].id,at)).not.toBeNull();
   });
   it("claims atomically and does not retry accepted, attempted, or ambiguous requests",async()=>{
     await prepare();const now=new Date(Date.now()+2000),pending=await store().pending(a,now),id=pending[0].id;
     expect(await store().claim(b,id,now)).toBeNull();const claimed=await store().claim(a,id,now);expect(claimed?.attempts).toBe(1);
     expect(await store().claim(a,id,now)).toBeNull();await store().finish(a,id,{status:"unconfirmed",reason:"connection-unconfirmed"});
     expect(await store().pending(a,new Date(Date.now()+60_000))).toEqual([]);
+  });
+  it.each(["opt-out","new-epoch","removed-device","expired-device","skipped-source","loan-source","changed-amount","changed-currency","changed-direction","manual-source","confirmed-fee"])("rechecks %s after claiming and before preparing transport",async(change)=>{
+    const device=await prepare(),at=new Date(Date.now()+2000),job=(await store().pending(a,at))[0];
+    await store().claim(a,job.id,at);
+    const source=await store().paymentDetails(a,message);expect(source).not.toBeNull();
+    expect(await store().paymentConsent(b,job.id,source!.details,at)).toBeNull();
+    if(change==="opt-out")await store().update(a,{paymentPush:false});
+    if(change==="new-epoch"){await store().update(a,{paymentPush:false});await store().update(a,{paymentPush:true});}
+    if(change==="removed-device")await store().unsubscribe(a,{id:device});
+    if(change==="expired-device")await db.exec("update push_subscriptions set expires_at=now()-interval '1 second'");
+    if(change==="skipped-source")await db.exec("update bank_messages set status='skipped'");
+    if(change==="loan-source")await db.exec("update bank_messages set kind='loan_in',status='loan'");
+    if(change==="changed-amount")await db.exec("update bank_messages set amount=11");
+    if(change==="changed-currency")await db.exec("update bank_messages set currency='USD'");
+    if(change==="changed-direction")await db.exec("update bank_messages set direction='out'");
+    if(change==="manual-source")await db.exec("update bank_messages set channel='manual'");
+    if(change==="confirmed-fee"){
+      const transaction="00000000-0000-4000-8000-000000000081";
+      await db.query("insert into transactions(owner_id,transaction_id,status,type,category,amount,currency,source_update_id) values($1::uuid,$2::uuid,'active','expense','Fees',10,'GHS',$3)",[a,transaction,'bank:'+message]);
+      await db.query("update bank_messages set direction='out',counterparty='',status='recorded',transaction_id=$1::uuid",[transaction]);
+    }
+    expect(await store().paymentConsent(a,job.id,source!.details,at)).toBeNull();
+    if(["skipped-source","loan-source","manual-source","confirmed-fee"].includes(change))expect(await store().paymentDetails(a,message)).toBeNull();
+  });
+  it("returns the latest preview choice after a claim without changing any activation window",async()=>{
+    await prepare();const at=new Date(Date.now()+2000),job=(await store().pending(a,at))[0];await store().claim(a,job.id,at);
+    const details=(await store().paymentDetails(a,message))!.details;
+    expect(await store().paymentConsent(a,job.id,details,at)).toEqual({preview:false});
+    const previous=await store().preferences(a);await store().update(a,{paymentPreview:true});
+    expect(await store().paymentConsent(a,job.id,details,at)).toEqual({preview:true});
+    await store().update(a,{paymentPreview:false});expect(await store().paymentConsent(a,job.id,details,at)).toEqual({preview:false});
+    expect(await store().preferences(a)).toEqual(previous);
   });
   it("disabling/re-enabling cancels old epoch instead of sending queued history",async()=>{
     await prepare();const now=new Date(Date.now()+2000),id=(await store().pending(a,now))[0].id;

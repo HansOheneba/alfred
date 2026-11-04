@@ -4,6 +4,32 @@ This code does not register a scheduler, generate credentials, or enable deliver
 Apply the reviewed notification migrations before using the API. All preferences
 start off; private in-app payment mentions are independent of browser push.
 
+## Payment previews and chat entry
+
+Existing users keep discreet notification copy. **Show amounts in notifications**
+is a separate account preference, off by default, and explicitly warns that the
+lock screen can show financial amounts and linked account names. Apply the
+reviewed `20261104110000_notification_previews.sql` migration before deploying
+the matching application; it only adds the off-by-default preference.
+
+Payment jobs store source locators rather than pre-rendered financial copy.
+After claiming a job the server reloads the exact owned source and then the latest
+preview preference. Only opt-in previews contain validated amount, currency and
+direction fields. Raw SMS, counterparties and arbitrary body text are excluded.
+Current, durably paired own-account transfers can include the two bound account
+labels and share the outgoing source's notification tag. An earlier first-leg
+notice may already have appeared; pairing never deliberately delays either leg.
+Turning previews off changes future sends, including queued work; it cannot
+withdraw a notification already displayed by an operating system.
+
+Both declarative Web Push and the push-only service worker format the same
+structured data. Old payloads remain discreet and reminders/tests never contain
+payment previews. The worker accepts only a canonical payment UUID and opens
+`/chat?payment=<UUID>` on Alfred's own origin, where authentication and source
+ownership are checked again. Notifications contain no financial data in their
+click-target metadata. The worker does not cache authenticated pages or financial
+responses and activates updates without waiting for existing tabs to close.
+
 ## Immediate payment nudges
 
 Opted-in payment nudges are eligible when the alert arrives, at every local

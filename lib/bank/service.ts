@@ -13,6 +13,7 @@ import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { query, withBankIngestTransaction } from "@/lib/supabase/connection";
 import { createTelegramClient } from "@/lib/telegram/client";
 import { getStudioSettings } from "@/lib/env";
+import { reconcileNewOwnTransfers } from "@/lib/bank/own-transfers";
 
 /** The person a forwarding secret belongs to, if it's valid. */
 export async function ownerForToken(settings: SupabaseSettings, token: string): Promise<UserProfile | null> {
@@ -46,7 +47,19 @@ export async function ingestBankMessages(
   // acquiring a database connection or holding an owner lock.
   const prepared = await prepareBankText(deps, profile, text, options);
   if (prepared.parsed.length === 0) return { outcomes: [], duplicates: 0, found: 0, durableMessageIds: [] };
-  return withBankIngestTransaction(settings, profile.profileId, () => ingestPreparedBankText(deps, profile, prepared, options));
+  return withBankIngestTransaction(settings, profile.profileId, async () => {
+    const result = await ingestPreparedBankText(deps, profile, prepared, options);
+    const pairedIds = await reconcileNewOwnTransfers(settings, profile, result.outcomes.filter((outcome) => ["payment", "transfer_own"].includes(outcome.message.kind) && ["needs_label", "transfer"].includes(outcome.message.status) && !outcome.message.transactionId).map((outcome) => outcome.message.id));
+    // Return the committed classification, including a pair recognized when the second leg arrived.
+    for (const outcome of result.outcomes) {
+      if (!pairedIds.has(outcome.message.id)) continue;
+      const current = await deps.bank.getMessage(profile.profileId, outcome.message.id);
+      if (current?.kind === "transfer_own" && current.status === "transfer") {
+        outcome.message = current; outcome.outcome = "transfer";
+      }
+    }
+    return result;
+  });
 }
 
 /** The model reader for unfamiliar banks, or null when DeepSeek isn't configured. */

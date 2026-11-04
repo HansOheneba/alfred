@@ -1,8 +1,8 @@
 import { CHAT_SESSION_CHANGED } from "@/app/chat/context-data";
 
 /** The same readiness-aware, cheap check used by the initial Chat page. */
-export async function loadOwnedChatEmptyStatus(ownerId: string, signal: AbortSignal): Promise<boolean> {
-  const response = await fetch("/api/chat/empty", { cache: "no-store", credentials: "same-origin", signal });
+export async function loadOwnedChatEmptyStatus(ownerId: string, signal: AbortSignal, request: typeof fetch = fetch): Promise<boolean> {
+  const response = await request("/api/chat/empty", { cache: "no-store", credentials: "same-origin", signal });
   const payload = await response.json() as { ok?: boolean; ownerId?: string; financialsEmpty?: boolean };
   if (!response.ok || payload.ok !== true || typeof payload.financialsEmpty !== "boolean") throw new Error("Your account status could not be checked. Try again.");
   if (payload.ownerId !== ownerId) throw new Error(CHAT_SESSION_CHANGED);
@@ -10,7 +10,7 @@ export async function loadOwnedChatEmptyStatus(ownerId: string, signal: AbortSig
 }
 
 /** Component-local requests: only the latest response for this owner may update setup guidance. */
-export function createChatEmptyStatusRefresh(ownerId: string, publish: (empty: boolean | null) => void) {
+export function createChatEmptyStatusRefresh(ownerId: string, publish: (empty: boolean | null) => void, requestData: typeof fetch = fetch) {
   let current: AbortController | null = null;
   let active = true;
   let sequence = 0;
@@ -27,7 +27,7 @@ export function createChatEmptyStatusRefresh(ownerId: string, publish: (empty: b
       // Keep the last confirmed visibility while checking, so empty-account messages
       // do not briefly hide and then restore Get Started. Only a settled result changes it.
       try {
-        const empty = await loadOwnedChatEmptyStatus(ownerId, request.signal);
+        const empty = await loadOwnedChatEmptyStatus(ownerId, request.signal, requestData);
         if (active && !request.signal.aborted && version === sequence) publish(empty);
       } catch {
         // Unknown storage/session status never proves the account is empty.
