@@ -12,6 +12,7 @@ import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { sourceName, type BankSource } from "@/lib/bank/parse";
 import { loadAccountingState } from "@/lib/finance/accounting/persisted-store";
 import { buildAccountingView, projectAccountingTransactions } from "@/lib/finance/accounting/view";
+import { withLedgerReceipts } from "@/lib/finance/accounting/receipts";
 
 export type LedgerBudget = {
   budgetId: string;
@@ -103,7 +104,7 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
   return {
     today,
     currency: profile.currency,
-    rows: toLedgerRows(transactions),
+    rows: withLedgerReceipts(toLedgerRows(transactions), accounting.state, userId),
     budgets: budgets
       .map((budget) => ({
         budgetId: budget.budgetId,

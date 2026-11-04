@@ -180,9 +180,9 @@ function PasswordCard() {
               />
             </label>
           </div>
-          <div className="alfred-password-actions">
-            <Button variant="ghost" onClick={() => { setError(""); closeEditor(); }} disabled={busy}>Cancel</Button>
-            <Button variant="primary" type="submit" disabled={busy || !password || !confirm} aria-busy={busy} aria-label="Save password">
+          <div className="alfred-password-actions alfred-buttonGroup--mobileStack">
+            <Button variant="ghost" className="alfred-button--mobileFull" onClick={() => { setError(""); closeEditor(); }} disabled={busy}>Cancel</Button>
+            <Button variant="primary" className="alfred-button--mobileFull" type="submit" disabled={busy || !password || !confirm} aria-busy={busy} aria-label="Save password">
               {busy ? <><Spinner /> Saving…</> : "Save password"}
             </Button>
           </div>

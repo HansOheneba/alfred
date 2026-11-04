@@ -19,7 +19,7 @@ export function DashboardAccountBalance({ accounting, currency, timeZone = "Afri
     <details className="alfred-ui-balanceAccounts">
     <summary className="alfred-ui-balanceDisclosure">
       <span className="alfred-ui-accountCount"><span>{count} included account{count === 1 ? "" : "s"}</span></span>
-      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+      <span className="alfred-ui-balanceDisclosureAction"><span className="alfred-ui-balanceShow">Show accounts</span><span className="alfred-ui-balanceHide">Hide accounts</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></span>
     </summary>
     <ul className="alfred-ui-accountBreakdown" aria-label="Accounts contributing to total">
       {contributing.map(({ account, snapshot }) => <li key={account.id}><div><span>{account.label}</span>{snapshot ? <time dateTime={snapshot.occurredAt}>{stamp.format(new Date(snapshot.occurredAt))}</time> : <p className="text-xs text-muted">Reported balance needed</p>}</div><strong className="tabular-nums">{snapshot ? formatMinor(snapshot.balanceMinor, currency) : "—"}</strong></li>)}

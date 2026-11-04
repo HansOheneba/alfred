@@ -53,12 +53,15 @@ describe("Settings shared dropdown adoption", () => {
     const view = () => BudgetsSection({ ledger });
     let tree = render(view);
     const add = (tree as ReactElement<Record<string, unknown>>).props.action as Element;
-    expect(add.type).toBe(Button); (add.props.onClick as () => void)(); tree = render(view);
+    expect(add.type).toBe(Button); expect(String(add.props.className ?? "")).not.toContain("alfred-button--mobileFull"); (add.props.onClick as () => void)(); tree = render(view);
     expect(nodes(tree).some(node => node.type === "select")).toBe(false);
     choose(control(tree, "Category"), "Transport"); tree = render(view);
     expect(control(tree, "Category").props.value).toBe("Transport");
     expect(control(tree, "Category").props.disabled).toBe(false);
     expect(nodes(tree).some(node => node.type === Card)).toBe(true);
+    const footerButtons = nodes(tree).filter(node => node.type === Button && ["Cancel", "Review"].includes(String(node.props.children).trim()));
+    expect(footerButtons).toHaveLength(2);
+    expect(footerButtons.every(node => String(node.props.className).includes("alfred-button--mobileFull"))).toBe(true);
   });
 
   it("keeps unavailable rule controls disabled and preserves the account/direction fields", () => {

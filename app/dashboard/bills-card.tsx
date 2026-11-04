@@ -12,6 +12,7 @@ import type { BillCadence, BillRecord, RenewalSuggestion, UpcomingBill } from "@
 import type { BillAction } from "@/lib/finance/bill-schedule";
 import { formatDisplayDate } from "@/lib/finance/dates";
 import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
+import "./bills-card.css";
 
 export type { BillAction } from "@/lib/finance/bill-schedule";
 
@@ -77,7 +78,7 @@ export function BillsCard({
     <Card
       title="Bills & renewals · next 30 days"
       action={
-        <div className="flex flex-wrap items-center justify-end gap-2">
+        <div className="alfred-bills-headerActions flex flex-wrap items-center justify-end gap-2">
           {suggestions.length > 0 ? (
             <button
               type="button"
@@ -142,7 +143,7 @@ export function BillsCard({
               <p className="text-xs font-medium text-accent">Spotted in your payments</p>
               <ul className="mt-2 flex flex-col gap-2">
                 {suggestions.slice(0, 2).map((item) => (
-                  <li key={item.id} className="flex items-center justify-between gap-2 text-xs">
+                  <li key={item.id} className="alfred-bills-suggestion flex items-center justify-between gap-2 text-xs">
                     <div className="min-w-0">
                       <span className="font-medium text-ink">{item.name}</span>
                       <span className="text-muted"> · next around {formatDisplayDate(item.expectedDate)}</span>
@@ -208,7 +209,7 @@ export function BillsCard({
             ) : (
               <ul className="flex max-h-64 flex-col gap-2 overflow-y-auto">
                 {bills.map((bill) => (
-                  <li key={bill.id} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-bg p-3 text-sm">
+                  <li key={bill.id} className="alfred-bills-savedRow flex items-center justify-between gap-3 rounded-xl border border-line bg-bg p-3 text-sm">
                     <div className="min-w-0">
                       <p className="truncate font-medium">
                         {bill.name}
@@ -219,7 +220,7 @@ export function BillsCard({
                         <span className="tabular-nums">{bill.amount ? formatAmount(bill.amount, bill.currency) : "Amount varies"}</span>
                       </p>
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="alfred-bills-rowActions flex shrink-0 items-center gap-1">
                       <Button size="sm" variant="ghost" onClick={() => setEditing(bill)}>
                         Edit
                       </Button>
@@ -250,7 +251,7 @@ export function BillsCard({
                 <h3 className="mb-2 text-xs font-medium text-muted">Suggested from your history</h3>
                 <ul className="flex flex-col gap-2">
                   {suggestions.map((item) => (
-                    <li key={item.id} className="flex items-center justify-between gap-3 rounded-xl border border-line bg-bg p-3 text-xs">
+                    <li key={item.id} className="alfred-bills-suggestion flex items-center justify-between gap-3 rounded-xl border border-line bg-bg p-3 text-xs">
                       <div className="min-w-0">
                         <p className="font-medium text-sm text-ink">{item.name}</p>
                         <p className="text-muted">
@@ -369,7 +370,7 @@ function BillForm({
           {error}
         </p>
       ) : null}
-      <div className="mt-2 flex justify-end gap-2">
+      <div className="alfred-buttonGroup--mobileStack mt-2 flex justify-end gap-2">
         <Button variant="ghost" onClick={onCancel} disabled={busy}>
           Back
         </Button>

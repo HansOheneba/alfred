@@ -11,7 +11,13 @@
 .alfred-settings-navigationChevron { display:none; flex:0 0 18px; width:18px; height:18px; color:var(--muted); }
 .alfred-settings-mobileBack { display:none; }
 @media(min-width:768px) {
-  .alfred-settings-navigation { position:sticky; top:24px; flex:0 0 208px; width:208px; }
+  .alfred-settings-navigation { position:sticky; top:92px; flex:0 0 252px; width:252px; max-height:calc(100dvh - 116px); overflow-y:auto; overscroll-behavior-y:contain; scrollbar-width:thin; scroll-padding-block:8px; padding:6px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+  .alfred-settings-navigationItem { min-height:72px; padding:12px 10px; gap:10px; border-radius:10px; }
+  .alfred-settings-navigationItem[aria-current="page"] { background:var(--accent-soft); }
+  .alfred-settings-navigationIcon { flex-basis:32px; width:32px; height:32px; border-radius:10px; }
+  .alfred-settings-navigationSymbol { width:20px; height:20px; }
+  .alfred-settings-navigationDescription { display:block; color:var(--muted); font-size:12px; font-weight:400; line-height:1.4; overflow-wrap:anywhere; }
+  .alfred-settings-detail { min-width:0; }
 }
 @media(max-width:767px) {
   .alfred-settings-navigation { width:100%; gap:0; border:1px solid var(--line); border-radius:16px; background:var(--surface); overflow:visible; }

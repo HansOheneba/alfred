@@ -130,6 +130,7 @@
 .alfred-accounts-modal form { display:flex; flex-direction:column; gap:16px; }
 .alfred-accounts-modal form > footer { position:sticky; bottom:-24px; z-index:1; display:flex; align-items:center; justify-content:flex-end; gap:12px; margin-inline:-24px; padding:16px 24px; border-top:1px solid var(--line); background:var(--surface); flex-wrap:wrap; }
 .alfred-accounts-modalBody > .alfred-accounts-field { margin-bottom:16px; }
+.alfred-accounts-modalActions { display:flex; flex:1; justify-content:flex-end; gap:12px; }
 .alfred-accounts-modal .alfred-accounts-textButton { align-self:flex-start; margin-top:-12px; }
 .alfred-accounts-modal .alfred-accounts-smallNote { margin:0; }
 .alfred-accounts-modal .alfred-account-evidence { margin-top:24px; }
@@ -238,7 +239,7 @@
 .alfred-accounts-welcome li h3 { font-size:14px; line-height:24px; }
 .alfred-accounts-welcome li p { margin-top:4px; font-size:12px; line-height:20px; }
 .alfred-accounts-welcome > .alfred-accounts-welcomeNote { margin-top:12px; font-size:12px!important; line-height:20px!important; }
-@media(max-width:600px) { .alfred-accounts-welcome { padding:24px; } .alfred-accounts-welcome ol { grid-template-columns:minmax(0,1fr); } .alfred-accounts-welcome > .alfred-accounts-primary { width:100%; } }
+@media(max-width:600px) { .alfred-accounts-welcome { padding:24px; } .alfred-accounts-welcome ol { grid-template-columns:minmax(0,1fr); } }
 
 /* Accounts is a balance disclosure followed by one activity workspace. */
 .alfred-accounts-balanceCard { display:block; max-width:none; background:var(--surface); }
@@ -267,8 +268,8 @@
 .alfred-accounts-firstAction p { margin-top:8px; font-size:12px; }
 .alfred-accounts-activityWorkspace { min-width:0; }
 .alfred-accounts-activityWorkspace > .alfred-accounts-sectionHeading h2 { font-size:22px; }
-.alfred-accounts-activityScopes { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:24px; }
-.alfred-accounts-activityScopes > button { display:inline-flex; align-items:center; gap:6px; min-height:40px; padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--muted); font-size:12px; text-align:left; line-height:1.4; }
+.alfred-accounts-activityScopes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); align-items:stretch; gap:8px; margin-bottom:24px; }
+.alfred-accounts-activityScopes > button { display:inline-flex; justify-content:center; align-items:center; gap:6px; min-width:0; min-height:44px; padding:10px 12px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--muted); font-size:13px; text-align:center; line-height:1.4; }
 .alfred-accounts-activityScopes > button[aria-selected=true] { border-color:var(--accent); color:var(--accent); background:var(--accent-soft); }
 .alfred-accounts-activityScopes > button > span { display:inline-grid; place-items:center; min-width:18px; padding:0 4px; border-radius:999px; background:var(--accent-soft); color:var(--accent); font-size:11px; }
 .alfred-accounts-activityHeading { align-items:center; }
@@ -325,4 +326,28 @@
  .alfred-accounts-rowChevron { color:var(--muted); margin-top:4px; }
  .alfred-accounts-receiptFacts > div { font-size:13px; }
  .alfred-accounts-receiptHero > strong { font-size:34px; }
+}
+
+/* The web table uses the same direction, status and receipt actions as mobile. */
+@media(min-width:721px) {
+ .alfred-accounts-movements { border-radius:16px; }
+ .alfred-accounts-movements table { table-layout:fixed; font-size:13px; }
+ .alfred-accounts-movements th:nth-child(1) { width:18%; }
+ .alfred-accounts-movements th:nth-child(2) { width:34%; }
+ .alfred-accounts-movements th:nth-child(3) { width:18%; }
+ .alfred-accounts-movements th:nth-child(4) { width:14%; }
+ .alfred-accounts-movements th:nth-child(5) { width:16%; }
+ .alfred-accounts-movements tbody tr:hover { background:var(--surface-2); }
+ .alfred-accounts-movements td { overflow-wrap:anywhere; }
+ .alfred-accounts-tableDate { color:var(--muted); font-size:12px; line-height:1.6; }
+ .alfred-accounts-tableAccount { font-size:13px; }
+ .alfred-accounts-tableMovement { display:grid; grid-template-columns:32px minmax(0,1fr) 10px; align-items:center; gap:10px; width:100%; min-height:44px; padding:0; background:transparent; border:0; text-align:left; color:var(--ink); }
+ .alfred-accounts-tableMovement:focus-visible { outline-offset:4px; border-radius:8px; }
+ .alfred-accounts-tableCopy { min-width:0; }
+ .alfred-accounts-tableCopy > strong { display:block; font-size:14px; line-height:1.5; font-weight:500; }
+ .alfred-accounts-tableCopy > small { display:block; margin-top:4px; color:var(--muted); font-size:12px; }
+ .alfred-accounts-tableMovement .alfred-accounts-rowChevron { color:var(--muted); }
+ .alfred-accounts-movements .is-numeric { white-space:normal; }
+ .alfred-accounts-movements .is-numeric > strong { font-size:14px; font-weight:550; }
+ .alfred-accounts-movements .alfred-accounts-status { white-space:normal; line-height:1.5; }
 }

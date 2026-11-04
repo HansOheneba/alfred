@@ -10,7 +10,7 @@ import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
 import { AutomationsSection } from "@/app/settings/automations-section";
-import { resolveSettingsSection, SettingsNavigation, type SettingsSectionId } from "@/app/settings/settings-navigation";
+import { resolveSettingsSection, SETTINGS_SECTIONS, SettingsNavigation, type SettingsSectionId } from "@/app/settings/settings-navigation";
 import { DataSection } from "@/app/settings/data-section";
 import { AccountRulesSection } from "@/app/settings/account-rules-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
@@ -136,7 +136,7 @@ export function SettingsView({
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         <SettingsNavigation section={section} onChoose={choose} />
 
-        <div className="alfred-settings-detail min-w-0 flex-1">
+        <div id="alfred-settings-detail" role="region" aria-label={SETTINGS_SECTIONS.find(item => item.id === section)?.label ?? "Settings"} className="alfred-settings-detail min-w-0 flex-1">
           <Button variant="ghost" className="alfred-settings-mobileBack" onClick={showSections}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>Back to settings</Button>
           {section === "profile" ? (
             <Card title="Profile">
@@ -269,7 +269,7 @@ function DeferredSection({ title, error, onRetry }: { title: string; error?: str
 
 function SaveBar({ dirty, state, onSave, onReset }: { dirty: boolean; state: SaveState; onSave: () => void; onReset: () => void }) {
   return (
-    <div className="mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-4">
+    <div className="alfred-buttonGroup--mobileStack mt-6 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-4">
       <p className="mr-auto text-sm" role="status" aria-live="polite">
         {state.kind === "error" ? (
           <span className="text-danger">{state.text}</span>
@@ -280,11 +280,11 @@ function SaveBar({ dirty, state, onSave, onReset }: { dirty: boolean; state: Sav
         ) : null}
       </p>
       {dirty ? (
-        <Button variant="ghost" onClick={onReset} disabled={state.kind === "saving"}>
+        <Button variant="ghost" className="alfred-button--mobileFull" onClick={onReset} disabled={state.kind === "saving"}>
           Discard
         </Button>
       ) : null}
-      <Button variant="primary" onClick={onSave} disabled={!dirty || state.kind === "saving"} aria-busy={state.kind === "saving"} aria-label="Save changes">
+      <Button variant="primary" className="alfred-button--mobileFull" onClick={onSave} disabled={!dirty || state.kind === "saving"} aria-busy={state.kind === "saving"} aria-label="Save changes">
         {state.kind === "saving" ? <Spinner /> : "Save changes"}
       </Button>
     </div>
@@ -400,7 +400,7 @@ function TelegramSection({
             href={botLink}
             target="_blank"
             rel="noreferrer"
-            className={buttonClassName({ variant: "primary" })}
+            className={buttonClassName({ variant: "primary", className: "alfred-button--mobileFull" })}
           >
             Open Alfred on Telegram
           </a>

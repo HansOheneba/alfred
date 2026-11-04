@@ -124,6 +124,7 @@ function InstallCard() {
             <div className="mt-4 flex flex-wrap items-center gap-3">
               <Button
                 variant="primary"
+                className="alfred-button--mobileFull"
                 onClick={async () => {
                   const accepted = await state.install();
                   setDeclined(!accepted);

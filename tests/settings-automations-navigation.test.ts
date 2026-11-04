@@ -38,6 +38,7 @@ describe("Automations in Settings navigation", () => {
     expect(html).toContain('data-section="bank"');
     expect(html).toContain('data-section="automations"');
     expect(html.match(/type="button"/g)).toHaveLength(SETTINGS_SECTIONS.length);
+    expect(html.match(/aria-controls="alfred-settings-detail"/g)).toHaveLength(SETTINGS_SECTIONS.length);
     expect(choose).not.toHaveBeenCalled();
   });
 
@@ -49,6 +50,7 @@ describe("Automations in Settings navigation", () => {
       expect(button).not.toBeNull();
       expect(button![0]).toContain(`aria-label="${section.label.replaceAll("&", "&amp;").replaceAll("'", "&#x27;")}"`);
       expect(button![1]).toMatch(/<span class="alfred-settings-navigationIcon" aria-hidden="true">/);
+      expect(button![1]).toMatch(/class="alfred-settings-navigationDescription"[^>]*>[^<]+<\/span>/);
       const icon = /<svg class="alfred-settings-navigationSymbol"[^>]*focusable="false"[^>]*>([\s\S]*?)<\/svg>/.exec(button![1]);
       expect(icon).not.toBeNull();
       expect(icon![1]).toMatch(/<(?:path|circle|rect)\b/);

@@ -25,7 +25,7 @@ function balances(count: number, missing = false): NonNullable<Ledger["accountin
   return { availability: "ready", revision: 0, balances: buildAccountingView(state, "GHS").balances, loans: [], issues: [] };
 }
 
-describe("mobile overview controls", () => {
+describe("responsive overview controls", () => {
   it("keeps a large account total correct with a closed, labelled native disclosure", () => {
     const accounting = balances(100);
     const html = renderToStaticMarkup(createElement(DashboardAccountBalance, { accounting, currency: "GHS" }));
@@ -34,6 +34,8 @@ describe("mobile overview controls", () => {
     expect(html).toMatch(/<details class="alfred-ui-balanceAccounts">/);
     expect(html).not.toMatch(/<details[^>]*\bopen(?:=|\s|>)/);
     expect(html).toMatch(/<summary[^>]*>[\s\S]*100 included accounts[\s\S]*<\/summary>/);
+    expect(html.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0]).toContain("Show accounts");
+    expect(html.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0]).toContain("Hide accounts");
     expect(html.match(/<summary[^>]*>[\s\S]*?<\/summary>/)?.[0]).not.toContain(">GHS<");
     expect(html).toContain('aria-label="Accounts contributing to total"');
     expect(html).toContain("Fictional account 100");
@@ -49,11 +51,27 @@ describe("mobile overview controls", () => {
     expect(summary).not.toContain(formatMinor(0, "GHS"));
   });
 
-  it("offers every period in an accessible sheet and both chart views as pressed-state segments", () => {
+  it("omits the separate provider-balance disclosure while retaining the included account total", () => {
+    const ledger: Ledger = { ...previewLedger, accounting: balances(2), bank: { ...previewLedger.bank, balances: [{ source: "gcb", label: "Fictional provider-only balance", balance: "999999.99", at: "2026-11-01T10:00:00Z" }] } };
+    const html = renderToStaticMarkup(createElement(DashboardClient, { ledger, name: "Sample reviewer" }));
+    expect(html).not.toContain("Latest balances from bank messages");
+    expect(html).not.toContain("Provider reports are shown separately");
+    expect(html).not.toContain("Fictional provider-only balance");
+    const accountTotal = html.match(/<section[^>]*aria-label="Total account balance"[\s\S]*?<\/section>/)?.[0];
+    expect(accountTotal).toContain(formatMinor(20000, "GHS"));
+    expect(accountTotal).toContain("2 included accounts");
+    expect(accountTotal).not.toContain(formatMinor(99999999, "GHS"));
+    expect(ledger.bank.balances[0].balance).toBe("999999.99");
+  });
+
+  it("offers one compact period picker across screen sizes, every dialog choice, and both chart views", () => {
     const html = renderToStaticMarkup(createElement(DashboardClient, { ledger: previewLedger, name: "Sample reviewer" }));
     const trigger = html.match(/<button[^>]*aria-label="Date range: This month"[^>]*>/)?.[0];
     expect(trigger).toContain('aria-haspopup="dialog"');
     expect(trigger).toContain('aria-expanded="false"');
+    expect([...html.matchAll(/aria-label="Date range: /g)]).toHaveLength(1);
+    expect(html).not.toContain('class="alfred-ui-ranges"');
+    expect(html).not.toContain('role="group" aria-label="Date range"');
     expect(html).toContain("Choose a period");
     expect(html).toContain('role="radiogroup" aria-label="Date range"');
     for (const label of Object.values(RANGE_LABELS)) expect(html).toContain(label);

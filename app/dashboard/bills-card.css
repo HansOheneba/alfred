@@ -1,0 +1,9 @@
+.alfred-bills-suggestion > div { flex:1; min-width:0; overflow-wrap:anywhere; }
+.alfred-bills-suggestion > .alfred-button { flex:none; width:auto; }
+.alfred-bills-rowActions { flex-wrap:wrap; }
+@media(max-width:720px) {
+  .alfred-bills-headerActions { justify-content:flex-start; }
+  .alfred-bills-savedRow { flex-wrap:wrap; }
+  .alfred-bills-savedRow > div:first-child { flex:1 1 160px; }
+  .alfred-bills-rowActions { justify-content:flex-start; }
+}

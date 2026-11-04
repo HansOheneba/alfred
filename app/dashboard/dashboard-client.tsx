@@ -11,7 +11,7 @@ import { MonthlyInsights, SummaryMetric as Stat } from "@/app/dashboard/overview
 
 const styles = {
   dashboard: "alfred-ui-dashboard", heading: "alfred-ui-heading", controls: "alfred-ui-controls",
-  ranges: "alfred-ui-ranges", summary: "alfred-ui-summary",
+  summary: "alfred-ui-summary",
   trends: "alfred-ui-trends", legend: "alfred-ui-legend", categories: "alfred-ui-categories",
   transactions: "alfred-ui-transactions",
 } as const;
@@ -40,7 +40,7 @@ import {
   type RangePreset,
 } from "@/lib/finance/analytics";
 import { formatDisplayDate } from "@/lib/finance/dates";
-import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
+import { formatMinor, toMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
 import "./overview-mobile.css";
 
@@ -125,19 +125,6 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
             <span>{RANGE_LABELS[preset]}</span>
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
           </button>
-          <div className={styles.ranges} role="group" aria-label="Date range">
-            {PRESETS.map((item) => (
-              <button
-                key={item}
-                type="button"
-                onClick={() => chooseRange(item)}
-                aria-pressed={preset === item}
-                className={buttonClassName({ variant: preset === item ? "primary" : "ghost", size: "sm" })}
-              >
-                {RANGE_LABELS[item]}
-              </button>
-            ))}
-          </div>
         </div>
       </div>
 
@@ -151,22 +138,6 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
       </Dialog>
 
       {ledger.bank.needsLabel.length > 0 ? <div className="alfred-ui-reviewPrompt"><span>Make your overview more complete.</span><Link href="/accounts?tab=needs-attention" className={buttonClassName({ variant: "ghost", size: "sm" })}>{ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label <span aria-hidden="true">↗</span></Link></div> : null}
-
-      {ledger.bank.balances.length > 0 ? (
-        <details className="rounded-xl border border-line bg-surface px-4 py-3 text-xs">
-          <summary className="cursor-pointer font-medium text-muted">Latest balances from bank messages</summary>
-          <p className="mt-2 text-muted">Provider reports are shown separately from your included account total.</p>
-          <ul className="mt-3 flex flex-wrap gap-3">
-            {ledger.bank.balances.map((item) => (
-              <li key={item.source} className="flex flex-wrap items-center gap-2 rounded-lg bg-surface-2 px-3 py-2">
-                <span>{item.label}</span>
-                <span className="tabular-nums font-medium">{formatAmount(item.balance, currency)}</span>
-                <time dateTime={item.at} className="text-muted">{new Intl.DateTimeFormat("en-GB", { dateStyle: "medium", timeStyle: "short", timeZone }).format(new Date(item.at))} · Not live</time>
-              </li>
-            ))}
-          </ul>
-        </details>
-      ) : null}
 
       {!hasAny ? (
         <EmptyState>
@@ -421,7 +392,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
         <OwedCard owed={ledger.owed} owe={ledger.owe} />
       </div>
 
-      {hasAny ? <div className={styles.transactions}><TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} /></div> : null}
+      {hasAny ? <div className={styles.transactions}><TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} timeZone={timeZone} /></div> : null}
     </div>
   );
 }
