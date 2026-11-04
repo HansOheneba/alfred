@@ -8,6 +8,7 @@ import { sendJson } from "@/app/components/ui";
 import { loadAccountSubscriptions } from "./subscriptions-actions";
 import { createSubscriptionsResource } from "./subscriptions-resource";
 import { SubscriptionsPanel } from "./subscriptions-panel";
+import { ownedPaymentMovement, type PaymentTargetRequest } from '@/lib/notifications/payment-target';
 
 export type AccountsPayload = { ok: true; state: AccountingState; availability: "ready" | "migration-required" };
 async function readResponse(response: Response): Promise<AccountsPayload> {
@@ -15,7 +16,7 @@ async function readResponse(response: Response): Promise<AccountsPayload> {
   if (!response.ok || body.ok !== true || !body.state) throw new Error(typeof body.text === "string" ? body.text : typeof body.error === "string" ? body.error : typeof body.message === "string" ? body.message : "Account records could not be loaded. Refresh and try again.");
   return body as AccountsPayload;
 }
-export function AccountsClient({ defaultCurrency, initialPayload, initialError = "" }: { defaultCurrency: string; initialPayload: AccountsPayload | null; initialError?: string }) {
+export function AccountsClient({ defaultCurrency, initialPayload, initialError = "", paymentRequest, expectedOwnerId }: { defaultCurrency: string; initialPayload: AccountsPayload | null; initialError?: string; paymentRequest?: PaymentTargetRequest; expectedOwnerId?: string }) {
   const [payload,setPayload] = useState(initialPayload);
   const [error,setError] = useState(initialError);
   const [loading,setLoading] = useState(false);
@@ -37,5 +38,6 @@ export function AccountsClient({ defaultCurrency, initialPayload, initialError =
     const next = await readResponse(response); setPayload(next); return next.state;
   }
   if (!payload) return loading ? <AccountsLoading /> : <AccountsErrorState message={error || "Account records could not be loaded. Try again shortly."} onRetry={() => { void retry(); }} />;
-  return <AccountsWorkspace state={payload.state} dispatch={dispatch} mode="live" availability={payload.availability} defaultCurrency={defaultCurrency} subscriptions={<SubscriptionsPanel key={ownerId} resource={subscriptions} accounting={payload.state} />} />;
+  const payment = paymentRequest?.requested ? ownedPaymentMovement(payload.state, expectedOwnerId ?? '', paymentRequest.id) : null;
+  return <AccountsWorkspace state={payload.state} dispatch={dispatch} mode="live" availability={payload.availability} defaultCurrency={defaultCurrency} initialPaymentMovementId={payment?.id} paymentUnavailable={paymentRequest?.requested && !payment} subscriptions={<SubscriptionsPanel key={ownerId} resource={subscriptions} accounting={payload.state} />} />;
 }

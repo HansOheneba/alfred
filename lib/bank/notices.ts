@@ -133,6 +133,7 @@ export async function recoverPaymentActivityMentions(settings:SupabaseSettings,o
     left join public.transactions t on t.owner_id=b.owner_id and t.transaction_id=b.transaction_id and t.status='active'
     where b.owner_id=$1::uuid and r.bank_message_id is null and b.channel in ('mac','shortcut') and b.amount>0
       and ${ACTIVITY_STATE_SQL}
+      and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
       and ((b.direction='in' and b.occurred_at>=$4::timestamptz and b.created_at>=$4::timestamptz)
         or (b.direction='out' and b.occurred_at>=$5::timestamptz and b.created_at>=$5::timestamptz))
       and b.occurred_at>=$2::timestamptz and b.created_at>=$2::timestamptz
@@ -156,6 +157,7 @@ export async function recoverAllPaymentActivityMentions(settings:SupabaseSetting
   const owners=await query<{owner_id:string}>(settings,`select distinct p.owner_id::text from public.notification_preferences p join public.bank_messages b on b.owner_id=p.owner_id
     left join public.bank_notice_receipts r on r.owner_id=b.owner_id and r.bank_message_id=b.id
     where r.bank_message_id is null and b.channel in ('mac','shortcut') and b.amount>0 and ${ACTIVITY_STATE_SQL}
+      and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
       and ((b.direction='in' and p.payment_mentions and b.occurred_at>=p.payment_mentions_since and b.created_at>=p.payment_mentions_since)
         or (b.direction='out' and p.outgoing_mentions and b.occurred_at>=p.outgoing_mentions_since and b.created_at>=p.outgoing_mentions_since))
       and b.occurred_at>now()-interval '24 hours'

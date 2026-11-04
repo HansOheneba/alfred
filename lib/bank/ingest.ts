@@ -38,6 +38,8 @@ export type IngestOutcome = {
   chipIn?: boolean;
   feeRecorded: boolean;
 };
+export type PreparedBankText = { parsed: ParsedBankMessage[]; readBy: BankMessage["readBy"] };
+type IngestOptions = { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date };
 
 /** Choices offered when Alfred asks what a payment was, in button order. */
 export const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"] as const;
@@ -143,17 +145,13 @@ function classify(parsed: ParsedBankMessage, names: string[]) {
   return { kind: "payment", status: "needs_label" } as const;
 }
 
-/**
- * Stores every money movement in `text` and decides what to do with each:
- * link it to something already logged, file it from a learned payee, treat it
- * as a transfer or loan, or hold it until the person says what it was.
- */
-export async function ingestBankText(
+/** Parse before opening a production transaction; unfamiliar banks may call a model. */
+export async function prepareBankText(
   deps: IngestDeps,
   profile: UserProfile,
   text: string,
-  options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
-): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number; durableMessageIds: string[] }> {
+  options: IngestOptions,
+): Promise<PreparedBankText> {
   const now = options.receivedAt ?? deps.now;
   // Texts from MoMo, GCB and Hubtel that the rules skipped are notices, not payments.
   const knownSender = /gcb|hubtel|momo|mobile ?money|\bmtn\b/i.test(options.sender ?? "");
@@ -167,6 +165,21 @@ export async function ingestBankText(
     parsed = await deps.readUnknown(text, { sender: options.sender ?? null, now });
     readBy = "model";
   }
+  return { parsed, readBy };
+}
+
+/** Stores and classifies each parsed movement; used directly by in-memory callers. */
+export async function ingestBankText(
+  deps: IngestDeps, profile: UserProfile, text: string, options: IngestOptions,
+): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number; durableMessageIds: string[] }> {
+  return ingestPreparedBankText(deps, profile, await prepareBankText(deps, profile, text, options), options);
+}
+
+/** Server-prepared data only. Production invokes this inside the ingest transaction. */
+export async function ingestPreparedBankText(
+  deps: IngestDeps, profile: UserProfile, prepared: PreparedBankText, options: IngestOptions,
+): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number; durableMessageIds: string[] }> {
+  const { parsed, readBy } = prepared;
   const names = await deps.bank.accountNames(profile.profileId);
   const ignored = await deps.bank.ignoredAccounts(profile.profileId);
   const outcomes: IngestOutcome[] = [];

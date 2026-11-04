@@ -24,12 +24,14 @@ describe("owner-scoped durable notification storage",()=>{
   beforeAll(async()=>{
     db=new PGlite();
     await db.exec(`create role anon;create role authenticated;create schema auth;create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;
-      create table profiles(id uuid primary key);create table bank_messages(id uuid primary key,owner_id uuid,channel text,kind text,status text,amount numeric,created_at timestamptz,occurred_at timestamptz);
+      create table profiles(id uuid primary key);create table bank_messages(id uuid primary key,owner_id uuid,channel text,kind text,status text,amount numeric,created_at timestamptz,occurred_at timestamptz,direction text default 'in',counterparty text default 'Fixture',transaction_id uuid,fee_transaction_id uuid,currency text default 'GHS');
+      create table transactions(owner_id uuid,transaction_id uuid,status text,type text,category text,amount numeric,currency text,source_update_id text);
       create table bills(id uuid primary key,owner_id uuid,active boolean);
       insert into profiles values('${a}'),('${b}');`);
     await db.exec(await readFile(new URL("../supabase/migrations/20261103110000_notifications.sql",import.meta.url),"utf8"));
     await db.exec(await readFile(new URL("../supabase/migrations/20261103200000_notification_recovery.sql",import.meta.url),"utf8"));
     await db.exec(await readFile(new URL("../supabase/migrations/20261103233000_payment_activity_notices.sql",import.meta.url),"utf8"));
+    await db.exec(await readFile(new URL("../supabase/migrations/20261103235000_fee_notice_readiness.sql",import.meta.url),"utf8"));
     const pair=await webcrypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveBits"]);
     subscription={endpoint:"https://fcm.googleapis.com/fcm/send/synthetic-fixture",keys:{p256dh:Buffer.from(await webcrypto.subtle.exportKey("raw",pair.publicKey)).toString("base64url"),auth:Buffer.alloc(16,7).toString("base64url")}};
   });

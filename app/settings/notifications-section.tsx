@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button, Card } from "@/app/components/ui";
 import { Spinner } from "@/app/components/status";
@@ -117,35 +117,49 @@ export async function connectNotificationDevice(publicKey: string, actions: Noti
 }
 
 class NotificationRecoveryUnavailable extends Error {
-  constructor(){super("Scheduled push recovery is not ready. Device notifications cannot be enabled yet; Alfred’s in-app mentions remain available.");}
+  constructor(){super("Device notifications aren’t ready yet. Your chat choices still work.");}
 }
 async function sendNotificationJson(path: string, method: string, body: unknown, expectedOwner: string) {
   const response = await fetch(path, { method, credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-alfred-owner": expectedOwner }, body: JSON.stringify(body) });
-  const payload = await response.json().catch(() => null) as { ok?: boolean; text?: string; deviceId?: string; device?: { id: string; createdAt: string } | null; ownerId?: string; recoveryReady?: boolean } | null;
+  const payload = await response.json().catch(() => null) as { ok?: boolean; deviceId?: string; ownerId?: string; preferences?: unknown; recoveryReady?: boolean } | null;
   if (!response.ok && payload?.recoveryReady === false) throw new NotificationRecoveryUnavailable();
-  if (!response.ok || payload?.ok !== true) throw new Error("That notification choice could not be saved. Please try again.");
+  if (!response.ok || payload?.ok !== true || (payload.ownerId !== undefined && payload.ownerId !== expectedOwner)) throw new Error("That change couldn’t be confirmed. Reload your choices to check it.");
   return payload;
 }
-function browserCanNotify(): boolean {
-  return typeof window !== "undefined" && window.isSecureContext && "Notification" in window && "serviceWorker" in navigator && "PushManager" in window;
+type DevicePushManager = BrowserRegistration["pushManager"];
+function hostPushManager(): DevicePushManager | undefined {
+  return (window as Window & { pushManager?: DevicePushManager }).pushManager;
 }
-function dateLabel(value: string): string {
-  return new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: "UTC" }).format(new Date(value));
+function browserCanNotify(): boolean {
+  return typeof window !== "undefined" && window.isSecureContext && "Notification" in window &&
+    (!!hostPushManager() || ("serviceWorker" in navigator && "PushManager" in window));
+}
+async function existingPushManager(): Promise<DevicePushManager | undefined> {
+  return hostPushManager() ?? (await navigator.serviceWorker.getRegistration("/"))?.pushManager;
+}
+function confirmedPreferences(value: unknown): NotificationPreferences {
+  const payload = value as Record<string, unknown> | null;
+  if (!payload) throw new Error("The saved choices could not be confirmed. Reload to check them.");
+  const preferences = { ...EMPTY_NOTIFICATION_PREFERENCES };
+  for (const key of preferenceKeys) {
+    const sinceKey = `${key}Since` as keyof Pick<NotificationPreferences, "paymentMentionsSince" | "outgoingMentionsSince" | "paymentPushSince" | "billRemindersSince" | "weeklyOverviewSince">;
+    const since = payload[sinceKey];
+    if (typeof payload[key] !== "boolean" || (since !== null && (typeof since !== "string" || !Number.isFinite(Date.parse(since))))) throw new Error("The saved choices could not be confirmed. Reload to check them.");
+    preferences[key] = payload[key] as boolean;
+    preferences[sinceKey] = since as string | null;
+  }
+  return preferences;
 }
 
 export function DiscreetNotificationPreview() {
-  return (
-    <div className="rounded-2xl border border-line-strong bg-bg p-4" aria-label="Example lock screen notification">
-      <div className="flex items-center gap-2 text-xs font-medium text-muted"><span className="grid size-6 place-items-center rounded-lg bg-brand-soft text-brand" aria-hidden="true">A</span>Alfred<span className="ml-auto font-normal text-faint">now</span></div>
-      <p className="mt-3 text-sm leading-6 text-ink">There’s a private update for you. Open Alfred to review.</p>
-      <p className="mt-2 text-xs text-faint">Preview · no names, amounts or message text</p>
-    </div>
-  );
+  return <div className="rounded-xl border border-line bg-bg p-4" aria-label="Example lock screen notification">
+    <p className="text-xs font-medium text-muted">Alfred <span className="float-right font-normal text-faint">now</span></p>
+    <p className="mt-2 text-sm leading-6 text-ink">There’s a private update for you. Open Alfred to review.</p>
+  </div>;
 }
 
 export function NotificationsSection({ ownerId, preview = false, initial }: { ownerId?: string; preview?: boolean; initial?: NotificationSettingsData }) {
   const [data, setData] = useState<NotificationSettingsData | null>(initial ?? null);
-  const [choices, setChoices] = useState<NotificationPreferences>(initial?.preferences ?? EMPTY_NOTIFICATION_PREFERENCES);
   const [loading, setLoading] = useState(!initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -155,163 +169,196 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
   const [deviceChecked, setDeviceChecked] = useState(preview);
   const [reconnectNeeded, setReconnectNeeded] = useState(false);
   const [attempt, setAttempt] = useState(0);
-  const dirty = !!data && preferenceKeys.some((key) => choices[key] !== data.preferences[key]);
-  const pushReady = !!data?.push.configured && data.push.deliveryEnabled && data.push.recoveryReady === true;
-  const browserStatusLabel = !deviceChecked ? "Browser status not verified" : reconnectNeeded ? "Browser needs reconnecting" : `${preview ? "Sample browser" : "Browser"} ${currentDevice ? "linked" : "not linked"}`;
+  const [deviceUnknown, setDeviceUnknown] = useState(false);
+  const [busyLabel, setBusyLabel] = useState("Saving…");
+  const session = useRef({ generation: 0, owner: ownerId ?? initial?.ownerId, active: true, busy: false });
+  const visibleData = data && (!ownerId || data.ownerId === ownerId) ? data : null;
+  const preferences = visibleData?.preferences ?? EMPTY_NOTIFICATION_PREFERENCES;
+  const pushReady = preview || (!!visibleData?.push.configured && visibleData.push.deliveryEnabled && visibleData.push.recoveryReady === true);
+  const deviceReady = preview || (!!visibleData?.push.configured && visibleData.push.deliveryEnabled);
+  const currentLinked = visibleData && currentDevice && !reconnectNeeded;
+  const browserStatus = deviceUnknown ? "Device status couldn’t be checked" : !deviceChecked ? "Checking this device…" : reconnectNeeded ? "Reconnect needed" : currentLinked ? "This device is connected" : "Not enabled on this device";
 
   useEffect(() => {
-    if (preview) return;
+    const activeSession = session.current;
+    const generation = ++activeSession.generation;
+    activeSession.active = true;
+    activeSession.owner = ownerId ?? initial?.ownerId;
+    activeSession.busy = false;
     const controller = new AbortController();
-    void Promise.resolve().then(() => {
-      if (controller.signal.aborted) return null;
-      setLoading(true); setError(""); setCurrentDevice(null); setDeviceChecked(false); setReconnectNeeded(false); setSupported(browserCanNotify());
-      return readNotificationSettings(ownerId, controller.signal);
-    }).then(async (next) => {
-      if (controller.signal.aborted || !next) return;
-      setData(next); setChoices(next.preferences); setLoading(false);
-      // Inspect only an existing registration. Opening Settings never prompts,
-      // registers, subscribes, sends a push or changes account preferences.
-      if (!browserCanNotify()) { setDeviceChecked(true); return; }
+    const current = () => !controller.signal.aborted && generation === session.current.generation;
+    if (!preview) void Promise.resolve().then(async () => {
+      if (!current()) return;
+      setLoading(true); setBusy(false); setError(""); setNotice(""); setCurrentDevice(null); setDeviceChecked(false); setReconnectNeeded(false); setDeviceUnknown(false); setSupported(browserCanNotify());
       try {
-        const registration = await navigator.serviceWorker.getRegistration("/");
-        const subscription = await registration?.pushManager.getSubscription();
-        if (controller.signal.aborted) return;
-        if (!subscription) { setDeviceChecked(true); return; }
-        if (next.push.configured && next.push.publicKey) setReconnectNeeded(!usesServerKey(subscription, next.push.publicKey));
-        const response = await fetch("/api/notifications/subscriptions/status", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-alfred-owner": next.ownerId }, body: JSON.stringify({ endpoint: subscription.endpoint }), signal: controller.signal });
-        const result = await response.json().catch(() => null) as { ok?: boolean; device?: { id?: string } | null; ownerId?: string } | null;
-        if (!controller.signal.aborted && response.ok && result?.ok === true && result.ownerId === next.ownerId) { setCurrentDevice(result.device?.id ?? null); setDeviceChecked(true); }
-      } catch { /* Browser diagnostics do not hide valid account choices. */ }
-    }).catch(() => {
-      if (!controller.signal.aborted) { setData(null); setLoading(false); setError(unavailable); }
-    });
-    return () => controller.abort();
-  }, [ownerId, preview, attempt]);
-
-  async function saveChoices() {
-    if (!data) return;
-    setBusy(true); setError(""); setNotice("");
-    try {
-      if (preview) {
-        setData({ ...data, preferences: { ...choices } });
-        setNotice("Preview choices saved for this visit. No account settings were saved and nothing will be sent.");
-      } else {
-        const patch = Object.fromEntries(preferenceKeys.filter((key) => choices[key] !== data.preferences[key]).map((key) => [key, choices[key]]));
-        await sendNotificationJson("/api/notifications", "PATCH", patch, data.ownerId);
-        const next = await readNotificationSettings(ownerId);
-        setData(next); setChoices(next.preferences); setNotice("Notification choices saved. Only new eligible updates will be included.");
+        const next = await readNotificationSettings(ownerId, controller.signal);
+        if (!current()) return;
+        session.current.owner = next.ownerId;
+        setData(next); setLoading(false);
+        // Inspect existing registration only. Rendering never asks permission or links a device.
+        if (!browserCanNotify()) { setDeviceChecked(true); return; }
+        try {
+          const subscription = await (await existingPushManager())?.getSubscription();
+          if (!current()) return;
+          if (!subscription) { setDeviceChecked(true); return; }
+          if (next.push.configured && next.push.publicKey) setReconnectNeeded(!usesServerKey(subscription, next.push.publicKey));
+          const response = await fetch("/api/notifications/subscriptions/status", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-alfred-owner": next.ownerId }, body: JSON.stringify({ endpoint: subscription.toJSON().endpoint }), signal: controller.signal });
+          const result = await response.json().catch(() => null) as { ok?: boolean; device?: { id?: string } | null; ownerId?: string } | null;
+          if (current() && response.ok && result?.ok === true && result.ownerId === next.ownerId) {
+            const id = result.device?.id;
+            if (id !== undefined && (typeof id !== "string" || !/^[0-9a-f-]{36}$/i.test(id))) throw new Error();
+            setCurrentDevice(id ?? null); setDeviceChecked(true);
+          } else if (current()) { setDeviceUnknown(true); setDeviceChecked(true); }
+        } catch { if (current()) { setDeviceUnknown(true); setDeviceChecked(true); } }
+      } catch {
+        if (current()) { setData(null); setLoading(false); setError(unavailable); }
       }
-    } catch (cause) { setError(cause instanceof NotificationRecoveryUnavailable ? cause.message : "The saved notification choices could not be confirmed. Reload this page to check them before trying again."); }
-    finally { setBusy(false); }
+    });
+    return () => { controller.abort(); if (generation === activeSession.generation) { activeSession.active = false; activeSession.generation++; activeSession.busy = false; } };
+  }, [ownerId, preview, attempt, initial?.ownerId]);
+
+  function begin(label = "Saving…") {
+    if (!visibleData || session.current.busy || !session.current.active || session.current.owner !== visibleData.ownerId) return null;
+    session.current.busy = true;
+    const token = { owner: visibleData.ownerId, generation: session.current.generation };
+    setBusy(true); setBusyLabel(label); setError(""); setNotice("");
+    return token;
   }
-  function resetPreview() {
-    if (!preview || !data) return;
-    const preferences = { ...EMPTY_NOTIFICATION_PREFERENCES };
-    setChoices(preferences);
-    setData({ ...data, preferences });
-    setError("");
-    setNotice("Preview reset. All five choices are off. No account settings were changed.");
+  function current(token: { owner: string; generation: number }) {
+    return session.current.active && session.current.owner === token.owner && session.current.generation === token.generation;
+  }
+  function finish(token: { owner: string; generation: number }) {
+    if (current(token)) { session.current.busy = false; setBusy(false); }
+  }
+  async function savePreference(key: PreferenceKey, value: boolean) {
+    const token = begin(); if (!token || !visibleData) return;
+    try {
+      let next: NotificationPreferences;
+      if (preview) next = { ...preferences, [key]: value };
+      else {
+        const result = await sendNotificationJson("/api/notifications", "PATCH", { [key]: value }, token.owner);
+        next = confirmedPreferences(result.preferences);
+        if (next[key] !== value) throw new Error("That choice couldn’t be confirmed. Reload your choices to check it.");
+      }
+      if (!current(token)) return;
+      setData(previous => previous?.ownerId === token.owner ? { ...previous, preferences: next } : previous);
+      setNotice(preview ? "Sample choice updated. Nothing will be sent." : "Saved.");
+    } catch (cause) { if (current(token)) setError(cause instanceof NotificationRecoveryUnavailable ? cause.message : "That choice couldn’t be confirmed. Reload your choices to check it."); }
+    finally { finish(token); }
   }
   async function allowThisBrowser() {
-    if (!data) return;
-    setBusy(true); setError(""); setNotice("");
+    const token = begin("Connecting…"); if (!token || !visibleData) return;
     try {
-      if (preview) {
-        setCurrentDevice("00000000-0000-4000-8000-000000000001");
-        setDeviceChecked(true);
-        setNotice("Browser setup previewed. No permission was requested and no device was registered.");
-      } else {
-        const key = data.push.publicKey;
-        if (!key || !data.push.configured || !browserCanNotify()) throw new Error("This browser is not ready for notifications.");
-        const deviceId = await connectNotificationDevice(key, {
+      let deviceId: string;
+      if (preview) deviceId = "00000000-0000-4000-8000-000000000001";
+      else {
+        const key = visibleData.push.publicKey;
+        if (!key || !pushReady || !browserCanNotify()) throw new Error("Device notifications aren’t ready yet. Your chat choices still work.");
+        deviceId = await connectNotificationDevice(key, {
           requestPermission: () => Notification.requestPermission(),
           register: async () => {
+            if (!current(token)) throw new Error("Your account changed. Reload to continue.");
+            const manager = hostPushManager();
+            if (manager) return { pushManager: manager };
             await navigator.serviceWorker.register("/sw.js", { scope: "/", updateViaCache: "none" });
             return navigator.serviceWorker.ready;
           },
           save: async (subscription) => {
-            const result = await sendNotificationJson("/api/notifications/subscriptions", "POST", subscription, data.ownerId);
-            if (!result.deviceId) throw new Error("The device could not be registered.");
+            if (!current(token)) throw new Error("Your account changed. Reload to continue.");
+            const result = await sendNotificationJson("/api/notifications/subscriptions", "POST", subscription, token.owner);
+            if (!result.deviceId) throw new Error("The device could not be linked.");
             return { deviceId: result.deviceId };
           },
         });
-        setCurrentDevice(deviceId);
-        setDeviceChecked(true);
-        setReconnectNeeded(false);
-        const next = await readNotificationSettings(ownerId); setData(next);
-        setNotice("This browser is linked. Choose which updates you want above.");
       }
+      if (!current(token)) return;
+      setCurrentDevice(deviceId); setDeviceChecked(true); setDeviceUnknown(false); setReconnectNeeded(false);
+      // The Enable action explicitly enables payment notifications, not other choices.
+      let next = { ...preferences, paymentPush: true };
+      if (!preview) {
+        try {
+          const result = await sendNotificationJson("/api/notifications", "PATCH", { paymentPush: true }, token.owner);
+          next = confirmedPreferences(result.preferences);
+          if (!next.paymentPush) throw new Error();
+        } catch { throw new Error("This device is connected. Payment notification settings couldn’t be confirmed. Reload your choices to check them."); }
+      }
+      if (!current(token)) return;
+      setData(previous => previous?.ownerId === token.owner ? { ...previous, preferences: next, devices: previous.devices.some(device => device.id === deviceId) ? previous.devices : [...previous.devices, { id: deviceId, createdAt: new Date().toISOString() }] } : previous);
+      setNotice(preview ? "Sample device enabled. Nothing will be sent." : "Payment notifications enabled on this device.");
     } catch (cause) {
+      if (!current(token)) return;
       if (cause instanceof ExistingNotificationConnection) setReconnectNeeded(true);
-      setError(cause instanceof Error ? cause.message : "This browser could not be linked.");
-    }
-    finally { setBusy(false); }
+      setError(cause instanceof Error ? cause.message : "This device could not be connected. Try again.");
+    } finally { finish(token); }
   }
   async function removeDevice(id: string) {
-    if (!data) return;
-    setBusy(true); setError(""); setNotice("");
+    const token = begin(); if (!token || !visibleData || !visibleData.devices.some(device => device.id === id) && id !== currentDevice) { if (token) finish(token); return; }
     try {
       if (!preview) {
-        await sendNotificationJson("/api/notifications/subscriptions", "DELETE", { id }, data.ownerId);
+        await sendNotificationJson("/api/notifications/subscriptions", "DELETE", { id }, token.owner);
+        if (!current(token)) return;
         if (id === currentDevice) {
-          try {
-            const registration = await navigator.serviceWorker.getRegistration("/");
-            await (await registration?.pushManager.getSubscription())?.unsubscribe();
-          } catch { /* Server delivery is already disabled even if browser cleanup fails. */ }
+          try { await (await (await existingPushManager())?.getSubscription())?.unsubscribe(); } catch { /* Server has already disabled delivery. */ }
         }
       }
+      if (!current(token)) return;
       if (id === currentDevice) { setCurrentDevice(null); setReconnectNeeded(false); }
-      setData({ ...data, devices: data.devices.filter((device) => device.id !== id) });
-      setNotice(preview ? "Device removed from this preview only." : "Notification delivery to that device is off.");
-    } catch { setError("The device could not be removed. Please try again."); }
-    finally { setBusy(false); }
+      setData(previous => previous?.ownerId === token.owner ? { ...previous, devices: previous.devices.filter(device => device.id !== id) } : previous);
+      setNotice(preview ? "Sample device removed. Nothing was changed on your account." : "Notifications are off on that device.");
+    } catch { if (current(token)) setError("The device could not be disconnected. Please try again."); }
+    finally { finish(token); }
+  }
+  async function testNotification() {
+    const token = begin("Sending test…"); if (!token || !currentDevice || !currentLinked) { if (token) finish(token); return; }
+    try {
+      if (preview) { setNotice("Sample test only. No notification was sent."); return; }
+      const response = await fetch("/api/notifications/test", { method: "POST", credentials: "same-origin", cache: "no-store", headers: { "content-type": "application/json", "x-alfred-owner": token.owner }, body: JSON.stringify({ deviceId: currentDevice }) });
+      const result = await response.json().catch(() => null) as { ok?: boolean; status?: string } | null;
+      if (!current(token)) return;
+      if (response.status === 429 && result?.status === "throttled") throw new Error("Please wait 30 seconds before sending another test.");
+      if (!response.ok || result?.ok !== true || !["accepted", "unconfirmed"].includes(result.status ?? "")) throw new Error("The test could not be sent. Please try again.");
+      setNotice(result.status === "accepted" ? "Test sent. Check this device’s notifications." : "The test result couldn’t be confirmed. Check this device before trying again.");
+    } catch (cause) { if (current(token)) setError(cause instanceof Error ? cause.message : "The test could not be sent. Try again."); }
+    finally { finish(token); }
+  }
+  function resetPreview() {
+    if (!preview || !visibleData) return;
+    setData({ ...visibleData, preferences: { ...EMPTY_NOTIFICATION_PREFERENCES }, devices: [] });
+    setCurrentDevice(null); setReconnectNeeded(false); setError(""); setNotice("Sample choices reset. Nothing will be sent.");
   }
 
-  return (
-    <div className="flex flex-col gap-5">
-      <Card title="When Alfred checks in">
-        <p className="text-sm leading-6 text-muted">Let Alfred announce money coming in and going out in chat, and choose which discreet nudges reach your devices. Each choice starts off until you turn it on.</p>
-        {loading ? <p className="mt-4 flex items-center gap-2 text-sm text-muted" role="status"><Spinner />Loading notification choices…</p> : null}
-        {data ? <>
-          <div className="mt-5 divide-y divide-line">
-            <NotificationChoice id="payment-mentions" title="Money in" description="Alfred announces new incoming payment alerts in chat. Uncertain alerts stay clearly marked for review." checked={choices.paymentMentions} disabled={busy} onChange={(value) => setChoices({ ...choices, paymentMentions: value })} />
-            <NotificationChoice id="outgoing-mentions" title="Money out" description="Alfred announces new outgoing payment alerts in chat. This is separate from your money-in choice." checked={choices.outgoingMentions} disabled={busy} onChange={(value) => setChoices({ ...choices, outgoingMentions: value })} />
-            <NotificationChoice id="payment-push" title="Payment nudges" description="A discreet nudge for new payment alerts, including overnight. Details stay inside Alfred." checked={choices.paymentPush} disabled={busy || (!preview && !choices.paymentPush && !pushReady)} onChange={(value) => setChoices({ ...choices, paymentPush: value })} />
-            <NotificationChoice id="bill-reminders" title="Bill reminders" description="A reminder at 9am the day before a confirmed bill, in your timezone." checked={choices.billReminders} disabled={busy || (!preview && !choices.billReminders && !pushReady)} onChange={(value) => setChoices({ ...choices, billReminders: value })} />
-            <NotificationChoice id="weekly-overview" title="Weekly overview" description="A Sunday check-in at 6pm in your timezone, when your records are up to date." checked={choices.weeklyOverview} disabled={busy || (!preview && !choices.weeklyOverview && !pushReady)} onChange={(value) => setChoices({ ...choices, weeklyOverview: value })} />
-          </div>
-          <div className="mt-5 flex flex-wrap items-center justify-end gap-3 border-t border-line pt-4">
-            {dirty ? <p className="mr-auto text-xs text-muted">Unsaved notification choices</p> : null}
-            {preview ? <Button onClick={resetPreview} disabled={busy}>Reset preview choices</Button> : null}
-            <Button variant="primary" onClick={() => void saveChoices()} disabled={!dirty || busy} aria-busy={busy}>{busy ? <Spinner /> : null}{preview ? "Save preview choices" : "Save notification choices"}</Button>
-          </div>
-          {preview ? <p className="mt-3 text-xs leading-5 text-muted">Try all five choices here. They are simulated for this visit, stay while you browse this preview, and reset when you reload. Nothing will be sent.</p> : !pushReady ? <p className="mt-3 text-xs leading-5 text-muted">Scheduled push recovery is not ready. New device notifications stay off until it has recently checked in. Alfred’s in-app mentions remain available, and existing device choices can be turned off.</p> : <p className="mt-3 text-xs leading-5 text-muted">Scheduled recovery has recently checked in. It can pick up pending nudges without waiting for another SMS.</p>}
-        </> : null}
-        {error ? <p className="mt-4 text-sm text-danger" role="alert">{error}</p> : null}
-        {notice ? <p className="mt-4 text-sm text-success" role="status" aria-live="polite">{notice}</p> : null}
-        {!loading && !data ? <Button className="mt-3" onClick={() => setAttempt((value) => value + 1)}>Try again</Button> : null}
-      </Card>
-
-      <Card title="On this browser">
-        <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-          <div className="min-w-0 flex-1">
-            <span className={`inline-flex rounded-full px-2.5 py-1 text-xs font-medium ${currentDevice && !reconnectNeeded ? "bg-success/10 text-success" : "bg-surface-2 text-muted"}`}>{browserStatusLabel}</span>
-            <p className="mt-3 text-sm leading-6 text-muted">Browser permission and your account choices are separate. You can keep Alfred’s chat mentions on while device notifications stay off.</p>
-            {reconnectNeeded ? <p className="mt-3 text-xs leading-5 text-muted">Turn off the existing browser connection before connecting again. If it belongs to another account, use a separate browser profile. Opening this page does not replace it.</p> : null}
-            {!supported && !preview ? <p className="mt-3 text-xs leading-5 text-muted">Notifications aren’t available in this browser context. On iPhone or iPad, add Alfred to your Home Screen first.</p> : null}
-            {data && !data.push.configured ? <p className="mt-3 text-xs leading-5 text-muted">Browser notifications are not ready on this Alfred server yet.</p> : null}
-            {data && !data.push.deliveryEnabled ? <p className="mt-3 text-xs leading-5 text-muted">Push delivery is currently off. A linked browser alone does not mean a notification was sent or shown.</p> : null}
-            <div className="mt-4 flex flex-wrap gap-2">
-              {currentDevice ? <Button onClick={() => void removeDevice(currentDevice)} disabled={busy}>Turn off this browser</Button> : <Button onClick={() => void allowThisBrowser()} disabled={busy || !data || (!preview && (!supported || !data.push.configured))} aria-busy={busy}>{preview ? "Preview browser setup" : "Allow notifications on this browser"}</Button>}
-            </div>
-          </div>
-          <div className="w-full sm:w-64"><DiscreetNotificationPreview /></div>
+  return <div className="flex flex-col gap-5">
+    <Card title="Alfred in chat">
+      {loading || !visibleData ? <p className="flex items-center gap-2 text-sm text-muted" role="status">{loading ? <><Spinner />Loading your choices…</> : "Your choices couldn’t be loaded."}</p> : <div className="divide-y divide-line">
+        <NotificationChoice id="payment-mentions" title="Money in" description="Announce incoming payment alerts." checked={preferences.paymentMentions} disabled={busy} onChange={value => void savePreference("paymentMentions", value)} />
+        <NotificationChoice id="outgoing-mentions" title="Money out" description="Announce outgoing payment alerts." checked={preferences.outgoingMentions} disabled={busy} onChange={value => void savePreference("outgoingMentions", value)} />
+      </div>}
+      {!loading && !visibleData ? <Button className="mt-3" onClick={() => setAttempt(value => value + 1)}>Try again</Button> : null}
+    </Card>
+    <Card title="Device notifications">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted" role="status">{browserStatus}</p>
+        <div className="flex flex-wrap gap-2">
+          {currentLinked ? <><Button onClick={() => void testNotification()} disabled={busy || !deviceReady}>Send test</Button><Button variant="ghost" onClick={() => void removeDevice(currentDevice!)} disabled={busy}>Turn off this device</Button></> : <Button variant="primary" onClick={() => void allowThisBrowser()} disabled={busy || !visibleData || !pushReady || (!preview && (!supported || reconnectNeeded))}>Enable notifications</Button>}
         </div>
-        {data && data.devices.length > 0 ? <div className="mt-5 border-t border-line pt-4"><p className="text-xs font-medium text-muted">Linked devices</p><ul className="mt-2 space-y-2">{data.devices.map((device, index) => <li key={device.id} className="flex flex-wrap items-center justify-between gap-2 rounded-xl bg-bg px-3 py-2 text-sm"><span>{device.id === currentDevice ? "This browser" : `Device ${index + 1}`}<span className="ml-2 text-xs text-faint">added {dateLabel(device.createdAt)}</span></span><Button size="sm" variant="ghost" onClick={() => void removeDevice(device.id)} disabled={busy} aria-label={`Remove device ${index + 1}`}>Remove</Button></li>)}</ul></div> : null}
-      </Card>
-      <p className="px-1 text-xs leading-5 text-muted">Notification previews never include a payment amount, a person’s name, a balance or SMS text. Open Alfred and sign in to see the details. Clicking a notification does not move money or change a category.</p>
+      </div>
+      <p className="mt-2 text-xs leading-5 text-muted">Get a private alert for new payments. Payment details stay inside Alfred.</p>
+      {reconnectNeeded ? <p className="mt-3 text-xs leading-5 text-muted">An older connection needs to be removed first. Keep this account in a separate browser profile if the connection belongs to someone else.</p> : !supported && !preview ? <p className="mt-3 text-xs leading-5 text-muted">On iPhone or iPad, add Alfred to your Home Screen and open it there first.</p> : !pushReady && !preview && visibleData ? <p className="mt-3 text-xs leading-5 text-muted">Device notifications aren’t ready yet. Your chat choices still work.</p> : null}
+      {visibleData && (currentLinked || preferences.paymentPush || visibleData.devices.length > 0) ? <div className="mt-4 border-t border-line"><NotificationChoice id="payment-push" title="Payment notifications" description="Applies to your connected devices." checked={preferences.paymentPush} disabled={busy || (!preferences.paymentPush && !pushReady)} onChange={value => void savePreference("paymentPush", value)} /></div> : null}
+      {currentLinked ? <details className="mt-3 border-t border-line pt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted">Notification preview</summary><DiscreetNotificationPreview /></details> : null}
+      {visibleData && visibleData.devices.some(device => device.id !== currentDevice) ? <details className="mt-3 border-t border-line pt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted">Other connected devices</summary><ul className="space-y-2 pb-2">{visibleData.devices.filter(device => device.id !== currentDevice).map((device, index) => <li key={device.id} className="flex items-center justify-between gap-3 text-sm"><span>Device {index + 1}</span><Button size="sm" variant="ghost" onClick={() => void removeDevice(device.id)} disabled={busy}>Remove</Button></li>)}</ul></details> : null}
+    </Card>
+    <details className="rounded-xl border border-line bg-surface px-5 py-1 sm:px-6">
+      <summary className="min-h-11 cursor-pointer py-4 text-sm font-medium text-ink">Reminders</summary>
+      {visibleData ? <div className="divide-y divide-line pb-2"><NotificationChoice id="bill-reminders" title="Bill reminders" description="The day before a confirmed bill, at 9am." checked={preferences.billReminders} disabled={busy || (!preferences.billReminders && !pushReady)} onChange={value => void savePreference("billReminders", value)} /><NotificationChoice id="weekly-overview" title="Weekly overview" description="Sunday at 6pm, in your timezone." checked={preferences.weeklyOverview} disabled={busy || (!preferences.weeklyOverview && !pushReady)} onChange={value => void savePreference("weeklyOverview", value)} /></div> : <p className="pb-4 text-xs text-muted">Load your notification choices to manage reminders.</p>}
+    </details>
+    <div aria-live="polite" className="px-1">
+      {busy ? <p className="flex items-center gap-2 text-xs text-muted" role="status"><Spinner />{busyLabel}</p> : null}
+      {error ? <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-danger" role="alert">{error}</p><Button size="sm" variant="ghost" onClick={() => setAttempt(value => value + 1)} disabled={busy}>Reload choices</Button></div> : null}
+      {notice ? <p className="text-xs text-muted" role="status">{notice}</p> : null}
+      {preview ? <div className="mt-2 flex flex-wrap items-center justify-between gap-3"><p className="text-xs text-faint">Demo · sample choices only. Nothing will be sent.</p><Button size="sm" variant="ghost" onClick={resetPreview} disabled={busy}>Reset sample choices</Button></div> : null}
     </div>
-  );
+  </div>;
 }
 
 function NotificationChoice({ id, title, description, checked, disabled, onChange }: { id: string; title: string; description: string; checked: boolean; disabled: boolean; onChange: (value: boolean) => void }) {

@@ -1,0 +1,273 @@
+import { webcrypto } from "node:crypto";
+import { readFile, readdir } from "node:fs/promises";
+import { PGlite } from "@electric-sql/pglite";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+const mocks = vi.hoisted(() => ({ query: vi.fn(), configuration: vi.fn(), send: vi.fn() }));
+vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
+vi.mock("@/lib/notifications/push", async original => ({
+  ...await original<typeof import("@/lib/notifications/push")>(),
+  pushConfiguration: mocks.configuration,
+  sendWebPush: mocks.send,
+}));
+
+import type { SupabaseSettings, UserProfile } from "@/lib/config";
+import { deliverBankAutomation } from "@/lib/bank/automation";
+import { applyLabel, ingestBankText } from "@/lib/bank/ingest";
+import { createSupabaseBankStore } from "@/lib/bank/store";
+import { loadAccountingState } from "@/lib/finance/accounting/persisted-store";
+import { accountingReportRows } from "@/lib/finance/accounting/view";
+import { notificationPayload, type PushKind } from "@/lib/notifications/push";
+import { ownedPaymentMovement } from "@/lib/notifications/payment-target";
+import { recordRecoveryCompletion } from "@/lib/notifications/recovery";
+import { drainOwnerNotifications, recoverPaymentNotifications } from "@/lib/notifications/service";
+import { createNotificationStore } from "@/lib/notifications/store";
+import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
+
+// The database and push provider are the only substituted transports. No test
+// can contact a real project or deliver a real browser notification.
+const settings = { projectRef: "synthetic", host: "synthetic.invalid", user: "synthetic", database: "postgres", password: "" } as unknown as SupabaseSettings;
+const ownerId = "00000000-0000-4000-8000-000000000001";
+const otherOwnerId = "00000000-0000-4000-8000-000000000002";
+const profile = (profileId = ownerId): UserProfile => ({ profileId, telegramUserId: null, spreadsheetId: "",
+  preferredName: "Synthetic tester", currency: "GHS", timezone: "Africa/Accra", communicationPreference: "concise" });
+const hubtelOut = "GHS 1.00 was withdrawn from your Hubtel wallet. Available balance: GHS 99.00. Transaction ID: 88123456.";
+const hubtelIn = "GHS 1.00 was deposited into your Hubtel wallet. Available balance: GHS 100.00. Transaction ID: 88123457.";
+const momoIn = "Payment received for GHS 1.00 from FICTIONAL OWNER Current Balance: GHS 100.00 . Available Balance: GHS 100.00. Reference: transfer. Transaction ID: 92300000001. TRANSACTION FEE: 0.00";
+const momoOut = "Payment made for GHS 1.00 to FICTIONAL OWNER Current Balance: GHS 99.00 . Available Balance: GHS 99.00. Reference: transfer. Transaction ID: 92300000002. Fee charged: GHS0.00 Tax charged: 0.";
+const pairs = [["Hubtel to Mobile Money", hubtelOut, momoIn], ["Mobile Money to Hubtel", momoOut, hubtelIn]] as const;
+let db: PGlite, now: Date, deviceId: string;
+let subscription: { endpoint: string; keys: { p256dh: string; auth: string } };
+let payloads: ReturnType<typeof notificationPayload>[];
+
+beforeAll(async () => {
+  db = new PGlite();
+  await db.exec("create role anon;create role authenticated;create schema auth;create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}'::jsonb);");
+  const directory = new URL("../supabase/migrations/", import.meta.url);
+  for (const name of (await readdir(directory)).filter(name => name.endsWith(".sql")).sort()) {
+    await db.exec(await readFile(new URL(name, directory), "utf8"));
+  }
+  const pair = await webcrypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  subscription = { endpoint: "https://fcm.googleapis.com/fcm/send/fictional-journey-only", keys: {
+    p256dh: Buffer.from(await webcrypto.subtle.exportKey("raw", pair.publicKey)).toString("base64url"), auth: Buffer.alloc(16, 7).toString("base64url"),
+  } };
+}, 30_000);
+
+beforeEach(async () => {
+  vi.clearAllMocks();
+  await db.exec("truncate auth.users cascade;truncate public.notification_recovery_health");
+  mocks.query.mockImplementation(async (_settings: unknown, sql: string, values: unknown[] = []) => (await db.query(sql, values)).rows);
+  vi.stubEnv("ALFRED_PUSH_DELIVERY_ENABLED", "true");
+  vi.stubEnv("ALFRED_NOTIFICATION_SCHEDULES_ENABLED", "true");
+  vi.stubEnv("ALFRED_NOTIFICATION_CRON_SECRET", "fictional-journey-secret");
+  vi.stubEnv("ALFRED_NOTIFICATION_RECOVERY_SCHEDULE_ID", "synthetic/journey");
+  vi.stubEnv("ALFRED_NOTIFICATION_RECOVERY_INTERVAL_SECONDS", "60");
+  mocks.configuration.mockReturnValue({ ready: true, config: { publicKey: "synthetic", privateKey: "synthetic", subject: "mailto:fixture@example.invalid" } });
+  payloads = [];
+  mocks.send.mockImplementation(async (_subscription: unknown, _configuration: unknown, kind: PushKind, _fetcher: unknown, target: string | undefined) => {
+    payloads.push(notificationPayload(kind, target));
+    return new Response(null, { status: 201 });
+  });
+  await db.query("insert into auth.users(id) values($1),($2)", [ownerId, otherOwnerId]);
+  now = (await db.query<{ at: Date }>("select now() at")).rows[0].at;
+  await enableOwner(ownerId);
+  await recordRecoveryCompletion(settings, now);
+});
+afterEach(() => { vi.unstubAllEnvs(); });
+afterAll(async () => { await db.close(); });
+
+async function enableOwner(owner: string) {
+  const store = createNotificationStore(settings);
+  await store.update(owner, { paymentMentions: true, outgoingMentions: true, paymentPush: true });
+  const id = await store.subscribe(owner, { ...subscription, endpoint: subscription.endpoint + "/" + owner });
+  // Model a connection and consent established before these fictional alerts.
+  await db.query(`update notification_preferences set payment_mentions_since=$2,outgoing_mentions_since=$2,payment_push_since=$2 where owner_id=$1`,
+    [owner, new Date(Date.now() - 60 * 60_000)]);
+  await db.query("update push_subscriptions set created_at=$2 where id=$1", [id, new Date(Date.now() - 60 * 60_000)]);
+  if (owner === ownerId) deviceId = id;
+  return id;
+}
+
+async function ingest(text: string, receivedAt = now) {
+  return ingestBankText({ bank: createSupabaseBankStore(settings), ledger: createSupabaseFinanceStore(settings), now,
+    createId: () => webcrypto.randomUUID() }, profile(), text,
+  { channel: "mac", sender: text.includes("Hubtel") ? "Hubtel" : text.includes("account ending") ? "Absa" : "MobileMoney", receivedAt });
+}
+function absaAlerts() {
+  const day=now.getUTCDate().toString().padStart(2,"0"),month=(now.getUTCMonth()+1).toString().padStart(2,"0");
+  const monthName=new Intl.DateTimeFormat("en-GB",{month:"short",timeZone:"UTC"}).format(now);
+  const time=now.toISOString().slice(11,16),year=now.getUTCFullYear();
+  return {
+    fee:`GHS 1.00 has been debited to your account ending 4821 as of ${day} ${monthName} ${year} ${time}. Your available balance is 1,946.22 Credit transactions may not yet have cleared`,
+    payment:`Dear Customer, Transfer of GHS100 from your account ending 4821 to 233241234567 FICTIONAL PAYEE on ${day}/${month}/${String(year).slice(-2)} ${time} was successful. WALLET TxnID 17917435599999`,
+  };
+}
+async function counts() {
+  return (await db.query<{ notices: number; receipts: number; deliveries: number; transactions: number }>(`select
+    (select count(*)::int from messages where intent like 'automation:%') notices,
+    (select count(*)::int from bank_notice_receipts) receipts,
+    (select count(*)::int from notification_deliveries) deliveries,
+    (select count(*)::int from transactions) transactions`)).rows[0];
+}
+
+describe("small-payment announcements through the actual server stores", () => {
+  it.each(pairs)("announces both GHS1 legs of %s once while leaving classification and accounts for review", async (_label, outgoing, incoming) => {
+    const events: string[] = [];
+    for (const text of [outgoing, incoming]) {
+      const result = await ingest(text);
+      expect(result).toMatchObject({ found: 1, duplicates: 0 });
+      expect(result.outcomes[0].message).toMatchObject({ kind: "payment", status: "needs_label", amount: "1.00", transactionId: null });
+      events.push(result.outcomes[0].message.id);
+    }
+    await deliverBankAutomation(settings, profile());
+    const state = (await loadAccountingState(settings, ownerId)).state;
+    expect(state.movements).toHaveLength(2);
+    expect(state.movements.map(movement => ({ amount: movement.amountMinor, account: movement.accountId, status: movement.status, direction: movement.direction }))
+      .sort((a, b) => a.direction.localeCompare(b.direction))).toEqual([
+      { amount: 100, account: null, status: "review", direction: "in" }, { amount: 100, account: null, status: "review", direction: "out" },
+    ]);
+    expect(state.accounts).toHaveLength(0); expect(state.transfers).toHaveLength(0);
+    expect(accountingReportRows(state)).toEqual([]);
+    expect(await counts()).toEqual({ notices: 2, receipts: 2, deliveries: 2, transactions: 0 });
+    const notices = (await db.query<{ intent: string; meta: { paymentNotice: { bankMessageId: string; requiresPurpose: boolean } } }>(
+      "select intent,meta from messages where intent like 'automation:%' order by intent")).rows;
+    expect(notices.map(message => message.intent)).toEqual(["automation:incoming-payment", "automation:outgoing-payment"]);
+    expect(notices.every(message => message.meta.paymentNotice.requiresPurpose)).toBe(true);
+    expect(payloads).toHaveLength(2);
+    expect(payloads.map(payload => payload.targetId).sort()).toEqual([...events].sort());
+    expect(JSON.stringify(payloads)).not.toMatch(/GHS|FICTIONAL OWNER|Hubtel|1\.00|88123456|92300000001/);
+    for (const event of events) {
+      expect(ownedPaymentMovement(state, ownerId, event)?.sourceId).toBe(event);
+      expect(ownedPaymentMovement(state, otherOwnerId, event)).toBeNull();
+    }
+    expect((await db.query<{ status: string; attempts: number; subscription_id: string }>("select status,attempts,subscription_id from notification_deliveries")).rows)
+      .toEqual(expect.arrayContaining([expect.objectContaining({ status: "accepted", attempts: 1, subscription_id: deviceId })]));
+    for (const text of [outgoing, incoming]) expect(await ingest(text)).toMatchObject({ duplicates: 1, outcomes: [] });
+    await deliverBankAutomation(settings, profile());
+    expect(await counts()).toEqual({ notices: 2, receipts: 2, deliveries: 2, transactions: 0 });
+    expect(mocks.send).toHaveBeenCalledTimes(2);
+  });
+
+  it("stores alerts without announcements or sends when the owner has not opted in", async () => {
+    await createNotificationStore(settings).update(ownerId, { paymentMentions: false, outgoingMentions: false, paymentPush: false });
+    await ingest(hubtelOut); await ingest(momoIn);
+    await deliverBankAutomation(settings, profile());
+    expect(await counts()).toEqual({ notices: 0, receipts: 0, deliveries: 0, transactions: 0 });
+    expect((await createSupabaseBankStore(settings).listMessages(ownerId)).map(message => message.status)).toEqual(["needs_label", "needs_label"]);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("does not replay an alert from before account consent", async () => {
+    await ingest(hubtelOut, new Date(now.getTime() - 2 * 60 * 60_000));
+    await deliverBankAutomation(settings, profile());
+    expect(await counts()).toEqual({ notices: 0, receipts: 0, deliveries: 0, transactions: 0 });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("keeps an eligible chat notice but excludes a device connected after that alert", async () => {
+    await db.query("update push_subscriptions set created_at=$2 where id=$1", [deviceId, now]);
+    await ingest(momoIn, new Date(now.getTime() - 60_000));
+    await deliverBankAutomation(settings, profile());
+    expect(await counts()).toEqual({ notices: 1, receipts: 1, deliveries: 0, transactions: 0 });
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("honors opt-out between durable enqueue and the provider claim", async () => {
+    await ingest(hubtelOut); await ingest(momoIn);
+    expect(await recoverPaymentNotifications(settings, ownerId)).toBe(2);
+    await createNotificationStore(settings).update(ownerId, { paymentPush: false });
+    expect(await drainOwnerNotifications(settings, ownerId)).toMatchObject({ attempted: 0, accepted: 0 });
+    expect((await db.query<{ status: string; attempts: number }>("select status,attempts from notification_deliveries")).rows)
+      .toEqual([{ status: "canceled", attempts: 0 }, { status: "canceled", attempts: 0 }]);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("cannot enqueue, claim, deliver, or resolve another owner's event", async () => {
+    await enableOwner(otherOwnerId);
+    const event = (await ingest(momoIn)).outcomes[0].message.id;
+    const store = createNotificationStore(settings);
+    expect(await store.enqueuePayment(otherOwnerId, event)).toBe(0);
+    expect(await store.enqueuePayment(ownerId, event)).toBe(1);
+    const [delivery] = (await db.query<{ id: string }>("select id::text from notification_deliveries")).rows;
+    expect(await store.claim(otherOwnerId, delivery.id, new Date())).toBeNull();
+    expect(await drainOwnerNotifications(settings, otherOwnerId)).toMatchObject({ attempted: 0 });
+    const ownState = (await loadAccountingState(settings, ownerId)).state;
+    const otherState = (await loadAccountingState(settings, otherOwnerId)).state;
+    expect(ownedPaymentMovement(otherState, otherOwnerId, event)).toBeNull();
+    expect(ownedPaymentMovement(ownState, otherOwnerId, event)).toBeNull();
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it.each([true,false])("announces a fee-first alert immediately, then suppresses further confirmed-fee notices: feeFirst=%s",async feeFirst=>{
+    const alerts=absaAlerts(),first=feeFirst?alerts.fee:alerts.payment,second=feeFirst?alerts.payment:alerts.fee;
+    await ingest(first);await deliverBankAutomation(settings,profile());
+    expect((await counts()).notices).toBe(1);
+    expect(mocks.send).toHaveBeenCalledOnce();
+    await ingest(second);await deliverBankAutomation(settings,profile());
+    await deliverBankAutomation(settings,profile());
+    const messages=await createSupabaseBankStore(settings).listMessages(ownerId);
+    const fee=messages.find(message=>message.amount==="1.00")!,payment=messages.find(message=>message.amount==="100.00")!;
+    expect(fee).toMatchObject({status:"recorded",kind:"payment"});expect(fee.transactionId).not.toBeNull();
+    expect(payment).toMatchObject({status:"needs_label",transactionId:null});
+    const expectedEvents=feeFirst?[fee.id,payment.id]:[payment.id];
+    expect(await counts()).toEqual({notices:expectedEvents.length,receipts:expectedEvents.length,deliveries:expectedEvents.length,transactions:1});
+    expect((await db.query<{bank_message_id:string}>("select bank_message_id::text from bank_notice_receipts order by bank_message_id")).rows.map(row=>row.bank_message_id)).toEqual([...expectedEvents].sort());
+    expect(payloads.map(payload=>payload.targetId)).toEqual(expectedEvents);
+    expect((await db.query<{category:string;amount:string;source_update_id:string}>("select category,amount::text,source_update_id from transactions")).rows)
+      .toEqual([{category:"Fees",amount:"1.00",source_update_id:`bank:${fee.id}`}]);
+    for(const text of [first,second])expect(await ingest(text)).toMatchObject({duplicates:1,outcomes:[]});
+    await deliverBankAutomation(settings,profile());expect(mocks.send).toHaveBeenCalledTimes(expectedEvents.length);
+  });
+
+  it.each(["0.01","0.50","1.00"])("announces a bare GHS%s alert in either direction immediately without a second alert or clock advance",async amount=>{
+    const debit=absaAlerts().fee.replace("GHS 1.00",`GHS ${amount}`),credit=debit.replace("debited","credited");
+    const texts=[debit,credit],events:string[]=[];
+    for(const [index,text] of texts.entries()){
+      const event=(await ingest(text)).outcomes[0].message;
+      expect(event).toMatchObject({counterparty:"",status:"needs_label",amount,transactionId:null});events.push(event.id);
+      await deliverBankAutomation(settings,profile());
+      expect(await counts()).toEqual({notices:index+1,receipts:index+1,deliveries:index+1,transactions:0});
+      expect(mocks.send).toHaveBeenCalledTimes(index+1);
+      expect(payloads[index].targetId).toBe(event.id);
+    }
+    for(const text of texts)expect(await ingest(text)).toMatchObject({duplicates:1,outcomes:[]});
+    await deliverBankAutomation(settings,profile());expect(mocks.send).toHaveBeenCalledTimes(2);
+    const state=(await loadAccountingState(settings,ownerId)).state;
+    expect(state.movements.every(movement=>movement.status==="review"&&movement.accountId===null)).toBe(true);
+    expect(state.movements.map(movement=>movement.sourceId).sort()).toEqual(events.sort());
+  });
+
+  it("does not shorten an existing transport retry backoff or change attempts",async()=>{
+    const event=(await ingest(absaAlerts().fee)).outcomes[0].message.id;
+    const future=new Date(Date.now()+600_000);
+    const [row]=(await db.query<{id:string}>(`insert into notification_deliveries(owner_id,subscription_id,kind,event_key,resource_id,preference_epoch,next_attempt_at,attempts,last_result)
+      select owner_id,$2::uuid,'payment','payment:'||$3::text,$3::uuid,payment_epoch,$4::timestamptz,1,'HTTP-503' from notification_preferences where owner_id=$1 returning id::text`,[ownerId,deviceId,event,future])).rows;
+    expect(await drainOwnerNotifications(settings,ownerId)).toMatchObject({attempted:0});
+    expect(await createNotificationStore(settings).cancel(ownerId,row.id,new Date())).toBe(false);
+    expect((await db.query<{status:string;attempts:number;last_result:string;next_attempt_at:Date}>("select status,attempts,last_result,next_attempt_at from notification_deliveries")).rows)
+      .toEqual([{status:"queued",attempts:1,last_result:"HTTP-503",next_attempt_at:future}]);
+    expect(mocks.send).not.toHaveBeenCalled();
+  });
+
+  it("retains a formerly suppressed job corrected by its owner between claim and final cancellation",async()=>{
+    const event=(await ingest(absaAlerts().fee)).outcomes[0].message.id;
+    const ledger=createSupabaseFinanceStore(settings);
+    const labeled=await applyLabel({bank:createSupabaseBankStore(settings),ledger,now,createId:()=>webcrypto.randomUUID()},profile(),event,
+      {kind:"category",category:"Fees",description:"Fictional fee"});expect(labeled.ok).toBe(true);
+    const message=await createSupabaseBankStore(settings).getMessage(ownerId,event);expect(message?.transactionId).not.toBeNull();
+    await db.query(`insert into notification_deliveries(owner_id,subscription_id,kind,event_key,resource_id,preference_epoch,next_attempt_at)
+      select owner_id,$2::uuid,'payment','payment:'||$3::text,$3::uuid,payment_epoch,now()-interval '1 second' from notification_preferences where owner_id=$1`,[ownerId,deviceId,event]);
+    const store=createNotificationStore(settings);
+    const racingStore={...store,claim:async(owner:string,id:string,at:Date)=>{
+      const result=await store.claim(owner,id,at);expect(result).toBeNull();
+      await ledger.updateTransaction(ownerId,message!.transactionId!,{category:"Food",description:"Fictional snack"});
+      return result;
+    }};
+    expect(await drainOwnerNotifications(settings,ownerId,{store:racingStore})).toMatchObject({attempted:0,deferred:1,skipped:0});
+    expect((await db.query<{status:string;attempts:number}>("select status,attempts from notification_deliveries")).rows).toEqual([{status:"queued",attempts:0}]);
+    expect(mocks.send).not.toHaveBeenCalled();
+    expect(await drainOwnerNotifications(settings,ownerId)).toMatchObject({accepted:1});
+    await drainOwnerNotifications(settings,ownerId);expect(mocks.send).toHaveBeenCalledOnce();
+    expect(payloads[0].targetId).toBe(event);
+  });
+});

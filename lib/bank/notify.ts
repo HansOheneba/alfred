@@ -39,7 +39,7 @@ function summaryLine(outcome: IngestOutcome): string | null {
   if (outcome.outcome === "invested") return `Put ${money}${who ? ` to ${who}` : ""} into ${outcome.category}. Not counted as spending.`;
   if (outcome.outcome === "transfer") return `${money} moved between your own accounts. Not counted as income or spending.`;
   if (outcome.outcome === "loan") return `${money} came in from your loan account. That's borrowed money, so I haven't counted it as income.`;
-  if (outcome.outcome === "skipped") return `Left out ${money}${who ? ` ${message.direction === "out" ? "to" : "from"} ${who}` : ""}: it looks like a card check or test send.`;
+  if (outcome.outcome === "skipped") return `Left out ${money}${who ? ` ${message.direction === "out" ? "to" : "from"} ${who}` : ""}.`;
   return null;
 }
 
@@ -190,7 +190,7 @@ export function summarize(outcomes: IngestOutcome[], currency: string): string[]
     count("invested") ? `${count("invested")} went into investments` : "",
     count("transfer") ? `${plural(count("transfer"), "was", "were")} your own money moving` : "",
     count("loan") ? `${plural(count("loan"), "loan deposit")}` : "",
-    count("skipped") ? `${plural(count("skipped"), "tiny test charge")} left out` : "",
+    count("skipped") ? `${plural(count("skipped"), "payment")} left out` : "",
     count("needs_label") ? `${count("needs_label")} need${count("needs_label") === 1 ? "s" : ""} a label` : "",
   ].filter(Boolean);
   const lines = [`I read ${plural(outcomes.length, "new payment")}: ${parts.join(", ")}.`];

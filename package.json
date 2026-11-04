@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "tsx scripts/db-migrate.ts",
+    "automations:check": "node --import tsx scripts/check-automations.ts",
     "eval:labels": "tsx scripts/eval-labels.ts",
     "eval:conversations": "tsx scripts/eval-conversations.ts",
     "seed:users": "tsx scripts/seed-users.ts",

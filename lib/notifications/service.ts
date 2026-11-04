@@ -2,10 +2,10 @@ import type { SupabaseSettings } from "@/lib/config";
 import { nextOccurrence } from "@/lib/finance/bill-schedule";
 import { query } from "@/lib/supabase/connection";
 import { createNotificationStore, type NotificationStore, type QueuedDelivery } from "./store";
-import { PushFailure, pushConfiguration, sendWebPush, type PushConfiguration, type PushKind, type PushSubscriptionRecord } from "./push";
+import { PushFailure, pushConfiguration, sendWebPush, type PushConfiguration, type QueuedPushKind, type PushSubscriptionRecord } from "./push";
 import { loadRecoveryStatus, recoveryConfiguration } from "./recovery";
 
-type Sender=(subscription:PushSubscriptionRecord,configuration:PushConfiguration,kind:PushKind)=>Promise<Response>;
+type Sender=(subscription:PushSubscriptionRecord,configuration:PushConfiguration,kind:QueuedPushKind,targetId?:string)=>Promise<Response>;
 export type DeliveryOptions={now?:Date;store?:NotificationStore;send?:Sender;configuration?:PushConfiguration|null;deliveryEnabled?:boolean;timeZone?:string;maxAttemptsPerRun?:number;timeBudgetMs?:number;clock?:()=>number;recoveryReady?:boolean};
 export type DeliverySummary={configured:boolean;enabled:boolean;recoveryReady:boolean;attempted:number;accepted:number;retrying:number;rejected:number;unconfirmed:number;skipped:number;deferred:number};
 export function localClock(now:Date,timeZone:string):{day:string;hour:number;weekday:string} {
@@ -34,6 +34,7 @@ export async function recoverPaymentNotifications(settings:SupabaseSettings,owne
   const missing=await query<{id:string}>(settings,`select b.id::text from public.bank_messages b join public.notification_preferences p on p.owner_id=b.owner_id
     where b.owner_id=$1::uuid and p.payment_push and b.channel in ('mac','shortcut') and b.kind='payment' and b.amount>0
       and b.status in ('needs_label','recorded') and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since
+      and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
       and exists(select 1 from public.push_subscriptions s where s.owner_id=b.owner_id and s.created_at<=b.occurred_at
         and (s.expires_at is null or s.expires_at>now()) and not exists(select 1 from public.notification_deliveries d
           where d.owner_id=b.owner_id and d.subscription_id=s.id and d.event_key='payment:'||b.id::text))
@@ -72,11 +73,15 @@ export async function drainOwnerNotifications(settings:SupabaseSettings,ownerId:
     if(!await stillScheduled(settings,item,now,zone)){await store.cancel(ownerId,item.id);result.skipped++;return;}
     if(clock()+17_000>deadline){result.deferred++;return;}
     const claim=await store.claim(ownerId,item.id,now);
-    if(!claim){await store.cancel(ownerId,item.id);result.skipped++;return;}
+    if(!claim){
+      if(await store.cancel(ownerId,item.id,now))result.skipped++;else result.deferred++;
+      return;
+    }
     result.attempted++;
     let outcome:ReturnType<typeof pushResult>;
     try {
-      const response=await (options.send??sendWebPush)(claim.subscription,configuration,claim.kind);
+      const send:Sender=options.send??((subscription,config,kind,targetId)=>sendWebPush(subscription,config,kind,undefined,targetId));
+      const response=await send(claim.subscription,configuration,claim.kind,claim.kind==="payment"?claim.resourceId??undefined:undefined);
       outcome=pushResult(response.status,claim.attempts,now);
       if(response.status===404||response.status===410)await store.unsubscribe(ownerId,{id:claim.subscriptionId});
     } catch(error) {

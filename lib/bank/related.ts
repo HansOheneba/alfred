@@ -48,7 +48,7 @@ export function feeFor(message: BankMessage, around: BankMessage[]): BankMessage
   return around.find((item) => minor(item.amount) >= fee * 5) ?? null;
 }
 
-/** Small bare debits around a payment that are its fees, still waiting or left out as a test charge. */
+/** Small bare debits around a payment that are its fees, still waiting or excluded. */
 export function feesAround(message: BankMessage, around: BankMessage[]): BankMessage[] {
   if (message.direction !== "out") return [];
   const amount = minor(message.amount);

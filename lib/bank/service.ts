@@ -1,6 +1,6 @@
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
-import { ingestBankText, type IngestOutcome } from "@/lib/bank/ingest";
+import { ingestPreparedBankText, prepareBankText, type IngestOutcome } from "@/lib/bank/ingest";
 import { announceOutcomes } from "@/lib/bank/notify";
 import { createUnknownTextReader } from "@/lib/bank/read-unknown";
 import { createSupabaseInvestmentStore } from "@/lib/investments/store";
@@ -10,7 +10,7 @@ import { newTransactionId } from "@/lib/finance/ids";
 import { createSupabasePeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore } from "@/lib/finance/loans";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
-import { query } from "@/lib/supabase/connection";
+import { query, withBankIngestTransaction } from "@/lib/supabase/connection";
 import { createTelegramClient } from "@/lib/telegram/client";
 import { getStudioSettings } from "@/lib/env";
 
@@ -33,20 +33,20 @@ export async function ingestBankMessages(
   text: string,
   options: { channel: BankMessage["channel"]; sender?: string | null; receivedAt?: Date },
 ): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number; durableMessageIds: string[] }> {
-  return ingestBankText(
-    {
-      bank: createSupabaseBankStore(settings),
-      ledger: createSupabaseFinanceStore(settings),
-      loans: createSupabaseLoanStore(settings),
-      investments: createSupabaseInvestmentStore(settings),
-      now: new Date(),
-      createId: newTransactionId,
-      readUnknown: unknownReader(),
-    },
-    profile,
-    text,
-    options,
-  );
+  const deps = {
+    bank: createSupabaseBankStore(settings),
+    ledger: createSupabaseFinanceStore(settings),
+    loans: createSupabaseLoanStore(settings),
+    investments: createSupabaseInvestmentStore(settings),
+    now: new Date(),
+    createId: newTransactionId,
+    readUnknown: unknownReader(),
+  };
+  // The unfamiliar-bank reader can call an external model. Finish that before
+  // acquiring a database connection or holding an owner lock.
+  const prepared = await prepareBankText(deps, profile, text, options);
+  if (prepared.parsed.length === 0) return { outcomes: [], duplicates: 0, found: 0, durableMessageIds: [] };
+  return withBankIngestTransaction(settings, profile.profileId, () => ingestPreparedBankText(deps, profile, prepared, options));
 }
 
 /** The model reader for unfamiliar banks, or null when DeepSeek isn't configured. */

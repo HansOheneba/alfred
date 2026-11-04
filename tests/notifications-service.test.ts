@@ -5,7 +5,7 @@ import type { NotificationStore,QueuedDelivery } from "@/lib/notifications/store
 import type { SupabaseSettings } from "@/lib/config";
 const now=new Date("2026-11-03T12:00:00Z"),configuration={} as PushConfiguration;
 const delivery:QueuedDelivery={id:"1",ownerId:"owner",subscriptionId:"device",kind:"payment",eventKey:"payment:fixture",resourceId:"fixture",targetDate:null,attempts:1,subscription:{endpoint:"https://fcm.googleapis.com/fcm/send/fixture",keys:{p256dh:"synthetic",auth:"synthetic"},expirationTime:null}};
-function fakeStore(){return {pending:vi.fn(async()=>[delivery]),claim:vi.fn(async()=>delivery),finish:vi.fn(async()=>{}),cancel:vi.fn(async()=>{}),unsubscribe:vi.fn(async()=>{})} as unknown as NotificationStore;}
+function fakeStore(){return {pending:vi.fn(async()=>[delivery]),claim:vi.fn(async()=>delivery),finish:vi.fn(async()=>{}),cancel:vi.fn(async()=>true),unsubscribe:vi.fn(async()=>{})} as unknown as NotificationStore;}
 describe("privacy-safe notification delivery state machine",()=>{
  it("separates accepted, definite rejection, bounded retry and ambiguous sends",()=>{
   expect(pushResult(201,1,now).status).toBe("accepted");expect(pushResult(403,1,now).status).toBe("rejected");
@@ -24,7 +24,7 @@ describe("privacy-safe notification delivery state machine",()=>{
  it("claims before transport and records acceptance without exposing payload details",async()=>{
   const store=fakeStore(),send=vi.fn(async()=>new Response(null,{status:201}));
   const result=await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,send,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra"});
-  expect(result.accepted).toBe(1);expect(store.claim).toHaveBeenCalledBefore(send);expect(send).toHaveBeenCalledWith(delivery.subscription,configuration,"payment");expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"accepted",reason:"provider-accepted"});
+  expect(result.accepted).toBe(1);expect(store.claim).toHaveBeenCalledBefore(send);expect(send).toHaveBeenCalledWith(delivery.subscription,configuration,"payment",delivery.resourceId);expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"accepted",reason:"provider-accepted"});
  });
  it("never blindly retries connection uncertainty and deletes gone devices",async()=>{
   const store=fakeStore();await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra",send:async()=>{throw new PushFailure("connection");}});expect(store.finish).toHaveBeenCalledWith("owner","1",{status:"unconfirmed",reason:"connection-unconfirmed"});
@@ -38,5 +38,11 @@ describe("privacy-safe notification delivery state machine",()=>{
   expect(send).toHaveBeenCalledTimes(3);expect(result.deferred).toBe(2);
   const short=fakeStore();const deferred=await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store:short,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra",send,timeBudgetMs:1000});
   expect(short.claim).not.toHaveBeenCalled();expect(deferred.deferred).toBe(1);
+ });
+ it("retains currently eligible work after a failed claim without canceling or attempting transport",async()=>{
+  const store=fakeStore(),send=vi.fn();vi.mocked(store.claim).mockResolvedValue(null);vi.mocked(store.cancel).mockResolvedValue(false);
+  const result=await drainOwnerNotifications({} as SupabaseSettings,"owner",{now,store,configuration,deliveryEnabled:true,recoveryReady:true,timeZone:"Africa/Accra",send});
+  expect(result).toMatchObject({attempted:0,deferred:1,skipped:0});expect(store.cancel).toHaveBeenCalledWith("owner",delivery.id,now);
+  expect(send).not.toHaveBeenCalled();
  });
 });

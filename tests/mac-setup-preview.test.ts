@@ -22,8 +22,8 @@ describe("simple Mac setup explanation", () => {
     expect(html).toContain("Full Disk Access is a broad macOS permission");
     expect(html).toContain("does not narrow that OS permission");
     expect(html).toContain("Your Mac must already receive your iPhone SMS");
-    expect(html).toContain("Mac app required");
-    expect(html).toContain("opening this page does not install the app or start syncing");
+    expect(html).toContain("Managed on your Mac");
+    expect(html).toContain("Choose Start or Pause in Alfred Sync");
     expect(html).not.toContain("Create forwarding key");
     expect(html).not.toContain("Start capture</button>");
   });

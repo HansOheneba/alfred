@@ -53,12 +53,32 @@ describe("private Web Push transport", () => {
     for(const bad of [null,[],{...f.subscription,endpoint:"https://example.invalid/x"},{...f.subscription,expirationTime:1},{...f.subscription,expirationTime:Infinity},{...f.subscription,keys:{...f.subscription.keys,p256dh:"bad"}},{...f.subscription,keys:{...f.subscription.keys,auth:"bad"}},{...f.subscription,keys:{...f.subscription.keys,p256dh:Buffer.concat([Buffer.from([4]),Buffer.alloc(64)]).toString("base64url")}}])await expect(validateSubscription(bad)).rejects.toThrow();
   });
   it("constructs only fixed discreet payloads with no payment targets", () => {
-    for(const kind of ["payment","bill","weekly"] as const) {
+    for(const kind of ["payment","bill","weekly","test"] as const) {
       const payload=notificationPayload(kind), serialized=JSON.stringify(payload);
       expect(payload.notification.title).toBe("Alfred");
       expect(serialized).not.toMatch(/GHS|merchant|amount|sender|transactionId|bankMessage|eventId|token|\?/);
       expect(new URL(payload.notification.navigate).origin).toBe("https://alfred.hansopoku.com");
     }
+  });
+  it('allows only a canonical opaque payment locator, with no financial details or caller URL', () => {
+    const id='11111111-1111-4111-8111-111111111111';
+    const payload=notificationPayload('payment',id);
+    expect(payload.targetId).toBe(id);
+    expect(payload.notification.navigate).toBe('https://alfred.hansopoku.com/accounts?payment='+id);
+    expect(payload.notification.body).toBe(notificationPayload('payment').notification.body);
+    for(const target of ['',id.toUpperCase().replace('11111111','AAAAAAAA'),id+'?next=https://evil.invalid','https://evil.invalid/',`bank:${id}`])expect(()=>notificationPayload('payment',target)).toThrow('Invalid payment target');
+    for(const kind of ['test','bill','weekly'] as const)expect(()=>notificationPayload(kind,id)).toThrow('Invalid payment target');
+    expect(()=>notificationPayload('constructor' as 'payment')).toThrow('Invalid notification kind');
+  });
+  it('encrypts the validated target and fixed explicit-test copy using fake transport only', async () => {
+    const f=fixture(),cfg=vapid(),target='11111111-1111-4111-8111-111111111111';
+    let calls=0;
+    const fake=async (_url:unknown,options?:RequestInit)=>{calls++;const payload=decrypt(options!.body as Uint8Array,f);expect(payload).toEqual(notificationPayload(payload.kind,payload.targetId));return new Response(null,{status:201});};
+    await sendWebPush(f.subscription,cfg,'payment',fake,target);
+    await sendWebPush(f.subscription,cfg,'test',fake);
+    expect(calls).toBe(2);
+    await expect(sendWebPush(f.subscription,cfg,'payment',fake,'https://evil.invalid')).rejects.toMatchObject({stage:'encryption'});
+    expect(calls).toBe(2);
   });
   it("uses encrypted fake transport with redirects disabled and no raw private details", async () => {
     const f=fixture(),cfg=vapid();let calls=0;
@@ -94,5 +114,26 @@ describe("notification-only service worker",()=>{
     handlers.get("notificationclick")!({notification:{close:()=>{},data:{kind:"https://evil.invalid/"}},waitUntil:(p:Promise<unknown>)=>{done=p;}});
     await done;expect(opened).toEqual(["https://alfred.hansopoku.com/chat"]);
     expect(handlers.has("fetch")).toBe(false);expect(source).not.toContain("caches.");
+  });
+  it('opens the exact fixed payment path and replaces only retries of the same payment',async()=>{
+    const source=await readFile(new URL('../public/alfred-push-sw.js',import.meta.url),'utf8');
+    const handlers=new Map<string,(event:unknown)=>void>();
+    const shown:{title:string;options:{body:string;data:{kind:string;targetId?:string};tag?:string}}[]=[];
+    const opened:string[]=[];let done:Promise<unknown>|undefined;
+    const worker={location:{origin:'https://alfred.hansopoku.com'},registration:{showNotification:async(title:string,options:typeof shown[number]['options'])=>{shown.push({title,options});}},clients:{matchAll:async()=>[],openWindow:async(url:string)=>{opened.push(url);}},addEventListener:(name:string,fn:(event:unknown)=>void)=>handlers.set(name,fn)};
+    vm.runInNewContext(source,{self:worker,URL,Object});
+    const first='11111111-1111-4111-8111-111111111111',second='22222222-2222-4222-8222-222222222222';
+    for(const targetId of [first,second,first]){handlers.get('push')!({data:{json:()=>({kind:'payment',targetId,notification:{navigate:'https://evil.invalid',body:'PRIVATE_FICTIONAL_DETAILS'}})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;}
+    expect(shown[0].options.tag).not.toBe(shown[1].options.tag);
+    expect(shown[0].options.tag).toBe(shown[2].options.tag);
+    expect(JSON.stringify(shown)).not.toMatch(/PRIVATE_FICTIONAL_DETAILS|evil/);
+    for(const item of shown){handlers.get('notificationclick')!({notification:{close:()=>{},data:item.options.data},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;}
+    expect(opened).toEqual([first,second,first].map(id=>'https://alfred.hansopoku.com/accounts?payment='+id));
+    for(const targetId of ['https://evil.invalid',first+'&owner=other',['bad']]){handlers.get('notificationclick')!({notification:{close:()=>{},data:{kind:'payment',targetId}},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;}
+    expect(opened.slice(3)).toEqual(Array(3).fill('https://alfred.hansopoku.com/chat'));
+    handlers.get('push')!({data:{json:()=>({kind:'test',targetId:first,body:'PRIVATE_FICTIONAL_DETAILS'})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
+    expect(shown.at(-1)?.options).toMatchObject({body:'This is a test notification from Alfred.',data:{kind:'test'}});
+    handlers.get('notificationclick')!({notification:{close:()=>{},data:shown.at(-1)!.options.data},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
+    expect(opened.at(-1)).toBe('https://alfred.hansopoku.com/settings');
   });
 });

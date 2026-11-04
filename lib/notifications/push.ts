@@ -1,4 +1,5 @@
 import { DASHBOARD_URL } from "@/lib/config";
+import { paymentTargetId } from './payment-target';
 
 /** Subscription secrets are server-only; never put endpoints or keys in logs. */
 export type PushSubscriptionRecord = {
@@ -6,7 +7,8 @@ export type PushSubscriptionRecord = {
   expirationTime?: number | null;
   keys: { p256dh: string; auth: string };
 };
-export type PushKind = "payment" | "bill" | "weekly";
+export type QueuedPushKind = "payment" | "bill" | "weekly";
+export type PushKind = QueuedPushKind | "test";
 export type PushConfiguration = { publicKey: string; privateKey: string; subject: string };
 export type PushEnvironment = Record<string, string | undefined>;
 export type PushStage = "authorization" | "encryption" | "connection";
@@ -84,15 +86,20 @@ const copy: Record<PushKind, { title: string; body: string; path: string }> = {
   payment: { title: "Alfred", body: "There’s a private update for you. Open Alfred to review.", path: "/chat" },
   bill: { title: "Alfred", body: "A private reminder is ready. Open Alfred to review.", path: "/dashboard" },
   weekly: { title: "Alfred", body: "Your private overview is ready. Open Alfred to review.", path: "/dashboard" },
+  test: { title: "Alfred", body: "This is a test notification from Alfred.", path: "/settings" },
 };
-/** No financial details, source text, names, event IDs or caller-chosen links. */
-export function notificationPayload(kind: PushKind) {
+/** Fixed private copy; the optional opaque locator is resolved under the signed-in owner. */
+export function notificationPayload(kind: PushKind, targetId?: string) {
+  if (!Object.hasOwn(copy, kind)) throw new Error("Invalid notification kind.");
   const selected = copy[kind];
-  if (!selected) throw new Error("Invalid notification kind.");
+  const target = targetId === undefined ? null : paymentTargetId(targetId);
+  if (targetId !== undefined && (kind !== 'payment' || !target)) throw new Error('Invalid payment target.');
+  const path = target ? `/accounts?payment=${target}` : selected.path;
   return {
     web_push: 8030,
     kind,
-    notification: { title: selected.title, body: selected.body, navigate: DASHBOARD_URL + selected.path, silent: false },
+    ...(target ? { targetId: target } : {}),
+    notification: { title: selected.title, body: selected.body, navigate: DASHBOARD_URL + path, silent: false },
   };
 }
 async function hkdf(input: Bytes, salt: Bytes, info: Bytes, length: number): Promise<Bytes> {
@@ -129,11 +136,11 @@ export async function authorization(endpoint: string, config: PushConfiguration,
 }
 export type PushFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export async function sendWebPush(
-  subscription: PushSubscriptionRecord, config: PushConfiguration, kind: PushKind, fetcher: PushFetcher = fetch,
+  subscription: PushSubscriptionRecord, config: PushConfiguration, kind: PushKind, fetcher: PushFetcher = fetch, targetId?: string,
 ): Promise<Response> {
   let auth: string, body: Bytes;
   try { auth = await authorization(subscription.endpoint, config); } catch { throw new PushFailure("authorization"); }
-  try { body = await encryptedBody(subscription, notificationPayload(kind)); } catch { throw new PushFailure("encryption"); }
+  try { body = await encryptedBody(subscription, notificationPayload(kind, targetId)); } catch { throw new PushFailure("encryption"); }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {
