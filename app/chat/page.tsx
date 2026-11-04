@@ -26,10 +26,13 @@ export default function ChatPage({ searchParams }: { searchParams: ChatSearchPar
 
 function ChatLoading() {
   return (
-    <div className="grid h-dvh place-items-center bg-bg" role="status" aria-label="Loading conversation" aria-busy="true">
-      <AlfredMark size="size-10" />
-      <p className="sr-only">Loading conversation…</p>
-    </div>
+    // Keep the app frame in the prefetched shell so a tab switch or launch shows navigation at once.
+    <AppShell current="chat" name="" fill>
+      <div className="grid flex-1 place-items-center" role="status" aria-label="Loading conversation" aria-busy="true">
+        <AlfredMark size="size-10" />
+        <p className="sr-only">Loading conversation…</p>
+      </div>
+    </AppShell>
   );
 }
 
