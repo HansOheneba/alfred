@@ -5,6 +5,7 @@ import { createTransferChatSample, TransferChatPreview } from "@/app/preview/aut
 import { automationPreviewAllowed, automationPreviewBypassesAuth } from "@/lib/preview/access";
 import { paymentQuestionPreviewSamples } from "@/app/preview/automations/transfer/fixtures";
 import { ChatPanel } from "@/app/chat/chat-panel";
+import { createOwnedChatThreadRefresh } from "@/app/chat/chat-panel";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -69,5 +70,27 @@ describe("guarded sample transfer conversation", () => {
       }
     }
     expect(network).not.toHaveBeenCalled();
+  });
+
+  it("uses the real progressive controller for delayed history and a failed-source/manual-retry sample", async () => {
+    vi.useFakeTimers();
+    try {
+      const network = vi.fn(() => { throw Error("The loading samples must never contact a network service"); });
+      vi.stubGlobal("fetch", network);
+      const incoming = (await paymentQuestionPreviewSamples()).find(item => item.state === "incoming")!;
+      const slow = createTransferChatSample("slow-history", incoming), progress = vi.fn(), publish = vi.fn();
+      const controller = createOwnedChatThreadRefresh("fictional-transfer-preview", publish, slow.request, "11111111-1111-4111-8111-111111111111", { progressive: true, onProgress: progress, timeoutMs: 100 });
+      const pending = controller.refresh(); await vi.advanceTimersByTimeAsync(1);
+      expect(publish).toHaveBeenCalledWith(expect.objectContaining({ part: "payment", paymentEntry: expect.objectContaining({ state: "ready" }) }));
+      await vi.advanceTimersByTimeAsync(100); await pending;
+      expect(progress).toHaveBeenCalledWith(expect.objectContaining({ part: "history", state: "error" }));
+      const failed = createTransferChatSample("retry-payment", incoming), retried = vi.fn();
+      const retry = createOwnedChatThreadRefresh("fictional-transfer-preview", retried, failed.request, "11111111-1111-4111-8111-111111111111", { progressive: true, onProgress: progress });
+      await retry.refresh();
+      expect(retried.mock.calls.some(call => call[0].part === "payment")).toBe(false);
+      await retry.refresh();
+      expect(retried).toHaveBeenCalledWith(expect.objectContaining({ part: "payment", paymentEntry: expect.objectContaining({ bankMessageId: "11111111-1111-4111-8111-111111111111" }) }));
+      expect(network).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
   });
 });

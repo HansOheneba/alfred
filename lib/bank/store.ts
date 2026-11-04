@@ -5,7 +5,7 @@ import { query } from "@/lib/supabase/connection";
 import type { BankSource } from "@/lib/bank/parse";
 import type { MemoryNotebookStore } from "@/lib/notebook/store";
 
-export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid" | "borrowed" | "paid_back" | "invested";
+export type BankStatus = "needs_label" | "recorded" | "matched" | "transfer" | "loan" | "skipped" | "lent" | "repaid" | "borrowed" | "paid_back" | "invested" | "not_completed" | "returned";
 /**
  * `card_hold` is a card payment the bank put on hold; it counts as spent.
  * `hold_settle` is a later debit that may be that payment going through, asked about before it counts.

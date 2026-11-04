@@ -40,3 +40,9 @@ export function capturePaymentChatEntry(messages: ThreadMessage[], existing: Pay
     message: { id: shown.id, role: "assistant", body: shown.text, channel: shown.channel, createdAt: shown.createdAt, clientId: shown.clientId, paymentNotice: { ...shown.paymentNotice, bankMessageId: id } },
   };
 }
+
+/** Loading a target never authorizes an answer to some other alert. An explicit
+ * unrelated text remains usable even when that target cannot be opened. */
+export function chatSubmissionReady(target: string | null, entry: PaymentChatEntry | null, historyReady: boolean, unrelatedText: boolean): boolean {
+  return target ? unrelatedText || entry?.state === "ready" && entry.bankMessageId === target : historyReady;
+}

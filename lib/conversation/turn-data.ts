@@ -75,6 +75,12 @@ export function trackTurnData(deps: StudioDeps) {
           return result;
         },
       } : deps.transferConversations,
+      paymentResolutions: deps.paymentResolutions ? {
+        inspect: deps.paymentResolutions.inspect.bind(deps.paymentResolutions),
+        noMoney: async (...args: Parameters<typeof deps.paymentResolutions.noMoney>) => { const result=await deps.paymentResolutions!.noMoney(...args);if(result.changed)invalidate();return result; },
+        returned: async (...args: Parameters<typeof deps.paymentResolutions.returned>) => { const result=await deps.paymentResolutions!.returned(...args);if(result.changed)invalidate();return result; },
+        reopen: async (...args: Parameters<typeof deps.paymentResolutions.reopen>) => { const result=await deps.paymentResolutions!.reopen(...args);if(result.changed)invalidate();return result; },
+      } : deps.paymentResolutions,
     } satisfies StudioDeps,
   };
 }

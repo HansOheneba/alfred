@@ -3,22 +3,22 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vites
 import type { SupabaseSettings } from "@/lib/config";
 const transport = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: transport.query }));
-import { importedTransferCandidates, loadImportedTransferProviders, IMPORTED_TRANSFER_PROVIDERS_SQL } from "@/lib/bank/imported-account-providers";
+import { importedTransferCandidates, loadImportedTransferProviders, loadImportedTransferProviderResult, IMPORTED_TRANSFER_PROVIDERS_SQL } from "@/lib/bank/imported-account-providers";
 const OWNER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const settings = { host: "synthetic.invalid", projectRef: "synthetic", user: "fixture", database: "fixture", password: "" } as unknown as SupabaseSettings;
 const namespace = "money-site:synthetic-provider-fixture", at = "2026-11-04T11:00:00Z";
 const account = (id = "imported-hubtel", sourceId = "hubtel-wallet") => ({ id, label: "Arbitrary user alias", provider: "Imported Money Tracker", currency: "GHS", includeInCash: true, createdAt: at, importProvenance: { namespace, sourceId } });
-const archive = (sourceId = "hubtel-wallet") => ({ manifest: { sourceApp: "money-tracker", namespace, currency: "GHS" }, datasets: { accounts: [{ id: sourceId, label: "Different original label", provider: "Imported Money Tracker", currency: "GHS", includeInCash: true }], "moneyTracker.native": { snapshot: { currency: "GHS", accounts: [{ account: sourceId, label: "Also ignored", cash: true }] } } } });
+const archive = (sourceId = "hubtel-wallet") => ({ archiveId:"a".repeat(64),manifest: { sourceApp: "money-tracker", namespace, currency: "GHS" }, datasets: { accounts: [{ id: sourceId, label: "Different original label", provider: "Imported Money Tracker", currency: "GHS", includeInCash: true }], "moneyTracker.native": { snapshot: { currency: "GHS", accounts: [{ account: sourceId, label: "Also ignored", cash: true }] } } } });
 let db: PGlite;
 beforeAll(async () => {
   db = new PGlite();
-  await db.exec("create table finance_import_receipts(owner_id uuid,id text,after_state jsonb,archive jsonb,undone_at timestamptz,primary key(owner_id,id))");
+  await db.exec("create table finance_import_receipts(owner_id uuid,id text,after_state jsonb,archive jsonb,undone_at timestamptz,archive_id text,primary key(owner_id,id))");
   transport.query.mockImplementation(async (_settings, sql: string, values: unknown[] = []) => (await db.query(sql, values)).rows);
 });
 beforeEach(async () => { await db.exec("truncate finance_import_receipts"); transport.query.mockClear(); });
 afterAll(async () => { await db.close(); });
 async function receipt(options: { owner?: string; saved?: unknown[]; source?: unknown; undone?: string | null; id?: string } = {}) {
-  await db.query("insert into finance_import_receipts values($1,$2,$3::jsonb,$4::jsonb,$5)", [options.owner ?? OWNER, options.id ?? "synthetic-receipt", JSON.stringify({ accounts: options.saved ?? [account()] }), JSON.stringify(options.source ?? archive()), options.undone ?? null]);
+  await db.query("insert into finance_import_receipts(owner_id,id,after_state,archive,undone_at,archive_id) values($1,$2,$3::jsonb,$4::jsonb,$5,$6)", [options.owner ?? OWNER, options.id ?? "synthetic-receipt", JSON.stringify({ ownerId:options.owner??OWNER,accounts: options.saved ?? [account()] }), JSON.stringify(options.source ?? archive()), options.undone ?? null,"a".repeat(64)]);
 }
 
 describe("corroborated imported Money account provider facts", () => {
@@ -40,7 +40,7 @@ describe("corroborated imported Money account provider facts", () => {
 
   it("recognises MTN by its original key with arbitrary labels, and supports a documented retained archive wrapper", async () => {
     const momo = account("imported-momo", "mtn-momo");
-    await receipt({ saved: [momo], source: { manifest: { sourceApp: "alfred" }, datasets: { "alfred.native": { retainedArchives: [{ archiveId: "fictional", archive: archive("mtn-momo") }] } } } });
+    await receipt({ saved: [momo], source: { archiveId:"a".repeat(64),manifest: { sourceApp: "alfred" }, datasets: { "alfred.native": { retainedArchives: [{ archiveId: "fictional", archive: archive("mtn-momo") }] } } } });
     expect(await loadImportedTransferProviders(settings, OWNER, [{ ...momo, label: "Not a bank name" }])).toEqual(new Map([["imported-momo", "momo"]]));
   });
 
@@ -70,5 +70,18 @@ describe("corroborated imported Money account provider facts", () => {
     expect(IMPORTED_TRANSFER_PROVIDERS_SQL).toContain("receipt.undone_at is null");
     expect(IMPORTED_TRANSFER_PROVIDERS_SQL).toContain("for share of receipt skip locked");
     expect(IMPORTED_TRANSFER_PROVIDERS_SQL).not.toMatch(/select\s+(?:receipt\.archive|\*)\s*(?:,|from)/i);
+  });
+  it("fails closed on partial old-schema proofs and caps legacy scans explicitly",async()=>{
+    await receipt();const unresolved={...account(),id:"second-hubtel",importProvenance:{namespace:"money-site:other",sourceId:"hubtel-wallet"}};
+    expect(await loadImportedTransferProviderResult(settings,OWNER,[account(),unresolved],{summaryReady:false})).toMatchObject({status:"incomplete",providers:new Map()});
+    await receipt({id:"two"});await receipt({id:"three"});transport.query.mockClear();
+    expect(await loadImportedTransferProviderResult(settings,OWNER,[account()],{summaryReady:false})).toMatchObject({status:"backfill-required",needsBackfill:true,providers:new Map()});
+    expect(transport.query.mock.calls.some(call=>call[1]===IMPORTED_TRANSFER_PROVIDERS_SQL)).toBe(false);
+  });
+  it("flags candidate overflow without discarding its missing-proof veto or querying archives",async()=>{
+    const accounts=Array.from({length:101},(_,index)=>({...account(),id:`candidate-${index}`,importProvenance:{namespace:`money-site:origin-${index}`,sourceId:"hubtel-wallet"}}));
+    expect(importedTransferCandidates(accounts)).toHaveLength(101);
+    expect(await loadImportedTransferProviderResult(settings,OWNER,accounts)).toMatchObject({status:"incomplete",providers:new Map()});
+    expect(transport.query).not.toHaveBeenCalled();
   });
 });

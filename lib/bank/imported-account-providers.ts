@@ -4,6 +4,7 @@ import { query } from "@/lib/supabase/connection";
 
 export type ImportedTransferProvider = "hubtel" | "momo";
 export type ImportedTransferProviders = ReadonlyMap<string, ImportedTransferProvider>;
+export type ImportedProviderLookup = { providers: ImportedTransferProviders; status: "none"|"summary"|"legacy-fallback"|"backfill-required"|"incomplete"|"corrupt"|"unavailable"; needsBackfill: boolean };
 type Candidate = { accountId: string; namespace: string; sourceId: string; provider: ImportedTransferProvider };
 const PROVIDERS: Record<string, ImportedTransferProvider> = { "hubtel-wallet": "hubtel", "mtn-momo": "momo" };
 const object = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object" && !Array.isArray(value);
@@ -16,8 +17,11 @@ export function importedTransferCandidates(accounts: FinancialAccount[]): Candid
     const origin = (account as FinancialAccount & { importProvenance?: unknown }).importProvenance;
     if (!object(origin) || typeof origin.namespace !== "string" || !origin.namespace || origin.namespace.length > 300 || /[\u0000-\u001f]/.test(origin.namespace) || typeof origin.sourceId !== "string" || !Object.hasOwn(PROVIDERS, origin.sourceId)) continue;
     candidates.push({ accountId: account.id, namespace: origin.namespace, sourceId: origin.sourceId, provider: PROVIDERS[origin.sourceId] });
+    // Retain an overflow sentinel so callers cannot mistake incomplete identity
+    // coverage for the absence of imported provider candidates.
+    if(candidates.length>100)return candidates;
   }
-  return candidates.length <= 100 ? candidates : [];
+  return candidates;
 }
 
 const array = (path: string) => `case when jsonb_typeof(${path})='array' then ${path} else '[]'::jsonb end`;
@@ -29,6 +33,7 @@ export const IMPORTED_TRANSFER_PROVIDERS_SQL = `select distinct_proof.account_id
  from public.finance_import_receipts receipt
  cross join jsonb_to_recordset($2::jsonb) as wanted(account_id text,namespace text,source_id text,provider text)
  where receipt.owner_id=$1::uuid and receipt.undone_at is null
+ and receipt.archive->>'archiveId'=receipt.archive_id and receipt.after_state->>'ownerId'=$1::text
  and exists(select 1 from jsonb_array_elements(${array("receipt.after_state->'accounts'")}) saved
    where saved->>'id'=wanted.account_id and saved->>'provider'='Imported Money Tracker'
      and saved->>'currency'='GHS' and saved->'includeInCash'='true'::jsonb
@@ -57,15 +62,42 @@ export const IMPORTED_TRANSFER_PROVIDERS_SQL = `select distinct_proof.account_id
  for share of receipt skip locked
 ) distinct_proof`;
 
-export async function loadImportedTransferProviders(settings: SupabaseSettings, ownerId: string, accounts: FinancialAccount[]): Promise<ImportedTransferProviders> {
+export async function loadImportedTransferProviderResult(settings: SupabaseSettings, ownerId: string, accounts: FinancialAccount[],options:{summaryReady?:boolean}={}):Promise<ImportedProviderLookup> {
   const candidates = importedTransferCandidates(accounts);
-  if (!candidates.length) return new Map();
+  const empty = (status:ImportedProviderLookup["status"],needsBackfill=false):ImportedProviderLookup=>({providers:new Map(),status,needsBackfill});
+  if (!candidates.length) return empty("none");
+  if(candidates.length>100)return empty("incomplete");
   const requested = candidates.map((row) => ({ account_id: row.accountId, namespace: row.namespace, source_id: row.sourceId, provider: row.provider }));
-  const rows = await query<{ account_id: string; provider: string }>(settings, IMPORTED_TRANSFER_PROVIDERS_SQL, [ownerId, JSON.stringify(requested)]);
+  const ready = options.summaryReady ?? (await query<{ready:boolean}>(settings,"select to_regprocedure('public.alfred_import_provider_facts(uuid,jsonb)') is not null as ready"))[0]?.ready === true;
+  let rows:{account_id:string;provider:string}[], status:ImportedProviderLookup["status"]="legacy-fallback",needsBackfill=true;
+  if (ready) {
+    const response=await query<{result:{facts?:unknown;status?:string;needsBackfill?:boolean;legacyLimited?:boolean}}>(settings,"select public.alfred_import_provider_facts($1::uuid,$2::jsonb) as result",[ownerId,JSON.stringify(requested)]);
+    const result=response[0]?.result;
+    if (!result || !Array.isArray(result.facts) || result.facts.length>300) return empty("unavailable");
+    if(!["summary","legacy-fallback","backfill-required","incomplete","corrupt","invalid"].includes(result.status??""))return empty("unavailable");
+    if(result.status==="corrupt"||result.status==="invalid")return empty("corrupt");
+    status=result.status==="backfill-required"?"backfill-required":result.status==="incomplete"?"incomplete":result.status==="legacy-fallback"?"legacy-fallback":"summary";
+    needsBackfill=result.needsBackfill===true||result.legacyLimited===true;
+    rows=result.facts.filter((row):row is {account_id:string;provider:string}=>object(row)&&typeof row.account_id==="string"&&typeof row.provider==="string");
+    if(rows.length!==result.facts.length)return empty("corrupt");
+  } else {
+    // Old schema compatibility is deliberately bounded. Never silently treat a
+    // partial owner archive scan as complete identity evidence.
+    const count=await query<{count:number}>(settings,"select count(*)::int as count from (select 1 from public.finance_import_receipts where owner_id=$1::uuid and undone_at is null limit 3) bounded",[ownerId]);
+    if((count[0]?.count??3)>2)return empty("backfill-required",true);
+    rows=await query<{account_id:string;provider:string}>(settings,IMPORTED_TRANSFER_PROVIDERS_SQL,[ownerId,JSON.stringify(requested)]);
+  }
   const facts = new Map<string, ImportedTransferProvider>();
   for (const candidate of candidates) {
     const matching = rows.filter((row) => row.account_id === candidate.accountId);
     if (matching.length && matching.every((row) => row.provider === candidate.provider)) facts.set(candidate.accountId, candidate.provider);
   }
-  return facts;
+  // A missing/busy/legacy proof must not disappear from a uniqueness check and
+  // make another imported account appear to be the owner's only provider account.
+  if(facts.size!==new Set(candidates.map(row=>row.accountId)).size)return empty(status==="backfill-required"?status:"incomplete",needsBackfill);
+  return {providers:facts,status,needsBackfill};
+}
+
+export async function loadImportedTransferProviders(settings: SupabaseSettings, ownerId: string, accounts: FinancialAccount[],options:{summaryReady?:boolean}={}): Promise<ImportedTransferProviders> {
+  return (await loadImportedTransferProviderResult(settings,ownerId,accounts,options)).providers;
 }

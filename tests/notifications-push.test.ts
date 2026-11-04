@@ -129,7 +129,7 @@ describe("notification-only service worker",()=>{
     const source=await readFile(new URL("../public/alfred-push-sw.js",import.meta.url),"utf8");
     const handlers=new Map<string,(event:unknown)=>void>();const shown:unknown[]=[];const opened:string[]=[];let done:Promise<unknown>|undefined;
     const worker={location:{origin:"https://alfred.hansopoku.com"},skipWaiting:async()=>{},registration:{showNotification:async(title:string,options:unknown)=>{shown.push({title,options});}},clients:{claim:async()=>{},matchAll:async()=>[],openWindow:async(url:string)=>{opened.push(url);}},addEventListener:(name:string,fn:(event:unknown)=>void)=>handlers.set(name,fn)};
-    vm.runInNewContext(source,{self:worker,URL,Object});
+    vm.runInNewContext(source,{self:worker,URL,Object,setTimeout,clearTimeout});
     handlers.get("push")!({data:{json:()=>({kind:"payment",notification:{title:"GHS 900 from private sender",body:"private SMS",navigate:"https://evil.invalid/"}})},waitUntil:(p:Promise<unknown>)=>{done=p;}});
     await done;expect(JSON.stringify(shown)).not.toMatch(/GHS|private sender|private SMS|evil/);
     handlers.get("notificationclick")!({notification:{close:()=>{},data:{kind:"https://evil.invalid/"}},waitUntil:(p:Promise<unknown>)=>{done=p;}});
@@ -142,7 +142,7 @@ describe("notification-only service worker",()=>{
     const shown:{title:string;options:{body:string;data:{kind:string;targetId?:string};tag?:string}}[]=[];
     const opened:string[]=[];let done:Promise<unknown>|undefined;
     const worker={location:{origin:'https://alfred.hansopoku.com'},registration:{showNotification:async(title:string,options:typeof shown[number]['options'])=>{shown.push({title,options});}},clients:{matchAll:async()=>[],openWindow:async(url:string)=>{opened.push(url);}},addEventListener:(name:string,fn:(event:unknown)=>void)=>handlers.set(name,fn)};
-    vm.runInNewContext(source,{self:worker,URL,Object});
+    vm.runInNewContext(source,{self:worker,URL,Object,setTimeout,clearTimeout});
     const first='11111111-1111-4111-8111-111111111111',second='22222222-2222-4222-8222-222222222222';
     for(const targetId of [first,second,first]){handlers.get('push')!({data:{json:()=>({kind:'payment',targetId,notification:{navigate:'https://evil.invalid',body:'PRIVATE_FICTIONAL_DETAILS'}})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;}
     expect(shown[0].options.tag).not.toBe(shown[1].options.tag);
@@ -161,7 +161,7 @@ describe("notification-only service worker",()=>{
     const source=await readFile(new URL('../public/alfred-push-sw.js',import.meta.url),'utf8');
     const handlers=new Map<string,(event:unknown)=>void>();const shown:{body:string;data:unknown}[]=[];let done:Promise<unknown>|undefined;
     const worker={registration:{showNotification:async(_title:string,options:typeof shown[number])=>{shown.push(options);}},addEventListener:(name:string,fn:(event:unknown)=>void)=>handlers.set(name,fn)};
-    vm.runInNewContext(source,{self:worker,URL,Object});
+    vm.runInNewContext(source,{self:worker,URL,Object,setTimeout,clearTimeout});
     const targetId='11111111-1111-4111-8111-111111111111';
     for(const payment of [
       {amount:'0.5',currency:'GHS',direction:'in'},

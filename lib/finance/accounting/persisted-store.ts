@@ -18,7 +18,7 @@ async function sourceVersion(settings:SupabaseSettings,ownerId:string) {
 
 /** Does not initialize or migrate tables. Legacy ledgers remain usable before the additive migration. */
 export async function loadAccountingState(settings:SupabaseSettings,ownerId:string,providedRaw?:TransactionRecord[],transferPivotIds?:string[],includeImportedProviderFacts=true):Promise<AccountingResult> {
-  const ready=await query<{ready:boolean;portability_ready:boolean;receipts_ready:boolean}>(settings,"select to_regclass('public.accounting_states') is not null and to_regprocedure('public.alfred_write_accounting_state(uuid,bigint,text,text,text,jsonb)') is not null as ready, to_regclass('public.imported_finance_sources') is not null as portability_ready, to_regclass('public.finance_import_receipts') is not null as receipts_ready");
+  const ready=await query<{ready:boolean;portability_ready:boolean;receipts_ready:boolean;provider_summaries_ready:boolean}>(settings,"select to_regclass('public.accounting_states') is not null and to_regprocedure('public.alfred_write_accounting_state(uuid,bigint,text,text,text,jsonb)') is not null as ready, to_regclass('public.imported_finance_sources') is not null as portability_ready, to_regclass('public.finance_import_receipts') is not null as receipts_ready, to_regprocedure('public.alfred_import_provider_facts(uuid,jsonb)') is not null as provider_summaries_ready");
   const availability=ready[0]?.ready ? "ready" : "migration-required";
   const versionBefore=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
   const [saved,raw,messages,imported,rules,transferWindow]=await Promise.all([
@@ -32,7 +32,7 @@ export async function loadAccountingState(settings:SupabaseSettings,ownerId:stri
   ]);
   const base=saved[0]?.state ?? emptyAccountingState(ownerId);
   if (base.ownerId!==ownerId) throw new AccountingError("Financial state belongs to another owner.","ownership");
-  const transferProviders=transferPivotIds?.length && includeImportedProviderFacts && ready[0]?.receipts_ready ? await loadImportedTransferProviders(settings,ownerId,base.accounts) : undefined;
+  const transferProviders=transferPivotIds?.length && includeImportedProviderFacts && ready[0]?.receipts_ready ? await loadImportedTransferProviders(settings,ownerId,base.accounts,{summaryReady:ready[0]?.provider_summaries_ready===true}) : undefined;
   const versionAfter=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
   if (versionBefore!==versionAfter) throw new AccountingError("Source records changed while loading. Refresh and try again.","stale");
   const fresh=[...sourceMovements(ownerId,raw,messages),...imported.map((row) => row.movement)];

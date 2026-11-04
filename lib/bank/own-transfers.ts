@@ -13,7 +13,8 @@ import { DatabaseError } from "@/lib/errors";
 import { logInfo } from "@/lib/log";
 import { createSupabaseBankStore, listBankTransferWindow, type BankMessage } from "./store";
 import { isOwnName, parseBankText, withoutRecipient } from "./parse";
-import type { ImportedTransferProviders } from "./imported-account-providers";
+import { importedTransferCandidates,type ImportedTransferProviders } from "./imported-account-providers";
+import { loadStoredOwnTransferNotice } from "./stored-transfer-notice";
 
 const WINDOW_MS = 600_000;
 class PairingDeferred extends Error {
@@ -95,6 +96,7 @@ export function resolveTransferAccount(state: AccountingState, message: BankMess
   if (/\b(?:A\/C|Acct|Account)(?:\s*(?:No\.?|Number|ending(?: in)?))?\s*[:.#]?\s*[X*x•.\s-]*\d{3,}\b/i.test(message.raw)) return null;
   const provider = transferProvider(message.source);
   if (!["hubtel", "momo", "absa", "gcb"].includes(provider)) return null;
+  if(importedTransferCandidates(owned).some(account=>!importedProviders?.has(account.accountId)))return null;
   const matches = owned.filter((account) => (account.provider === "Imported Money Tracker" ? importedProviders?.get(account.id) : transferProvider(account.provider)) === provider);
   return matches.length === 1 ? matches[0] : null;
 }
@@ -177,6 +179,8 @@ export async function loadOwnTransferNotices(settings: SupabaseSettings, ownerId
   return new Map([...result].filter(([id]) => wanted.has(id)));
 }
 export async function loadOwnTransferNotice(settings: SupabaseSettings, ownerId: string, bankId: string): Promise<OwnTransferNotice | null> {
+  const stored=await loadStoredOwnTransferNotice(settings,ownerId,bankId);
+  if(stored)return stored;
   return (await loadOwnTransferNotices(settings, ownerId, [bankId])).get(bankId) ?? null;
 }
 

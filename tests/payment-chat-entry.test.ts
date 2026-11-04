@@ -63,6 +63,20 @@ describe("owned read-only notification Chat entry", () => {
     expect(result.message.paymentNotice?.requiresPurpose).toBe(false);
   });
 
+  it.each(["not_completed", "returned"])("loads a current %s resolution without transfer hydration or an open-purpose question", async status => {
+    const direction = status === "returned" ? "in" : "out";
+    await db.query("update bank_messages set status=$1,direction=$2", [status, direction]);
+    const loadResolution = vi.fn(async () => "A verified fictional source resolution, not new income.");
+    const result = await loadPaymentChatEntry(settings, owner, bank, { execute, loadTransfer, loadResolution });
+    expect(result.state).toBe("ready");
+    if (result.state !== "ready") throw Error("Expected fictional entry");
+    expect(result.message.body).toBe("A verified fictional source resolution, not new income.");
+    expect(result.message.intent).toBe(direction === "in" ? "automation:incoming-payment" : "automation:outgoing-payment");
+    expect(result.message.paymentNotice?.requiresPurpose).toBe(false);
+    expect(loadResolution).toHaveBeenCalledExactlyOnceWith(settings, owner, bank);
+    expect(loadTransfer).not.toHaveBeenCalled();
+  });
+
   it("joins purpose evidence only to the authenticated owner's active principal", async () => {
     await db.query("update bank_messages set transaction_id=$1,status='recorded'", [principal]);
     await db.query("insert into transactions values($1,$2,'PRIVATE OTHER CATEGORY','PRIVATE OTHER DETAIL','active','income',1,'GHS')", [other, principal]);

@@ -154,7 +154,7 @@ export function planNativeRestoration(current: AlfredNativeExport, sources: Nati
     }
     if(source.native.retainedArchives?.length) summary.coverage.push({dataset:"alfred.native.retainedArchives",status:"preserved",count:source.native.retainedArchives.length,reason:"Prior import archives and their source provenance remain intact as receipt evidence; historical import operations are not executed again."});
     const supported=new Set(Object.values(NATIVE_TABLES).map((item)=>item.source));
-    for(const [key,rows] of Object.entries(source.native.tables)) if(!supported.has(key as typeof NATIVE_TABLES[NativeTable]["source"]) && rows.length) summary.coverage.push({dataset:`alfred.native.${key}`,status:"preserved",count:rows.length,reason:"Raw cash source, accounting audit, undo or operational evidence is retained. It is not replayed over the shared accounting core."});
+    for(const [key,rows] of Object.entries(source.native.tables)) if(!supported.has(key as typeof NATIVE_TABLES[NativeTable]["source"]) && rows.length) summary.coverage.push({dataset:`alfred.native.${key}`,status:"preserved",count:rows.length,reason:key==="bankPaymentResolutions"?"Explicit payment-resolution reasons, source evidence and returned-principal audit links are retained in the receipt and future exports. Supported excluded movements and refund links restore through the accounting core; historical bank-message IDs and resolution actions are not replayed.":"Raw cash source, accounting audit, undo or operational evidence is retained. It is not replayed over the shared accounting core."});
   }
   const rules=planNativeAccountRules(current,sources,ruleContext);
   if(rules.plan)plan.accountRules=rules.plan;

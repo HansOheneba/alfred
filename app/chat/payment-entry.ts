@@ -4,12 +4,14 @@ import type { SupabaseSettings } from "@/lib/config";
 import { formatAmount } from "@/lib/finance/money";
 import { paymentActivityMention, type MentionCandidate } from "@/lib/bank/notices";
 import type { BankMessage } from "@/lib/bank/store";
-import { loadOwnTransferNotice } from "@/lib/bank/own-transfers";
+import type { OwnTransferNotice } from "@/lib/bank/own-transfers";
+import { loadStoredOwnTransferNotice } from "@/lib/bank/stored-transfer-notice";
+import { loadPaymentResolutionNotice } from "@/lib/bank/payment-resolutions";
 import { query } from "@/lib/supabase/connection";
 import { paymentLinkId } from "./payment-link";
 
 export type PaymentChatEntry =
-  | { state: "ready"; bankMessageId: string; message: ChatMessageRecord }
+  | { state: "ready"; bankMessageId: string; message: ChatMessageRecord; sourceVersion?: string }
   | { state: "unavailable" };
 
 type EntryRow = {
@@ -31,7 +33,7 @@ const iso = (value: Date | string) => new Date(value).toISOString();
  * The query deliberately excludes raw SMS and subscription/credential data. */
 export async function loadPaymentChatEntry(
   settings: SupabaseSettings, ownerId: string, requestedId: unknown,
-  options: { execute?: Read; loadTransfer?: typeof loadOwnTransferNotice } = {},
+  options: { execute?: Read; loadTransfer?: (settings: SupabaseSettings, ownerId: string, bankId: string) => Promise<OwnTransferNotice | null>; loadResolution?: typeof loadPaymentResolutionNotice } = {},
 ): Promise<PaymentChatEntry> {
   const id = paymentLinkId(requestedId);
   if (!id) return { state: "unavailable" };
@@ -59,22 +61,27 @@ export async function loadPaymentChatEntry(
       ownerId: row.purpose_owner_id, transactionId: row.purpose_transaction_id,
       category: row.purpose_category ?? "", description: row.purpose_description ?? "", recordStatus: row.purpose_record_status ?? "",
     } : null,
-    transfer: await (options.loadTransfer ?? loadOwnTransferNotice)(settings, ownerId, id).catch(() => null),
+    transfer: ["not_completed", "returned"].includes(row.status) ? null : await (options.loadTransfer ?? loadStoredOwnTransferNotice)(settings, ownerId, id).catch(() => null),
   };
   const mention = paymentActivityMention(candidate);
-  let body = mention?.body;
+  let body = ["not_completed", "returned"].includes(row.status)
+    ? await (options.loadResolution ?? loadPaymentResolutionNotice)(settings, ownerId, id).catch(() => null)
+    : mention?.body;
   if (!body) {
     let amount: string;
     try { amount = formatAmount(row.amount, row.currency); } catch { return { state: "unavailable" }; }
-    body = row.status === "skipped"
+    body = row.status === "not_completed" || row.status === "returned"
+      ? `This ${amount} alert is marked as ${row.status === "not_completed" ? "not completed" : "returned"}. I couldn't verify its saved resolution here. Nothing was changed by opening it; tell me what you'd like to check.`
+      : row.status === "skipped"
       ? `This ${amount} payment alert is currently set aside. I haven't added it as income or spending.`
       : `Here is the ${amount} payment alert you opened. Its status has changed, so I won't use the old question to classify it. Tell me what you'd like to check.`;
   }
   return {
     state: "ready", bankMessageId: id,
+    sourceVersion: createHash("sha256").update(JSON.stringify([row.direction,row.kind,row.amount,row.fee,row.currency,row.counterparty,row.status,row.transaction_id,row.fee_transaction_id,row.purpose_owner_id,row.purpose_transaction_id,row.purpose_category,row.purpose_description,row.purpose_record_status,row.principal_type,row.principal_amount,row.principal_currency])).digest("hex"),
     message: {
       id: row.message_id ?? clientId, clientId, role: "assistant", channel: "web", body,
-      createdAt: iso(row.message_created_at ?? row.created_at), intent: mention?.intent ?? "automation:incoming-payment",
+      createdAt: iso(row.message_created_at ?? row.created_at), intent: mention?.intent ?? (row.direction === "in" ? "automation:incoming-payment" : "automation:outgoing-payment"),
       // Opening a notification does not itself mutate the ledger.
       ledgerChanged: false,
       paymentNotice: { bankMessageId: id, requiresPurpose: mention?.requiresPurpose ?? false },

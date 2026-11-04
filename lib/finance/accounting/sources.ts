@@ -31,7 +31,7 @@ export function sourceMovements(ownerId:string,transactions:TransactionRecord[],
     const duplicate = message.transactionId !== null && claimedTransactions.has(message.transactionId);
     if (message.transactionId) claimedTransactions.add(message.transactionId);
     if (message.feeTransactionId) claimedTransactions.add(message.feeTransactionId);
-    let status:MovementStatus = message.status === "needs_label" ? "review" : message.status === "skipped" ? "excluded" : message.status === "transfer" || message.status === "invested" ? "transfer" : "confirmed";
+    let status:MovementStatus = message.status === "needs_label" ? "review" : message.status === "skipped" || message.status === "not_completed" ? "excluded" : message.status === "transfer" || message.status === "invested" ? "transfer" : "confirmed";
     if (message.kind === "card_hold" && status === "confirmed") status = "hold";
     if (transaction?.status === "deleted") status = "excluded";
     if (duplicate) status = "duplicate";
