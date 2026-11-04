@@ -1,0 +1,32 @@
+name: Deploy collaborator merges
+
+# Vercel's Hobby plan only deploys commits from members of the Vercel team,
+# so a merge by anyone other than Hans is skipped. This asks Vercel to deploy
+# main through a Deploy Hook instead. Hans's own pushes deploy as usual.
+on:
+  push:
+    branches: [main]
+
+permissions: {}
+
+concurrency:
+  group: deploy-main
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Trigger Vercel production deploy
+    if: github.actor != 'HansOheneba'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Call the Vercel Deploy Hook
+        env:
+          VERCEL_DEPLOY_HOOK: ${{ secrets.VERCEL_DEPLOY_HOOK }}
+        run: |
+          if [ -z "$VERCEL_DEPLOY_HOOK" ]; then
+            echo "::error::The VERCEL_DEPLOY_HOOK secret is not set."
+            exit 1
+          fi
+          curl --fail --silent --show-error --max-time 30 -X POST "$VERCEL_DEPLOY_HOOK" > /dev/null
+          echo "Deploy requested for ${GITHUB_SHA::7}, merged by ${GITHUB_ACTOR}."
