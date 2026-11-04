@@ -6,14 +6,14 @@ start off; private in-app payment mentions are independent of browser push.
 
 ## Immediate payment nudges
 
-Opted-in payment nudges are eligible at every local hour, including overnight.
-An unresolved, unnamed outgoing debit of at most 10 currency units waits for
-the existing three-minute related-payment window before asking its purpose.
-Its status stays reviewable; it is not skipped. A related payment may establish
-that it is a separately reported fee, which must not produce its own purpose
-question or duplicate payment nudge. A standalone payment becomes eligible
-after the window, using server creation time rather than a supplied old date.
-Named payments and incoming payments do not receive that delay.
+Opted-in payment nudges are eligible when the alert arrives, at every local
+hour and for every positive amount, including 0.50. There is no amount-based
+settling delay and an unnamed debit does not wait for another payment alert.
+A debit already confirmed as a fee-only record does not produce a separate
+principal notice. If its SMS arrives before the related payment, it can produce
+a purpose question immediately. Later fee linking can leave that earlier
+question outdated; current source state is rechecked before an answer can label
+it again. That trade-off preserves immediate announcements without guessing.
 There is no intentional 22:00–07:00 hold. The device and operating system may still delay
 or silence display, and a provider response is not proof of lock-screen display.
 Bill reminders retain their 09:00 local window and weekly notices retain their

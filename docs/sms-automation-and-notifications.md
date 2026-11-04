@@ -209,11 +209,14 @@ diagnostics. The readiness checker does not provision or verify live services.
 Payment nudges have no overnight hold: opted-in eligible alerts can dispatch
 immediately, including overnight. Transport retries and recovery remain durable;
 this is not a promise of instant display by a browser or operating system.
-An unresolved bare outgoing debit at or below the related-fee threshold remains
-visible for review while its three-minute related-payment window settles.
-Confirmed fee-only evidence suppresses a separate purpose question; a standalone
-payment becomes eligible after that window. This does not reinstate the removed
-small-payment skip or change existing financial records.
+Every positive eligible amount, including 0.50, is announced without an
+amount-based settling delay. Bare debits remain visible for review and do not
+wait for another alert. Confirmed fee-only evidence suppresses a separate
+principal notice. A fee SMS arriving first can initially produce a purpose
+question; later fee linking can leave that question outdated. The source is
+rechecked before another label is applied. That accepted trade-off avoids delaying
+legitimate payments. No small-payment skip is reinstated and existing financial
+records are not rewritten.
 Bill and weekly schedules, account/device activation cutoffs and opt-outs remain
 unchanged. New push opt-ins fail closed without configured recovery and a recent
 completed authenticated dispatcher check-in. Scheduler registration and

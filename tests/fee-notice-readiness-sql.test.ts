@@ -88,18 +88,26 @@ beforeEach(async () => {
 
 afterAll(async () => { await db.close(); });
 
-describe("server-observed fee notice readiness", () => {
-  it("waits through 179.999 seconds and becomes ready at the exact 180-second boundary", async () => {
-    const deadline = new Date(createdAt.getTime() + 180_000);
-    for (const offset of [0, 179_999]) {
-      expect(await readiness(new Date(createdAt.getTime() + offset))).toEqual([{ state: "waiting", ready_at: deadline }]);
-    }
-    expect(await readiness(deadline)).toEqual([{ state: "ready", ready_at: deadline }]);
+describe("immediate notice readiness with confirmed fee suppression", () => {
+  it.each(["0.01", "0.50", "1.00"])("announces a fresh bare %s alert immediately without financial mutations", async (amount) => {
+    await db.query("update bank_messages set amount=$1", [amount]);
+    const before = (await db.query("select * from bank_messages")).rows;
+    expect(await readiness()).toEqual([{ state: "ready", ready_at: createdAt }]);
+    expect(await writeNotice()).toBe(true);
+    expect(await counts()).toEqual({ messages: 1, receipts: 1 });
+    expect((await db.query("select * from bank_messages")).rows).toEqual(before);
+    expect((await db.query("select * from transactions")).rows).toEqual([]);
   });
 
-  it("uses server creation time even for a much older SMS occurrence", async () => {
-    await db.exec("update bank_messages set occurred_at=now()-interval '12 hours'");
-    expect((await readiness())[0].state).toBe("waiting");
+  it("does not gate readiness on creation time, SMS occurrence or elapsed time", async () => {
+    for (const offset of [-1, 0, 179_999, 180_000, 86_400_000]) {
+      const checkedAt = new Date(createdAt.getTime() + offset);
+      expect(await readiness(checkedAt)).toEqual([{ state: "ready", ready_at: checkedAt }]);
+    }
+    for (const interval of ["-12 hours", "12 hours"]) {
+      await db.query("update bank_messages set created_at=$1::timestamptz+$2::interval,occurred_at=$1::timestamptz-$2::interval", [createdAt.toISOString(), interval]);
+      expect(await readiness()).toEqual([{ state: "ready", ready_at: createdAt }]);
+    }
   });
 
   it("returns no row for a missing alert, foreign owner or null clock", async () => {
@@ -113,14 +121,15 @@ describe("server-observed fee notice readiness", () => {
     ["amount=10.01", "over the fee bound"], ["amount=0", "zero"], ["amount=-1", "negative"],
     ["kind='card_hold'", "card hold"], ["kind='transfer_own',status='transfer'", "transfer"],
     ["status='skipped'", "excluded"],
-  ])("does not wait outside the unresolved small-bare bucket: %s (%s)", async (change) => {
+  ])("is ready outside the confirmed-fee suppression bucket: %s (%s)", async (change) => {
     await db.exec(`update bank_messages set ${change}`);
     expect(await readiness()).toEqual([{ state: "ready", ready_at: createdAt }]);
   });
 
-  it.each(["payment", "hold_settle"])("includes the ten-unit boundary for %s", async (kind) => {
+  it.each(["payment", "hold_settle"])("announces fresh ten-unit %s alerts immediately", async (kind) => {
     await db.query("update bank_messages set amount=10,kind=$1", [kind]);
-    expect((await readiness())[0].state).toBe("waiting");
+    expect(await readiness()).toEqual([{ state: "ready", ready_at: createdAt }]);
+    expect(await writeNotice()).toBe(true);
   });
 
   it("does not infer a parent payment or suppress a notice from a separate fee-transaction link", async () => {
@@ -130,8 +139,7 @@ describe("server-observed fee notice readiness", () => {
     await db.query(`insert into transactions(owner_id,transaction_id,status,type,category,description,amount,currency,source_update_id)
       values($1,$2,'active','expense','Fees','Synthetic parent fee',1,'GHS',$3)`, [owner, separateFee, `bank:${principal}:fee`]);
     await db.query("update bank_messages set fee_transaction_id=$1 where id=$2", [separateFee, event]);
-    expect((await readiness())[0].state).toBe("waiting");
-    expect((await readiness(new Date(createdAt.getTime() + 180_000)))[0].state).toBe("ready");
+    expect(await readiness()).toEqual([{ state: "ready", ready_at: createdAt }]);
   });
 
   it("suppresses only the exact owned active generated expense-fee principal", async () => {
@@ -164,19 +172,16 @@ describe("server-observed fee notice readiness", () => {
   it("does not suppress an unlinked nearby fee or a named principal", async () => {
     await generatedFee();
     await db.exec("update bank_messages set transaction_id=null,status='needs_label'");
-    expect((await readiness())[0].state).toBe("waiting");
+    expect((await readiness())[0].state).toBe("ready");
     await db.query("update bank_messages set transaction_id=$1,status='recorded',counterparty='Synthetic shop'", [principal]);
     expect((await readiness())[0].state).toBe("ready");
   });
 
-  it("rejects direct writer bypass while waiting, then recovers once without financial mutations", async () => {
+  it("writes an immediately ready notice once and retains its receipt after cleared chat", async () => {
     const before = (await db.query("select * from bank_messages")).rows;
-    expect(await writeNotice()).toBe(false);
-    expect(await counts()).toEqual({ messages: 0, receipts: 0 });
-    expect((await db.query("select * from bank_messages")).rows).toEqual(before);
-    await db.exec("update bank_messages set created_at=now()-interval '181 seconds'");
     expect(await writeNotice()).toBe(true);
     expect(await writeNotice()).toBe(false);
+    expect((await db.query("select * from bank_messages")).rows).toEqual(before);
     await db.exec("delete from messages");
     expect(await writeNotice()).toBe(false);
     expect(await counts()).toEqual({ messages: 0, receipts: 1 });
@@ -192,7 +197,7 @@ describe("server-observed fee notice readiness", () => {
   });
 
   it("preserves consent and source fences after readiness, and leaves the legacy ABI in place", async () => {
-    await db.exec("update bank_messages set created_at=now()-interval '181 seconds';update notification_preferences set outgoing_mentions=false");
+    await db.exec("update notification_preferences set outgoing_mentions=false");
     expect(await writeNotice()).toBe(false);
     await db.exec("update notification_preferences set outgoing_mentions=true,outgoing_mentions_since=now()+interval '1 minute'");
     expect(await writeNotice()).toBe(false);
@@ -201,7 +206,6 @@ describe("server-observed fee notice readiness", () => {
   });
 
   it("is server-only and replaying the forward migration does not rewrite existing records", async () => {
-    await db.exec("update bank_messages set created_at=now()-interval '181 seconds'");
     expect(await writeNotice()).toBe(true);
     const before = (await db.query("select row_to_json(b) as data from bank_messages b union all select row_to_json(m) from messages m")).rows;
     await db.exec(await readFile(new URL(`../supabase/migrations/${forwardMigration}`, import.meta.url), "utf8"));

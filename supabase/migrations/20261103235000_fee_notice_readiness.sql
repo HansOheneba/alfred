@@ -1,6 +1,6 @@
--- Give small bare outgoing alerts the same server-observed settling window as
--- payment linking. This changes notice eligibility only; it never edits money,
--- preferences, existing messages, delivery receipts or source alert history.
+-- Announce eligible alerts immediately at every positive amount. Suppress only
+-- a confirmed generated standalone fee. This never edits money, preferences,
+-- existing messages, delivery receipts or source alert history.
 create or replace function public.alfred_bank_notice_readiness(
  owner uuid,bank_id uuid,checked_at timestamptz
 ) returns table(state text,ready_at timestamptz)
@@ -14,8 +14,6 @@ language sql stable strict security invoker set search_path=public,pg_temp as $$
        and t.amount=b.amount and t.amount>0 and t.currency=b.currency
        and t.source_update_id='bank:'||b.id::text
    ) then 'suppressed'
-   when b.status='needs_label' and b.transaction_id is null
-     and checked_at<b.created_at+interval '180 seconds' then 'waiting'
    else 'ready' end,
    case
      when small_bare and b.status='recorded' and exists(
@@ -25,8 +23,6 @@ language sql stable strict security invoker set search_path=public,pg_temp as $$
          and t.amount=b.amount and t.amount>0 and t.currency=b.currency
          and t.source_update_id='bank:'||b.id::text
      ) then null::timestamptz
-     when small_bare and b.status='needs_label' and b.transaction_id is null
-       and checked_at<b.created_at+interval '180 seconds' then b.created_at+interval '180 seconds'
      else checked_at end
  from public.bank_messages b
  cross join lateral(select b.direction='out' and b.kind in ('payment','hold_settle')
@@ -37,7 +33,7 @@ revoke all on function public.alfred_bank_notice_readiness(uuid,uuid,timestamptz
 
 -- Keep the ten-argument activity writer ABI, consent/activation fences, source
 -- comparison and durable receipt key. The readiness check runs after the owned
--- bank row is locked, so a direct caller cannot bypass the settling boundary.
+-- bank row is locked, so a direct caller cannot bypass confirmed-fee suppression.
 create or replace function public.alfred_record_bank_activity_notice(
  owner uuid,bank_id uuid,client_key text,notice_body text,financial_write boolean,expected_status text,expected_transaction uuid,requires_purpose boolean,expected_purpose jsonb,expected_source jsonb
 ) returns boolean language plpgsql security definer set search_path=public,pg_temp as $$

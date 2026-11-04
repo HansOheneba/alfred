@@ -132,15 +132,6 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
       await execute(settings,`update public.notification_deliveries set status=$3,last_result=$4,next_attempt_at=coalesce($5::timestamptz,next_attempt_at),updated_at=now()
         where owner_id=$1::uuid and id=$2::uuid and status='attempted'`,[ownerId,id,result.status,result.reason,result.nextAttempt?.toISOString()??null]);
     },
-    async deferWaiting(ownerId:string,id:string,now:Date):Promise<boolean> {
-      const rows=await execute<{id:string}>(settings,`update public.notification_deliveries d
-        set next_attempt_at=greatest(d.next_attempt_at,n.ready_at),updated_at=now()
-        from public.bank_messages b, lateral public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n
-        where d.owner_id=$1::uuid and d.id=$2::uuid and d.status='queued' and d.kind='payment'
-          and b.owner_id=d.owner_id and b.id=d.resource_id and n.state='waiting'
-        returning d.id::text`,[ownerId,id,now.toISOString()]);
-      return rows.length>0;
-    },
     async cancel(ownerId:string,id:string,now=new Date()):Promise<boolean> {
       const rows=await execute<{id:string}>(settings,`update public.notification_deliveries d set status='canceled',last_result='ineligible',updated_at=now()
         where d.owner_id=$1::uuid and d.id=$2::uuid and d.status='queued'
@@ -152,7 +143,7 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
               and (s.expires_at is null or s.expires_at>$3::timestamptz)
               and b.kind='payment' and b.status in ('needs_label','recorded') and b.channel in ('mac','shortcut') and b.amount>0
               and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
-              and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state in ('ready','waiting'))
+              and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')
           )) returning d.id::text`,[ownerId,id,now.toISOString()]);
       return rows.length>0;
     },

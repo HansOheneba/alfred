@@ -74,7 +74,6 @@ export async function drainOwnerNotifications(settings:SupabaseSettings,ownerId:
     if(clock()+17_000>deadline){result.deferred++;return;}
     const claim=await store.claim(ownerId,item.id,now);
     if(!claim){
-      if(await store.deferWaiting(ownerId,item.id,now)){result.deferred++;return;}
       if(await store.cancel(ownerId,item.id,now))result.skipped++;else result.deferred++;
       return;
     }
