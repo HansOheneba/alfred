@@ -23,15 +23,16 @@ export function transferMention(source: Source, transfer: OwnTransferNotice | nu
   } catch { return null; }
   const from = accountLabel(transfer.fromAccount.label), to = accountLabel(transfer.toAccount.label);
   if (!from || !to) return null;
+  const direction = source.direction === "in" ? "incoming" : "outgoing";
   if (transfer.state === "paired" && source.kind === "transfer_own" && source.status === "transfer") {
     return {
-      body: `The alerts match a ${amount} transfer from ${from} to ${to}. I've linked both sides, so the transfer isn't counted as income or spending.`,
+      body: `This ${direction} alert matches a ${amount} transfer from ${from} to ${to}. I've linked both sides, so the transfer isn't counted as income or spending.`,
       requiresPurpose: false, ledgerChanged: true,
     };
   }
   if (transfer.state === "candidate" && ["payment", "unknown"].includes(source.kind) && source.status === "needs_label" && !source.transactionId) {
     return {
-      body: `These ${amount} alerts could be a transfer from ${from} to ${to}. Was this money moving between your own accounts? You can tell me here.`,
+      body: `This ${direction} alert for ${amount} could be a transfer from ${from} to ${to}. Was this money moving between your own accounts? You can tell me here.`,
       requiresPurpose: true, ledgerChanged: false,
     };
   }

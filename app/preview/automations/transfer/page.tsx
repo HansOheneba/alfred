@@ -4,6 +4,7 @@ import { notFound } from "next/navigation";
 import { Suspense } from "react";
 import { automationPreviewAllowed } from "@/lib/preview/access";
 import { TransferChatPreview } from "./preview";
+import { paymentQuestionPreviewSamples } from "./fixtures";
 
 export const metadata: Metadata = { title: "Transfer conversation preview · Alfred", robots: { index: false, follow: false } };
 
@@ -13,5 +14,5 @@ export default function TransferConversationPreviewPage() {
 async function LocalPreview() {
   await connection();
   if (!automationPreviewAllowed(process.env)) notFound();
-  return <TransferChatPreview />;
+  return <TransferChatPreview ordinarySamples={await paymentQuestionPreviewSamples()} />;
 }

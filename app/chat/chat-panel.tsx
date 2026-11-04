@@ -8,7 +8,7 @@ import { followUpsFor, type Suggestion } from "@/app/chat/follow-ups";
 import { CHAT_CONTEXT_ERROR, CHAT_SESSION_CHANGED, invalidateAfterChatOutcome, loadOwnedChatContext } from "@/app/chat/context-data";
 import { createChatEmptyStatusRefresh } from "@/app/chat/empty-status";
 import type { PaymentChatEntry } from "@/app/chat/payment-entry";
-import { linkedPaymentReplyContext, paymentLinkId } from "@/app/chat/payment-link";
+import { capturePaymentChatEntry, linkedPaymentReplyContext, paymentLinkId } from "@/app/chat/payment-link";
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
@@ -502,6 +502,7 @@ export function ChatPanel({
   const financialsEmpty = contextLedger ? getGettingStartedState(contextLedger).isEmpty : knownEmpty === true;
   const empty = messages.length === 0;
   const last = messages.at(-1);
+  const shownPaymentContext = paymentEntry?.state === "ready" ? paymentEntry.message.paymentNotice : paymentReplyContext(messages);
   const showFollowUps = !busy && last?.role === "assistant" && !(last.actionId && !last.settled) && text.length === 0;
 
   return (
@@ -515,12 +516,12 @@ export function ChatPanel({
           {!empty ? (
             <div className="alfred-production-chat-thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
               {messages.map((message, index) => message.role === "assistant" ? (
-                <article key={threadKey(message)} ref={paymentEntry?.state === "ready" && message.clientId === paymentEntry.message.clientId ? selectedPaymentArticle : undefined} tabIndex={paymentEntry?.state === "ready" && message.clientId === paymentEntry.message.clientId ? -1 : undefined} data-payment-selected={paymentEntry?.state === "ready" && message.clientId === paymentEntry.message.clientId || undefined} className="alfred-production-chat-assistant">
+                <article key={threadKey(message)} ref={isSelectedPaymentMessage(message, paymentEntry) ? selectedPaymentArticle : undefined} tabIndex={isSelectedPaymentMessage(message, paymentEntry) ? -1 : undefined} data-payment-selected={isSelectedPaymentMessage(message, paymentEntry) || undefined} className="alfred-production-chat-assistant">
                   <div className="alfred-production-chat-messageIdentity"><AlfredMark size="size-6" /><span>Alfred</span>{message.channel === "telegram" ? <TelegramBadge /> : null}</div>
                   <div className="alfred-production-chat-assistantContent">
                     <p>{message.text}</p>
                     {message.chart ? <ReplyChart chart={message.chart} /> : null}
-                    {(paymentEntry?.state === "ready" ? message.clientId === paymentEntry.message.clientId : message === last) && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
+                    {(paymentEntry?.state === "ready" ? isSelectedPaymentMessage(message, paymentEntry) : message === last) && !newTopic && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
                     {message.actionId && !message.settled ? <div className="alfred-production-chat-decisions"><button type="button" disabled={busy} className={buttonClassName({ variant: "primary", size: "sm", className: "is-primary" })} onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}>Confirm</button><button className={buttonClassName({ variant: "secondary", size: "sm" })} type="button" disabled={busy} onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}>Cancel</button></div> : null}
                   </div>
                 </article>
@@ -555,7 +556,7 @@ export function ChatPanel({
             </Link>
           </div> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
-          {paymentEntry?.state === "ready" || paymentReplyContext(messages) ? <div className="mb-2 flex flex-wrap items-center gap-2 px-2 text-xs text-muted" aria-label="Payment reply context"><span>{newTopic ? "Your next message starts a new topic." : "Replying about this payment alert."}</span>{!newTopic ? <button type="button" disabled={busy} className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={() => { setNewTopic(true); setChoices([]); inputRef.current?.focus(); }}>Start a new topic</button> : null}</div> : null}
+          {shownPaymentContext ? <PaymentReplyContext newTopic={newTopic} pending={shownPaymentContext.requiresPurpose} busy={busy} onChange={() => { if (!newTopic) { const captured = capturePaymentChatEntry(messages, paymentEntry); if (captured?.state === "ready") { setPaymentEntry(captured); setActivePaymentTarget(captured.bankMessageId); } } setNewTopic(!newTopic); setChoices([]); if (newTopic) refreshThread(); inputRef.current?.focus(); }} /> : null}
           {showFollowUps && !choices.length ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
@@ -581,35 +582,35 @@ export function ChatPanel({
 }
 
 
-/** Where a choice belongs: the likely answer, a category, another kind of answer, or a link. */
-function choiceGroup(item: ChatChoice): "suggested" | "category" | "other" | "link" {
-  if (item.href !== undefined) return "link";
-  if (/:c\d+$/.test(item.choice)) return "category";
-  return /:[rp]$/.test(item.choice) || item.label.startsWith("Yes") || item.label.startsWith("My own") ? "suggested" : "other";
+/** An emphasis only; every answer and navigation action uses the same chip. */
+function isSelectedPaymentMessage(message: ThreadMessage, entry: PaymentChatEntry | null): boolean {
+  return entry?.state === "ready" && (message.id === entry.message.id || Boolean(message.clientId && message.clientId === entry.message.clientId));
+}
+
+function suggestedChoice(item: ChatChoice): boolean {
+  return item.choice !== undefined && (/:[rp]$/.test(item.choice) || item.label.startsWith("Yes") || item.label.startsWith("My own"));
 }
 
 /** Tap-to-answer chips under Alfred's question about a bank payment. */
 function AnswerChoices({ choices, onChoose }: { choices: ChatChoice[][]; onChoose: (item: Extract<ChatChoice, { choice: string }>) => void }) {
   const items = choices.flat();
-  const tap = (item: ChatChoice) => (item.choice ? () => onChoose(item) : undefined);
-  const group = (name: ReturnType<typeof choiceGroup>) => items.filter((item) => choiceGroup(item) === name);
-  const suggested = group("suggested");
-  const other = group("other");
-  const link = group("link")[0];
   return (
     <div className="alfred-chat-answers" role="group" aria-label="Answer Alfred's question">
       <div className="alfred-chat-answers-chips">
-        {suggested.map((item) => <button key={item.label} type="button" data-kind="suggested" onClick={tap(item)}>{item.label}</button>)}
-        {group("category").map((item) => <button key={item.label} type="button" onClick={tap(item)}>{item.label}</button>)}
+        {items.map((item, index) => item.href !== undefined
+          ? <Link key={`${item.href}:${index}`} className="alfred-chat-answer-chip" href={item.href}>{item.label} <span aria-hidden="true">↗</span></Link>
+          : <button key={`${item.choice}:${index}`} className="alfred-chat-answer-chip" type="button" data-kind={suggestedChoice(item) ? "suggested" : undefined} onClick={() => onChoose(item)}>{item.label}</button>)}
       </div>
-      {other.length || link ? (
-        <div className="alfred-chat-answers-more">
-          {other.map((item) => <button key={item.label} type="button" onClick={tap(item)}>{item.label}</button>)}
-          {link?.href ? <Link href={link.href}>{link.label} <span aria-hidden="true">↗</span></Link> : null}
-        </div>
-      ) : null}
     </div>
   );
+}
+
+/** A conversation boundary, never a classification or a way to discard an alert. */
+export function PaymentReplyContext({ newTopic, pending, busy, onChange }: { newTopic: boolean; pending: boolean; busy: boolean; onChange: () => void }) {
+  return <div className="mb-2 flex flex-wrap items-center gap-2 px-2 text-xs text-muted" aria-label="Payment reply context">
+    <span role="status">{newTopic ? pending ? "This payment stays pending while we talk about something else." : "Your next message is about something else." : "Replying about this payment alert."}</span>
+    <button type="button" disabled={busy} className="alfred-chat-answer-chip" onClick={onChange}>{newTopic ? "Back to this payment" : "Ask something else"}</button>
+  </div>;
 }
 
 /** Static setup UI, kept outside the saved conversation log. */

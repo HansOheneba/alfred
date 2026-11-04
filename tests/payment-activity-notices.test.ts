@@ -9,7 +9,7 @@ const row=(patch:Partial<MentionCandidate>={}):MentionCandidate=>({id,ownerId:ow
 const purpose={ownerId:owner,transactionId:txn,category:'Food',description:'Lunch',recordStatus:'active'};
 describe('deterministic money-in and money-out announcements',()=>{
  it('announces an outgoing alert and its fee without recording or claiming settlement',()=>{
-  const notice=paymentActivityMention(row())!;expect(notice.intent).toBe('automation:outgoing-payment');expect(notice.body).toContain('money-out alert to Synthetic shop');expect(notice.body).toContain('What was this for?');expect(notice.body).toContain('in fees');expect(notice.requiresPurpose).toBe(true);expect(notice.ledgerChanged).toBe(false);expect(notice.body).not.toMatch(/bank confirmed|settled|payment complete/i);
+  const notice=paymentActivityMention(row())!;expect(notice.intent).toBe('automation:outgoing-payment');expect(notice.body).toContain('outgoing payment alert for GH₵30.00 to Synthetic shop');expect(notice.body).toContain('What was this for?');expect(notice.body).toContain('in fees');expect(notice.requiresPurpose).toBe(true);expect(notice.ledgerChanged).toBe(false);expect(notice.body).not.toMatch(/bank confirmed|settled|payment complete/i);
   expect(incomingPaymentMention(row())).toBeNull();
  });
  it('uses owned classification for an existing outgoing entry and does not count a match again',()=>{
@@ -35,6 +35,21 @@ describe('deterministic money-in and money-out announcements',()=>{
  it('keeps card holds provisional and unfamiliar model-read alerts uncertain',()=>{
   expect(paymentActivityMention(row({kind:'card_hold'}))?.body).toContain('card hold');
   expect(paymentActivityMention(row({readBy:'model'}))?.body).toContain('possible');
+ });
+ it.each(['in','out'] as const)('states %s direction for ordinary and special classifications',direction=>{
+  const word=direction==='in'?'incoming':'outgoing';
+  const cases:Partial<MentionCandidate>[]=[
+   {},{status:'recorded',transactionId:txn,purpose},{status:'matched',transactionId:txn,purpose},
+   {readBy:'model'},{kind:'unknown'},{kind:'transfer_own',status:'transfer'},
+   {kind:direction==='in'?'loan_in':'loan_out',status:'loan'},
+   {kind:'payment',status:'invested'},
+   ...(direction==='out'?[{kind:'card_hold',status:'needs_label'},{kind:'hold_settle',status:'matched'}] as Partial<MentionCandidate>[]:[]),
+  ];
+  for(const patch of cases){
+   const notice=paymentActivityMention(row({direction,...patch}))!;
+   expect(notice.body).toContain(`${word} payment alert for GH₵30.00`);
+   expect(notice.intent).toBe(direction==='in'?'automation:incoming-payment':'automation:outgoing-payment');
+  }
  });
  it('keeps independent activation/mute windows and excludes history/import channels',()=>{
   expect(mentionEligible(row(),owner,prefs,now)).toBe(true);

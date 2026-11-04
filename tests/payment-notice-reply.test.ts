@@ -3,7 +3,8 @@ import { describe, expect, it, vi } from "vitest";
 import { clientTurnUpdateId, MemoryMessageLog, type ChatMessageRecord } from "@/lib/accounts/messages";
 import { chatChoiceSchema, chatTextSchema } from "@/lib/accounts/chat-request";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
-import { currentQuestion, waitingPayments } from "@/lib/bank/reply";
+import { applyResolved, chooseLabel, currentQuestion, waitingPayments } from "@/lib/bank/reply";
+import { applyLabel } from "@/lib/bank/ingest";
 import { MemoryBankStore, type BankMessage, type NewBankMessage } from "@/lib/bank/store";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER } from "@/lib/config";
 import { AiError } from "@/lib/errors";
@@ -907,7 +908,7 @@ describe("separate requests after a closed outgoing notice", () => {
     const before = await state.store.listTransactions(state.owner.profileId);
     for (const clientId of ["closed-out-duplicate-one", "closed-out-duplicate-two"]) {
       const refused = await handleProfileTurn(state.owner, { text: "I spent 30 on lunch", clientId, replyToPayment: notice.paymentNotice }, state.deps);
-      expect(refused.text).toContain("Nothing was changed"); expect(refused.text).toContain("Start a new topic");
+      expect(refused.text).toContain("Nothing was changed"); expect(refused.text).toContain("Ask something else");
       expect(refused.messages?.find(row => row.role === "assistant")?.paymentNotice).toEqual(notice.paymentNotice);
     }
     expect(await state.store.listTransactions(state.owner.profileId)).toEqual(before);
@@ -1023,7 +1024,7 @@ describe("separate requests after a closed outgoing notice", () => {
     await state.bank.updateMessage(state.owner.profileId, source.id, { transactionId: manual.transactionId });
     const notice = await state.notice(source, false), lookup = vi.spyOn(state.store, "findTransactionsBySource");
     const reply = await handleProfileTurn(state.owner, { text: "I spent 50 on transport", clientId: "closed-out-external-match", replyToPayment: notice.paymentNotice }, state.deps);
-    expect(reply.actionId).toBeUndefined(); expect(reply.text).toContain("Start a new topic");
+    expect(reply.actionId).toBeUndefined(); expect(reply.text).toContain("Ask something else");
     expect(lookup).toHaveBeenCalledExactlyOnceWith(state.owner.profileId, `bank:${source.id}`);
   });
 
@@ -1055,5 +1056,121 @@ describe("separate requests after a closed outgoing notice", () => {
       expect(await state.store.listPendingActions(state.owner.profileId)).toHaveLength(conflict ? 0 : 1);
       expect(await state.store.listTransactions(state.owner.profileId)).toHaveLength(1);
     }
+  });
+});
+
+describe("captured payment notices cannot be skipped", () => {
+  it.each(["in", "out"] as const)("has no Skip answer and keeps a typed dismissal pending for %s alerts", async direction => {
+    for (const text of ["skip", "skip it", "please ignore this payment", "dismiss it", "leave it out"]) {
+      const state = setup(() => ({ type: "label_payments", answers: [{ items: [1], action: "skip" }] }));
+      const source = await state.payment(1, { direction });
+      const notice = await state.notice(source);
+      const choices = await openChoices(state.owner, state.deps, notice);
+      expect(choices.flat().map(choice => choice.label)).not.toContain("Skip");
+      const before = await state.bank.getMessage(state.owner.profileId, source.id);
+      const input = { text, clientId: `no-skip-${direction}-${text.replaceAll(" ", "-")}`, replyToPayment: notice.paymentNotice };
+      const first = await handleProfileTurn(state.owner, input, state.deps);
+      expect(first.text).toContain("keep this payment pending");
+      expect(first.text).toContain("Ask something else");
+      expect(first.choices?.flat().map(choice => choice.label)).toContain(direction === "in" ? "Business" : "Food");
+      expect(first.choices?.flat().map(choice => choice.label)).not.toContain("Skip");
+      expect(first.messages?.find(message => message.role === "assistant")?.paymentNotice).toEqual({ bankMessageId: source.id, requiresPurpose: true });
+      expect((await handleProfileTurn(state.owner, input, state.deps)).text).toBe(first.text);
+      expect(await state.bank.getMessage(state.owner.profileId, source.id)).toEqual(before);
+      expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+      expect(state.interpret).not.toHaveBeenCalled();
+    }
+  });
+
+  it.each(["mac", "shortcut", "manual", "screenshot"] as const)("blocks a stale ordinary s callback from %s without changing its source", async channel => {
+    const state = setup();
+    const source = await state.payment(1, { channel });
+    const notice = await state.notice(source);
+    const before = await state.bank.getMessage(state.owner.profileId, source.id);
+    const input = { choice: `b:${source.id}:s`, clientId: `stale-skip-${channel}`, replyToPayment: notice.paymentNotice };
+    const reply = await handleProfileTurn(state.owner, input, state.deps);
+    expect(reply.text).toContain("keep this payment pending");
+    expect(reply.messages?.find(message => message.role === "assistant")?.paymentNotice).toEqual({ bankMessageId: source.id, requiresPurpose: true });
+    expect((await handleProfileTurn(state.owner, input, state.deps)).text).toBe(reply.text);
+    expect(await state.bank.getMessage(state.owner.profileId, source.id)).toEqual(before);
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+  });
+
+  it("does not let a model-produced skip discard the exact unresolved source", async () => {
+    const state = setup(request => ({ type: "label_payments", answers: [{ items: [request.waiting!.current], action: "skip" }] }));
+    const source = await state.payment(1);
+    const notice = await state.notice(source);
+    const before = await state.bank.getMessage(state.owner.profileId, source.id);
+    const reply = await handleProfileTurn(state.owner, { text: "it was a small test transfer, leave it out", clientId: "model-must-not-skip", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.text).toContain("keep this payment pending");
+    expect(state.interpret).toHaveBeenCalledOnce();
+    expect(await state.bank.getMessage(state.owner.profileId, source.id)).toEqual(before);
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+  });
+
+  it("does not use a stale callback to switch the exact notice or reach another owner", async () => {
+    const state = setup();
+    const target = await state.payment(1), older = await state.payment(2), foreign = await state.payment(3, { ownerId: "another-owner" });
+    const notice = await state.notice(target);
+    for (const source of [older, foreign]) {
+      const reply = await handleProfileTurn(state.owner, { choice: `b:${source.id}:s`, clientId: `no-skip-other-${source.id}`, replyToPayment: notice.paymentNotice }, state.deps);
+      expect(reply.text).toContain("no longer valid");
+    }
+    expect(await chooseLabel(state.ingest, state.owner, `b:${foreign.id}:s`)).toBeNull();
+    expect((await state.bank.getMessage(state.owner.profileId, target.id))?.status).toBe("needs_label");
+    expect((await state.bank.getMessage(state.owner.profileId, older.id))?.status).toBe("needs_label");
+    expect((await state.bank.getMessage("another-owner", foreign.id))?.status).toBe("needs_label");
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+  });
+
+  it("Ask something else leaves the source pending and available to reopen", async () => {
+    const state = setup(() => ({ type: "chat", message: "We can talk about something else." }));
+    const source = await state.payment(1);
+    const notice = await state.notice(source);
+    const before = await state.bank.getMessage(state.owner.profileId, source.id);
+    const reply = await handleProfileTurn(state.owner, { text: "let's talk about saving", clientId: "no-skip-ask-something-else", replyToPayment: notice.paymentNotice, newTopic: true }, state.deps);
+    expect(reply.messages?.find(message => message.role === "assistant")?.paymentNotice).toBeUndefined();
+    expect(reply.messages?.find(message => message.role === "assistant")?.newTopic).toBe(true);
+    expect((await currentQuestion(state.ingest, state.owner, { currentMessageId: source.id }))?.message.id).toBe(source.id);
+    expect((await openChoices(state.owner, state.deps, notice)).flat().map(choice => choice.label)).toContain("Business");
+    expect(await state.bank.getMessage(state.owner.profileId, source.id)).toEqual(before);
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+  });
+
+  it("rejects a model skip before undoing any recent valid classification", async () => {
+    const state = setup();
+    const source = await state.payment(1);
+    const labelled = await applyLabel(state.ingest, state.owner, source.id, { kind: "category", category: "Business", description: "Fictional freelance work" });
+    expect(labelled.ok).toBe(true);
+    if (!labelled.ok) throw new Error("Synthetic classification was not saved");
+    await state.bank.saveUndo(state.owner.profileId, labelled.changes);
+    const before = await state.bank.getMessage(state.owner.profileId, source.id);
+    const finances = await state.store.listTransactions(state.owner.profileId);
+    const waiting = await waitingPayments(state.ingest, state.owner);
+    expect(waiting?.recent).toHaveLength(1);
+    const reply = await applyResolved(state.ingest, state.owner, "skip that", [{ messageIds: [source.id], label: { kind: "skip" } }], waiting!);
+    expect(reply?.text).toContain("haven't removed or changed");
+    expect(await state.bank.getMessage(state.owner.profileId, source.id)).toEqual(before);
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual(finances);
+  });
+
+  it("leaves historical skipped records unchanged when a stale skip reaches the write guard", async () => {
+    const state = setup();
+    const source = await state.payment(1, { status: "skipped" });
+    const before = await state.bank.getMessage(state.owner.profileId, source.id);
+    expect((await applyLabel(state.ingest, state.owner, source.id, { kind: "skip" })).ok).toBe(false);
+    expect(await state.bank.getMessage(state.owner.profileId, source.id)).toEqual(before);
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
+  });
+
+  it("does not turn an unmatched hold-settlement callback into an ordinary skip", async () => {
+    const state = setup();
+    const source = await state.payment(1, { direction: "out", kind: "hold_settle" });
+    const notice = await state.notice(source);
+    const before = await state.bank.getMessage(state.owner.profileId, source.id);
+    const reply = await handleProfileTurn(state.owner, { choice: `b:${source.id}:s`, clientId: "no-skip-unmatched-hold", replyToPayment: notice.paymentNotice }, state.deps);
+    expect(reply.text).toContain("keep this payment pending");
+    expect(await state.bank.getMessage(state.owner.profileId, source.id)).toEqual(before);
+    expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
   });
 });

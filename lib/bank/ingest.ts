@@ -13,6 +13,7 @@ import type { PeopleStore } from "@/lib/people/store";
 import { findPerson, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
 import { canonicalizeAmount, formatAmount, toMinor } from "@/lib/finance/money";
 import type { FinanceStore } from "@/lib/finance/store";
+import { PAYMENT_NOTICE_STAYS_PENDING } from "./notice-policy";
 
 export type IngestDeps = {
   bank: BankStore;
@@ -456,8 +457,7 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
       const what = hold.counterparty ? `the ${titleCase(hold.counterparty)} payment` : "the card payment";
       return { ok: true, text: `Got it: ${money} was ${what} going through, so it's only counted once.`, changes: [change] };
     }
-    await deps.bank.updateMessage(profile.profileId, message.id, { status: "skipped" });
-    return { ok: true, text: `Left ${money} out of your books.`, changes: [change] };
+    return { ok: false, text: PAYMENT_NOTICE_STAYS_PENDING };
   }
   if (label.kind === "pass_through") {
     await deps.bank.updateMessage(profile.profileId, message.id, { status: "skipped" });
@@ -732,7 +732,7 @@ export function labelQuestion(
     new Date(message.occurredAt),
   );
   // A text from a bank Alfred has no rules for: say so, so a misreading gets caught.
-  const learning = message.readBy === "model" ? ` (I read this ${sourceName(message.source)} text myself. If I got it wrong, tap Skip.)` : "";
+  const learning = message.readBy === "model" ? ` (I read this ${sourceName(message.source)} text myself. If I read it wrong, tell me what needs correcting.)` : "";
   return `${baseQuestion(message, timeZone, ownerName, debt, hold, money, when)}${learning}`;
 }
 

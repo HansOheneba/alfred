@@ -49,6 +49,15 @@ current pair, preserve later edits and fees, and remember the rejection so a
 later alert does not silently recreate it. Naming accounts binds these observed
 alerts; it does not create a blanket rule for every future provider message.
 
+Payment questions state whether the alert is incoming or outgoing. Every answer
+uses the same wrapping chip style, including borrowing and investment choices.
+There is no Skip choice: an unexplained captured payment stays pending, including
+when an older Skip button or a dismissal request is submitted. A positive match
+to an existing card hold remains a classification of the same payment, not a
+discard action. `Ask something else` separates an unrelated Chat request from
+the payment answer without resolving the payment; before sending that request,
+`Back to this payment` restores its answer choices.
+
 Automatic pairing is optional to SMS capture. Each attempt uses a savepoint:
 recoverable matching or pair-write failures remove all partial pairing effects
 while retaining the new alert and its explicit fee. Connection, transaction or

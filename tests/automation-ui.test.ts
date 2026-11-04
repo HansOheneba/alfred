@@ -189,12 +189,12 @@ describe("clear inactive defaults and local preview", () => {
     expect(copies.knownCopy).toContain("Business");
     expect(copies.unknownCopy).toContain("What was this for?");
     expect(copies.unknownCopy).toContain("unlabelled");
-    expect(copies.uncertainCopy).toContain("possible incoming alert");
+    expect(copies.uncertainCopy).toContain("possible incoming payment alert");
     expect(copies.uncertainCopy.toLowerCase()).not.toMatch(/freelance|cleared|settled|filed under/);
     expect(copies.outgoingKnownCopy).toContain("Sample Shop");
     expect(copies.outgoingKnownCopy).toContain("Food");
     expect(copies.outgoingUnknownCopy).toContain("What was this for?");
-    expect(copies.outgoingUncertainCopy).toMatch(/possible.*money-out alert/);
+    expect(copies.outgoingUncertainCopy).toMatch(/possible outgoing payment alert/);
     expect(copies.outgoingUncertainCopy.toLowerCase()).not.toMatch(/cleared|settled|filed under/);
   });
   it("does not present a forwarding key or browser choice as Mac installation or delivery", () => {

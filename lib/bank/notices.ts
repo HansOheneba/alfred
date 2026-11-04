@@ -27,11 +27,11 @@ export function incomingPaymentMention(message:MentionCandidate):PaymentMention|
   const purpose=knownPaymentPurpose(message.purpose,message.ownerId,message.transactionId,message.counterparty);
   const requiresPurpose=message.status==='needs_label';
   let body:string;
-  if (uncertain) body=requiresPurpose?`I spotted a possible incoming alert for ${amount}${from}. Can you check that it looks right, and tell me what it was for?`:`I spotted a possible incoming alert for ${amount}${from}. Please check the linked record before relying on it.`;
-  else if (requiresPurpose) body=`I picked up a ${amount} payment alert${from}. What was this for? I'll leave it unlabelled until you tell me.`;
-  else if (message.status==='matched') body=purpose?`That ${amount} alert${from} looks like your ${purpose.detail??purpose.category} entry. I've linked it, so it's only counted once.`:`That ${amount} alert${from} looks like an entry already in your records. What was this for? Please check the match in Review before changing it; I won't guess its purpose.`;
-  else if (purpose) body=purpose.detail?`Got the ${amount} alert${from} for ${purpose.detail}. I've filed it under ${purpose.category}.`:`Got the ${amount} alert${from}. It's filed under ${purpose.category}.`;
-  else body=`I picked up the ${amount} alert${from}. The linked record doesn't explain its purpose. What was this for? Please check it in Review before making a correction.`;
+  if (uncertain) body=requiresPurpose?`I spotted a possible incoming payment alert for ${amount}${from}. Can you check that it looks right, and tell me what it was for?`:`I spotted a possible incoming payment alert for ${amount}${from}. Please check the linked record before relying on it.`;
+  else if (requiresPurpose) body=`I picked up an incoming payment alert for ${amount}${from}. What was this for? I'll leave it unlabelled until you tell me.`;
+  else if (message.status==='matched') body=purpose?`That incoming payment alert for ${amount}${from} looks like your ${purpose.detail??purpose.category} entry. I've linked it, so it's only counted once.`:`That incoming payment alert for ${amount}${from} looks like an entry already in your records. What was this for? Please check the match in Review before changing it; I won't guess its purpose.`;
+  else if (purpose) body=purpose.detail?`Got the incoming payment alert for ${amount}${from} for ${purpose.detail}. I've filed it under ${purpose.category}.`:`Got the incoming payment alert for ${amount}${from}. It's filed under ${purpose.category}.`;
+  else body=`I picked up the incoming payment alert for ${amount}${from}. The linked record doesn't explain its purpose. What was this for? Please check it in Review before making a correction.`;
   // The source is an alert, not an independently verified bank settlement.
   return {clientId:`bank_notice_${createHash('sha256').update(`${message.ownerId}\0${message.id}`).digest('hex')}`,
     body,intent:'automation:incoming-payment',requiresPurpose,ledgerChanged:Boolean(message.feeTransactionId)||(message.status==='recorded'&&Boolean(message.transactionId))};
@@ -64,12 +64,12 @@ export function paymentActivityMention(message:MentionCandidate):PaymentMention|
   const ownedPrincipal=message.purpose?.ownerId===message.ownerId&&message.purpose.transactionId===message.transactionId&&message.purpose.recordStatus==='active';
   let spendingAdjustment=false;
   try{spendingAdjustment=Boolean(ownedPrincipal&&message.direction==='in'&&['recorded','matched'].includes(message.status)&&message.principalType==='expense'&&message.principalCurrency===message.currency&&message.principalAmount&&toMinor(message.principalAmount)<0&&-toMinor(message.principalAmount)===toMinor(message.amount));}catch{spendingAdjustment=false;}
-  // Preserve the established incoming wording and one-reply protections.
+  // Keep incoming wording and one-reply protections in the same builder.
   if(message.direction==='in'&&ordinary&&message.kind!=='card_hold'&&!spendingAdjustment){
     const existing=incomingPaymentMention(message);return existing?{...existing,body:existing.body+fee}:null;
   }
-  const direction=message.direction==='in'?'money-in':'money-out';
-  const intro=`I picked up ${uncertain?'a possible':'a'} ${amount} ${direction} alert${party}.`;
+  const direction=message.direction==='in'?'incoming':'outgoing';
+  const intro=`I picked up ${uncertain?'a possible':'an'} ${direction} payment alert for ${amount}${party}.`;
   let body:string;
   const requiresPurpose=ordinary&&message.status==='needs_label';
   if(settlement)body=`${intro} It may be a card payment already recorded. Check it in Review before counting it again.`;

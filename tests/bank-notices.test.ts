@@ -29,7 +29,7 @@ describe('purpose-aware private payment mentions',()=>{
  });
  it('asks about an unlabelled incoming payment even from a recognized provider',()=>{
   const notice=incomingPaymentMention(row({status:'needs_label',transactionId:null,counterparty:'MobileMoney',readBy:'rules'}))!;
-  expect(notice.body).toContain('What was this for?');expect(notice.body).toContain("leave it unlabelled");
+  expect(notice.body).toContain('incoming payment alert for GH₵250.00 from MobileMoney');expect(notice.body).toContain('What was this for?');expect(notice.body).toContain("leave it unlabelled");
   expect(notice).toMatchObject({requiresPurpose:true,ledgerChanged:false});
  });
  it('preserves fee refresh metadata while leaving principal purpose unknown',()=>{
@@ -48,7 +48,7 @@ describe('purpose-aware private payment mentions',()=>{
  });
  it.each([{readBy:'model'},{kind:'unknown'}] as Partial<MentionCandidate>[])('does not overstate uncertain classification %j',patch=>{
   const held=incomingPaymentMention(row({...patch,status:'needs_label',transactionId:null}))!;
-  expect(held.body).toContain('possible incoming alert');expect(held.body).toContain('check that it looks right');expect(held.body).toContain('what it was for');expect(held.requiresPurpose).toBe(true);
+  expect(held.body).toContain('possible incoming payment alert');expect(held.body).toContain('check that it looks right');expect(held.body).toContain('what it was for');expect(held.requiresPurpose).toBe(true);
   const settled=incomingPaymentMention(row({...patch,purpose:purpose()}))!;
   expect(settled.body).toContain('Please check the linked record');expect(settled.body).not.toContain('filed it under');expect(settled.requiresPurpose).toBe(false);
  });
@@ -57,6 +57,13 @@ describe('purpose-aware private payment mentions',()=>{
   expect(known.body).toContain('looks like your November salary entry');expect(known.body).toContain("only counted once");expect(known).toMatchObject({ledgerChanged:false,requiresPurpose:false});
   const unknown=incomingPaymentMention(row({status:'matched'}))!;
   expect(unknown.body).toContain("I won't guess its purpose");expect(unknown.requiresPurpose).toBe(false);
+ });
+ it.each(['needs_label','recorded','matched'] as const)('keeps incoming direction explicit for %s with or without known purpose',status=>{
+  for(const savedPurpose of [null,purpose()]){
+   const notice=incomingPaymentMention(row({status,transactionId:status==='needs_label'?null:principal,purpose:savedPurpose}))!;
+   expect(notice.body).toContain('incoming payment alert for GH₵250.00');
+   expect(notice.body).not.toMatch(/outgoing|money-out|settled|bank confirmed/);
+  }
  });
  it.each([{direction:'out'},{kind:'transfer_own'},{kind:'loan_in'},{status:'skipped'},{status:'invested'},{amount:'0.00'},{amount:'NaN'},{channel:'manual'},{channel:'screenshot'},{status:'matched',transactionId:null},{status:'recorded',transactionId:null}] as Partial<MentionCandidate>[])('excludes notices that cannot be safely acted on %j',patch=>{expect(incomingPaymentMention(row(patch))).toBeNull();});
  it('uses stable owner-and-event idempotency, never raw source text',()=>{
