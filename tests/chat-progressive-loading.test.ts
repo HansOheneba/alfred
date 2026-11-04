@@ -6,7 +6,7 @@ import { chatSubmissionReady } from "@/app/chat/payment-link";
 import type { PaymentChatEntry } from "@/app/chat/payment-entry";
 
 const ownerId = "fictional-owner", bank = "11111111-1111-4111-8111-111111111111";
-const message = { id: "current-source", role: "assistant", text: "Current owned GH₵1.00 incoming alert.", channel: "web", createdAt: "2026-11-04T11:09:00Z", clientId: "bank_notice_fictional", paymentNotice: { bankMessageId: bank, requiresPurpose: true } };
+const message = { id: "current-source", role: "assistant" as const, text: "Current owned GH₵1.00 incoming alert.", channel: "web" as const, createdAt: "2026-11-04T11:09:00Z", clientId: "bank_notice_fictional", paymentNotice: { bankMessageId: bank, requiresPurpose: true } };
 const entry = { state: "ready", bankMessageId: bank, sourceVersion: "current-version", message: { ...message, body: message.text } };
 const packet = (part: string) => ({ ok: true, ownerId, messages: part === "payment" ? [message] : [], ...(part === "payment" ? { paymentEntry: entry } : part === "choices" ? { choices: [[{ label: "Gift", choice: `b:${bank}:c2` }]], choiceTarget: bank, sourceVersion: "current-version" } : {}) });
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>(done => { resolve = done; }); return { promise, resolve }; }
@@ -86,6 +86,29 @@ describe("progressive owner-bound Chat opening", () => {
     expect(html).not.toContain("A purchase, a payday");
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Send"/);
     expect(html).toContain("Ask something else");
+    expect(html).toContain('class="alfred-production-chat-historySkeleton"');
+    expect(html.match(/<textarea[^>]*>[\s\S]*?<\/textarea>/)?.[0]).not.toContain('disabled=""');
+  });
+
+  it("keeps a draft editable while ordinary history loads, hides unverified old messages and blocks send and attachments", () => {
+    const html = renderToStaticMarkup(createElement(ChatPanel, { ownerId, name: "Sample", initialMessages: [{ ...message, paymentNotice: undefined, text: "A stale saved assistant question" }], loadInitialThread: true, financialsEmpty: true, initialQuestion: "A draft while I wait" }));
+    expect(html).toContain('aria-label="Loading your conversation"');
+    expect(html).toContain(">A draft while I wait</textarea>");
+    expect(html.match(/<textarea[^>]*>[\s\S]*?<\/textarea>/)?.[0]).not.toContain('disabled=""');
+    expect(html).not.toContain("A stale saved assistant question");
+    expect(html).not.toContain("A purchase, a payday");
+    expect(html).not.toContain("Start with an expense or income");
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Send"/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Attach a screenshot"/);
+  });
+
+  it("shows an independently verified selected payment before optional history, without exposing a stale unrelated assistant", () => {
+    const selected = entry as PaymentChatEntry;
+    const html = renderToStaticMarkup(createElement(ChatPanel, { ownerId, name: "Sample", initialMessages: [{ ...message, id: "stale-question", clientId: "other-question", text: "A stale unrelated assistant question", paymentNotice: undefined }, message], initialPaymentTarget: bank, initialPaymentEntry: selected, loadInitialThread: true, initialQuestion: "Gift" }));
+    expect(html).toContain("Current owned GH₵1.00 incoming alert.");
+    expect(html).not.toContain("A stale unrelated assistant question");
+    expect(html).toContain('aria-label="Loading your conversation"');
+    expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*aria-label="Send"/);
   });
 
   it("blocks unavailable or mismatched payment answers but keeps an explicit unrelated text usable", () => {

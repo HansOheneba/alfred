@@ -1,0 +1,82 @@
+.alfred-loading { width:100%; min-width:0; max-width:1280px; margin-inline:auto; padding:32px; color:var(--ink); }
+.alfred-loading-overview { max-width:1488px; }
+.alfred-loading > [aria-hidden] { display:flex; flex-direction:column; gap:24px; min-width:0; }
+.alfred-loading-heading,.alfred-loading-activityHeading { display:flex; align-items:center; justify-content:space-between; gap:16px; min-width:0; }
+.alfred-loading-heading > div { flex:1; min-width:0; }
+.alfred-loading-heading h1 { font-size:26px; line-height:36px; font-weight:600; letter-spacing:-.035em; }
+.alfred-loading-copy { width:72%; max-width:320px; height:14px; margin-top:10px; }
+.alfred-loading-label { width:128px; max-width:75%; height:14px; }
+.alfred-loading-value { width:176px; max-width:85%; height:36px; margin-top:18px; }
+.alfred-loading-action { flex:none; width:176px; max-width:100%; height:46px; border-radius:12px; }
+.alfred-loading-card { min-width:0; padding:20px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.alfred-loading-overviewSummary { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; align-items:stretch; }
+.alfred-loading-metric { min-height:180px; }
+.alfred-loading-accountDisclosure { width:100%; height:20px; margin-top:24px; }
+.alfred-loading-weekly { min-height:124px; }
+.alfred-loading-weeklyBar { width:100%; height:8px; margin-top:22px; }
+.alfred-loading-charts { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:20px; }
+.alfred-loading-chart { width:100%; height:216px; margin-top:24px; }
+.alfred-loading-rows { margin-top:12px; }
+.alfred-loading-row { display:grid; grid-template-columns:32px minmax(0,1fr) minmax(52px,.3fr); align-items:center; gap:12px; min-height:76px; padding-block:14px; }
+.alfred-loading-row + .alfred-loading-row { border-top:1px solid var(--line); }
+.alfred-loading-rowIcon { width:32px; height:32px; border-radius:50%; }
+.alfred-loading-rowTitle { width:72%; max-width:220px; height:14px; }
+.alfred-loading-rowCopy { width:58%; max-width:180px; height:12px; margin-top:8px; }
+.alfred-loading-rowAmount { width:100%; max-width:100px; height:20px; justify-self:end; }
+.alfred-loading-accounts { max-width:1440px; }
+.alfred-loading-accounts .alfred-loading-balance { min-height:164px; }
+.alfred-loading-sectionTitle { width:120px; max-width:60%; height:26px; }
+.alfred-loading-filter { width:96px; height:44px; }
+.alfred-loading-scopes { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; }
+.alfred-loading-scopes > div { height:44px; border-radius:12px; }
+.alfred-loading-activity { padding-block:0; }
+.alfred-loading-activity .alfred-loading-rows { margin-top:0; }
+.alfred-loading-settings,.alfred-loading-investments { max-width:1024px; }
+.alfred-loading-settingsLayout { display:grid; grid-template-columns:208px minmax(0,1fr); align-items:start; gap:24px; }
+.alfred-loading-settingsNavigation { min-width:0; padding:6px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.alfred-loading-settingsItem { display:flex; align-items:center; gap:12px; min-height:48px; padding:8px; }
+.alfred-loading-settingsItem > div:last-child { flex:1; min-width:0; }
+.alfred-loading-settingsItem .alfred-loading-rowIcon { width:28px; height:28px; border-radius:9px; }
+.alfred-loading-settingsItem .alfred-loading-rowCopy { display:none; }
+.alfred-loading-settingsProfile > .alfred-loading-copy { margin:0 0 16px; }
+.alfred-loading-form { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:24px 16px; margin-top:24px; }
+.alfred-loading-field { width:100%; height:46px; margin-top:8px; border-radius:8px; }
+.alfred-loading-textarea { height:128px; margin-top:24px; }
+.alfred-loading-settingsSection { max-width:none; padding:0; }
+.alfred-loading-settingsSection h2 { font-size:14px; font-weight:500; line-height:20px; }
+.alfred-loading-plans { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:16px; margin-top:24px; }
+.alfred-loading-plan { min-width:0; padding:16px; border:1px solid var(--line); border-radius:12px; }
+.alfred-loading-investmentSummary { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); gap:24px; }
+.alfred-loading-investmentFacts { display:grid; gap:16px; }
+.alfred-loading-investmentFacts > div { height:64px; }
+.alfred-loading-investmentGrid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:20px; }
+@media(max-width:1199px) { .alfred-loading-charts { grid-template-columns:repeat(2,minmax(0,1fr)); } .alfred-loading-charts > :last-child { grid-column:1/-1; } }
+@media(max-width:1023px) { .alfred-loading-overviewSummary { grid-template-columns:repeat(2,minmax(0,1fr)); } .alfred-loading-overviewSummary > :first-child { grid-column:1/-1; } }
+@media(max-width:767px) {
+ .alfred-loading { padding:24px 16px; }
+ .alfred-loading > [aria-hidden] { gap:20px; }
+ .alfred-loading-heading { flex-wrap:wrap; align-items:flex-start; }
+ .alfred-loading-heading h1 { font-size:24px; line-height:32px; }
+ .alfred-loading-action { width:100%; }
+ .alfred-loading-card { padding:16px; }
+ .alfred-loading-overviewSummary { gap:12px; }
+ .alfred-loading-metric { min-height:156px; }
+ .alfred-loading-value { height:32px; width:144px; }
+ .alfred-loading-charts,.alfred-loading-investmentGrid { grid-template-columns:minmax(0,1fr); gap:20px; }
+ .alfred-loading-chart { height:216px; }
+ .alfred-loading-scopes { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .alfred-loading-activity { padding-block:0; }
+ .alfred-loading-row { grid-template-columns:28px minmax(0,1fr) minmax(44px,.4fr); gap:10px; }
+ .alfred-loading-rowIcon { width:28px; height:28px; }
+ .alfred-loading-settingsLayout { display:block; }
+ .alfred-loading-settingsProfile { display:none; }
+ .alfred-loading-settingsNavigation { padding:0; }
+ .alfred-loading-settingsItem { min-height:76px; padding:16px; }
+ .alfred-loading-settingsItem + .alfred-loading-settingsItem { border-top:1px solid var(--line); }
+ .alfred-loading-settingsItem .alfred-loading-rowIcon { width:36px; height:36px; border-radius:11px; }
+ .alfred-loading-settingsItem .alfred-loading-rowCopy { display:block; }
+ .alfred-loading-investmentSummary { grid-template-columns:minmax(0,1fr); gap:24px; }
+ .alfred-loading-investmentFacts { grid-template-columns:repeat(2,minmax(0,1fr)); }
+ .alfred-loading-settingsSection { padding:0; }
+}
+@media(max-width:600px) { .alfred-loading-form,.alfred-loading-plans { grid-template-columns:minmax(0,1fr); } }

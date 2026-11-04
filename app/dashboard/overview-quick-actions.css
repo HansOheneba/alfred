@@ -1,0 +1,9 @@
+.alfred-overview-emptyAction { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; min-width: 0; padding: 12px 0 4px; }
+.alfred-overview-emptyAction > p { color: var(--muted); font-size: 14px; line-height: 20px; }
+.alfred-overview-actionHint { color: var(--muted); font-size: 13px; line-height: 20px; }
+.alfred-overview-quickForm, .alfred-overview-quickReview { display: flex; flex-direction: column; gap: 20px; min-width: 0; }
+.alfred-overview-quickFacts { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.alfred-overview-quickFacts > div { display: flex; justify-content: space-between; align-items: baseline; gap: 20px; }
+.alfred-overview-quickFacts dt { flex-shrink: 0; color: var(--muted); font-size: 14px; line-height: 20px; }
+.alfred-overview-quickFacts dd { min-width: 0; text-align: right; overflow-wrap: anywhere; font-size: 14px; line-height: 20px; }
+.alfred-overview-actionError { color: var(--danger); font-size: 14px; line-height: 20px; }

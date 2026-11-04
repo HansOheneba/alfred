@@ -123,6 +123,11 @@ export function Dialog({ open, onClose, title, children, dismissible = true }: {
   );
 }
 
+/** Grouped modal actions: secondary first, primary last; stacked only on phones. */
+export function DialogActions({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <footer className={`alfred-dialog-actions ${className}`}><div className="alfred-dialog-actionGroup alfred-buttonGroup--mobileStack">{children}</div></footer>;
+}
+
 export function ConfirmDialog({
   open,
   title,
@@ -145,16 +150,14 @@ export function ConfirmDialog({
   return (
     <Dialog open={open} onClose={onClose} title={title} dismissible={!busy}>
       <div className="text-sm leading-6 text-muted">{body}</div>
-      <div className="alfred-dialog-actions mt-5">
-        <div className="alfred-buttonGroup--mobileStack flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
-            Cancel
-          </Button>
-          <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} disabled={busy} aria-busy={busy} aria-label={confirmLabel}>
-            {busy ? <Spinner /> : confirmLabel}
-          </Button>
-        </div>
-      </div>
+      <DialogActions className="mt-5">
+        <Button variant="ghost" onClick={onClose} disabled={busy}>
+          Cancel
+        </Button>
+        <Button variant={danger ? "danger" : "primary"} onClick={onConfirm} disabled={busy} aria-busy={busy} aria-label={confirmLabel}>
+          {busy ? <Spinner /> : confirmLabel}
+        </Button>
+      </DialogActions>
     </Dialog>
   );
 }

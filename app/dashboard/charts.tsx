@@ -145,18 +145,21 @@ export function SimpleBars({
   data,
   currency,
   height = "h-48",
+  fillHeight = false,
   name = "Spent",
   color = "var(--outgoing)",
 }: {
   data: { label: string; spent: number }[];
   currency: string;
   height?: string;
+  /** Fill a stretched card while keeping the fixed-height default for compact charts. */
+  fillHeight?: boolean;
   name?: string;
   color?: string;
 }) {
   return (
-    <div className={`${height} w-full`}>
-      <ResponsiveContainer width="100%" height="100%">
+    <div className={`${fillHeight ? "alfred-ui-fillChart" : height} w-full`}>
+      <ResponsiveContainer width="100%" height="100%" style={fillHeight ? { position: "absolute", inset: 0 } : undefined}>
         <BarChart data={data} margin={{ top: 8, right: 4, left: 0, bottom: 0 }}>
           <CartesianGrid vertical={false} stroke="var(--line)" />
           <XAxis dataKey="label" {...axis} />

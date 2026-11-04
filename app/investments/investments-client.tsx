@@ -5,7 +5,7 @@ import { buttonClassName } from "@/app/components/button-styles";
 import { useState, type FormEvent } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
-import { Button, Card, Dialog, EmptyState, Field, categoryColor, inputClass } from "@/app/components/ui";
+import { Button, Card, Dialog, DialogActions, EmptyState, Field, categoryColor, inputClass } from "@/app/components/ui";
 import { Spinner } from "@/app/components/status";
 import { Select } from "@/app/components/select";
 import { formatMinor } from "@/lib/finance/money";
@@ -434,13 +434,13 @@ function AddInvestment({ open, onClose, onSaved }: { open: boolean; onClose: () 
           <p className="text-xs leading-5 text-muted">To price it every day, tell Alfred what you hold, like &ldquo;my Risevest has 2 VOO and 0.5 MSFT&rdquo;.</p>
         ) : null}
         {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-        <div className="alfred-buttonGroup--mobileStack flex justify-end gap-2">
+        <DialogActions>
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={state.busy || !form.name.trim()}>
             {state.busy ? <Spinner /> : null}
             Add
           </Button>
-        </div>
+        </DialogActions>
       </form>
     </Dialog>
   );

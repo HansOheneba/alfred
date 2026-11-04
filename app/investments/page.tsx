@@ -2,7 +2,7 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { AppShell } from "@/app/components/app-shell";
-import { Skeleton } from "@/app/components/status";
+import { InvestmentsSkeleton } from "@/app/components/page-skeletons";
 import { InvestmentsClient, type InvestmentsData } from "@/app/investments/investments-client";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { sourceName } from "@/lib/bank/parse";
@@ -18,14 +18,7 @@ export default function InvestmentsPage() {
     <Suspense
       fallback={
         <AppShell current="investments" name="">
-          <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-4 py-6 sm:px-8" aria-busy="true">
-            <Skeleton className="h-36 rounded-2xl" />
-            <div className="grid gap-4 md:grid-cols-2">
-              {[0, 1, 2, 3].map((key) => (
-                <Skeleton key={key} className="h-40 rounded-2xl" />
-              ))}
-            </div>
-          </div>
+          <InvestmentsSkeleton />
         </AppShell>
       }
     >

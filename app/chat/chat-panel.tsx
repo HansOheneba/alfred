@@ -5,6 +5,8 @@ import { buttonClassName } from "@/app/components/button-styles";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { followUpsFor, type Suggestion } from "@/app/chat/follow-ups";
+import { ChatContextSkeleton, ChatHistorySkeleton } from "@/app/chat/chat-loading";
+import { useChatDraft, useChatDraftFocus } from "@/app/chat/chat-draft";
 import { CHAT_CONTEXT_ERROR, CHAT_SESSION_CHANGED, invalidateAfterChatOutcome, loadOwnedChatContext } from "@/app/chat/context-data";
 import { createChatEmptyStatusRefresh } from "@/app/chat/empty-status";
 import type { PaymentChatEntry } from "@/app/chat/payment-entry";
@@ -83,6 +85,7 @@ export function ChatPanel({
   initialQuestion = "",
   initialPaymentEntry = null,
   initialPaymentTarget = null,
+  draftScope,
   requestData = fetch,
 }: {
   ownerId: string;
@@ -99,10 +102,13 @@ export function ChatPanel({
   initialQuestion?: string;
   initialPaymentEntry?: PaymentChatEntry | null;
   initialPaymentTarget?: string | null;
+  /** Identifies the current question/notification handoff without persisting a draft. */
+  draftScope?: string;
   /** Explicit transport seam for the guarded, fictional local preview. */
   requestData?: typeof fetch;
 }) {
-  const [text, setText] = useState(initialQuestion);
+  const [text, setText] = useChatDraft(initialQuestion, ownerId, draftScope);
+  const { restore: restoreDraftFocus } = useChatDraftFocus(draftScope);
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
   const [choices, setChoices] = useState<ChatChoice[][]>(initialChoices);
   const [busy, setBusy] = useState(false);
@@ -123,7 +129,6 @@ export function ChatPanel({
   const checkedInitialEmpty = useRef(initialFinancialsEmpty !== null);
   const [statsOpen, setStatsOpen] = useState(false);
   const [contextLedger, setContextLedger] = useState<Ledger | null>(ledger ?? null);
-  const [contextLoading, setContextLoading] = useState(false);
   const [contextError, setContextError] = useState("");
   const [contextVersion, setContextVersion] = useState(0);
   // Keep the last confirmed answer during rechecks. null means status is unavailable
@@ -149,7 +154,6 @@ export function ChatPanel({
     const request = new AbortController();
     const requestedOwner = ownerId;
     contextRequest.current = request;
-    setContextLoading(true);
     setContextError("");
     try {
       const next = await loadOwnedChatContext(requestedOwner, request.signal, requestData);
@@ -162,7 +166,6 @@ export function ChatPanel({
     } finally {
       if (contextRequest.current === request) {
         contextRequest.current = null;
-        setContextLoading(false);
       }
     }
   }, [ownerId, requestData]);
@@ -172,7 +175,6 @@ export function ChatPanel({
     contextRequest.current?.abort();
     contextRequest.current = null;
     setContextLedger(null);
-    setContextLoading(false);
     setContextVersion((version) => version + 1);
   }, []);
 
@@ -217,6 +219,7 @@ export function ChatPanel({
   }, [afterOutcome, publishPaymentEntry, activePaymentTarget]);
   const onReadProgress = useCallback((progress: ChatReadProgress) => {
     if (progress.sessionChanged) {
+      setText("");
       setSessionChanged(true); setMessages([]); deferredHistory.current = []; publishPaymentEntry({ state: "unavailable" });
       setChoices([]); setHistoryLoaded(false); historyLoadedCurrent.current = false; setKnownEmpty(null); invalidateContext();
     }
@@ -228,7 +231,7 @@ export function ChatPanel({
       historyLoadedCurrent.current = true;
       if (!checkedInitialEmpty.current && !initialPaymentTarget) { checkedInitialEmpty.current = true; void emptyStatus.refresh(true); }
     }
-  }, [publishPaymentEntry, initialPaymentTarget, emptyStatus, invalidateContext]);
+  }, [publishPaymentEntry, initialPaymentTarget, emptyStatus, invalidateContext, setText]);
   const refreshThread = useCallback(() => {
     if (sending.current) { refreshQueued.current = true; return; }
     void threadRefresh.current?.refresh();
@@ -243,11 +246,11 @@ export function ChatPanel({
 
   // A dashboard question is a draft, never an automatic financial action or POST.
   useEffect(() => {
-    if (!initialQuestion) return;
     const node = inputRef.current;
-    node?.focus({ preventScroll: true });
-    node?.setSelectionRange(initialQuestion.length, initialQuestion.length);
-  }, [initialQuestion]);
+    if (!node || restoreDraftFocus(node) || !initialQuestion) return;
+    node.focus({ preventScroll: true });
+    node.setSelectionRange(node.value.length, node.value.length);
+  }, [initialQuestion, restoreDraftFocus]);
 
   // Existing callers can also ask for the context sheet by event.
   useEffect(() => {
@@ -554,13 +557,17 @@ export function ChatPanel({
   }
 
   const financialsEmpty = contextLedger ? getGettingStartedState(contextLedger).isEmpty : knownEmpty === true;
-  const empty = messages.length === 0;
+  // Until the owned history read finishes, only a freshly verified selected
+  // payment and an explicitly sent local turn are safe to show as conversation.
+  const visibleMessages = historyLoaded ? messages : messages.filter(message => isSelectedPaymentMessage(message, paymentEntry) || message.role === "user" && (message.status === "sending" || message.status === "failed"));
+  const empty = visibleMessages.length === 0;
   const showWelcome = empty && historyLoaded && !activePaymentTarget;
+  const historyLoading = !historyLoaded && !sessionChanged && readProgress.history?.state !== "error";
   const sourceReady = paymentEntry?.state === "ready" && paymentEntry.bankMessageId === activePaymentTarget;
   const sendingAllowed = !sessionChanged && chatSubmissionReady(activePaymentTarget, paymentEntry, historyLoaded, newTopic);
-  const last = messages.at(-1);
-  const shownPaymentContext = paymentEntry?.state === "ready" ? paymentEntry.message.paymentNotice : paymentReplyContext(messages);
-  const showFollowUps = !busy && last?.role === "assistant" && !(last.actionId && !last.settled) && text.length === 0;
+  const last = visibleMessages.at(-1);
+  const shownPaymentContext = paymentEntry?.state === "ready" ? paymentEntry.message.paymentNotice : paymentReplyContext(visibleMessages);
+  const showFollowUps = historyLoaded && !busy && last?.role === "assistant" && !(last.actionId && !last.settled) && text.length === 0;
 
   return (
     <div className="alfred-production-chat">
@@ -572,13 +579,13 @@ export function ChatPanel({
         {sessionChanged ? <div className="mx-6 mt-3 text-sm text-danger" role="alert"><p>Your session changed. Reload this page to continue.</p><a className="alfred-chat-answer-chip mt-2" href={activePaymentTarget ? `/chat?payment=${activePaymentTarget}` : "/chat"}>Reload</a></div> : null}
 
         {activePaymentTarget && !sourceReady ? <div className="mx-6 mt-3 text-sm text-muted" role="status" aria-busy={readProgress.payment?.state === "loading"}><p>{readProgress.payment?.state === "loading" ? "Opening this payment…" : "I couldn't open this payment. Try again, or ask me about something else."}</p>{newTopic ? <p className="mt-1">Your next message is about something else. This alert hasn&apos;t been changed.</p> : null}<div className="mt-2 flex flex-wrap gap-2">{readProgress.payment?.state !== "loading" ? <button type="button" className="alfred-chat-answer-chip" onClick={refreshThread}>Try again</button> : null}<button type="button" className="alfred-chat-answer-chip" onClick={() => { setNewTopic(!newTopic); inputRef.current?.focus(); }}>{newTopic ? "Back to this payment" : "Ask something else"}</button></div></div> : paymentEntry?.state === "unavailable" ? <p className="mx-6 mt-3 text-sm text-muted" role="status">I couldn&apos;t open that payment alert. Your conversation is still here.</p> : null}
-        {!historyLoaded ? <div className="mx-6 mt-3 text-sm text-muted" role="status" aria-busy={readProgress.history?.state === "loading"}><p>{readProgress.history?.state === "error" ? "Your conversation couldn't load. Please try again." : "Loading your conversation…"}</p>{readProgress.history?.state === "error" ? <button type="button" className="alfred-chat-answer-chip mt-2" onClick={refreshThread}>Try again</button> : null}</div> : null}
         {readProgress.choices?.state === "error" ? <div className="mx-6 mt-3 text-sm text-muted" role="status"><p>The answer choices couldn&apos;t load. You can type your reply or try again.</p><button type="button" className="alfred-chat-answer-chip mt-2" onClick={refreshThread}>Try again</button></div> : null}
 
-        <div ref={threadRef} tabIndex={0} className="alfred-production-chat-scroll" aria-busy={busy} onScroll={onThreadScroll}>
+        <div ref={threadRef} tabIndex={0} className="alfred-production-chat-scroll" aria-busy={busy || historyLoading} onScroll={onThreadScroll}>
+          {!historyLoaded && !sessionChanged && readProgress.history?.state === "error" ? <div className="alfred-production-chat-historyError" role="status"><p>Your conversation couldn&apos;t load. Please try again.</p><button type="button" className="alfred-chat-answer-chip mt-2" onClick={refreshThread}>Try again</button></div> : null}
           {!empty ? (
             <div className="alfred-production-chat-thread" role="log" aria-label="Conversation" aria-live="polite" aria-relevant="additions">
-              {messages.map((message, index) => message.role === "assistant" ? (
+              {visibleMessages.map((message, index) => message.role === "assistant" ? (
                 <article key={threadKey(message)} ref={isSelectedPaymentMessage(message, paymentEntry) ? selectedPaymentArticle : undefined} tabIndex={isSelectedPaymentMessage(message, paymentEntry) ? -1 : undefined} data-payment-selected={isSelectedPaymentMessage(message, paymentEntry) || undefined} className="alfred-production-chat-assistant">
                   <div className="alfred-production-chat-messageIdentity"><AlfredMark size="size-6" /><span>Alfred</span>{message.channel === "telegram" ? <TelegramBadge /> : null}</div>
                   <div className="alfred-production-chat-assistantContent">
@@ -598,7 +605,8 @@ export function ChatPanel({
               {busy ? <div className="alfred-production-chat-thinking" role="status" aria-label="Alfred is thinking"><AlfredMark size="size-6" /><span aria-hidden="true"><i className="alfred-dot" /><i className="alfred-dot" /><i className="alfred-dot" /></span></div> : null}
             </div>
           ) : null}
-          {financialsEmpty && messages.length > 0 ? <ChatGettingStarted /> : null}
+          {historyLoading ? <ChatHistorySkeleton /> : null}
+          {financialsEmpty && historyLoaded && !empty ? <ChatGettingStarted /> : null}
           {error && !empty ? <p className="alfred-production-chat-error" role="alert">{error}</p> : null}
         </div>
 
@@ -624,7 +632,7 @@ export function ChatPanel({
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
             <div className="alfred-production-chat-composerRow">
-              <button className={buttonClassName({ variant: "ghost", size: "icon" })} type="button" disabled={busy} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button>
+              <button className={buttonClassName({ variant: "ghost", size: "icon" })} type="button" disabled={busy || !sendingAllowed} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button>
               <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={1} placeholder="Tell me what happened…" aria-describedby="alfred-compose-hint" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadImage(file); }} />
               <button type="submit" disabled={busy || !sendingAllowed || text.trim().length === 0} aria-label="Send" className={buttonClassName({ variant: "primary", size: "icon", className: "alfred-production-chat-send" })}><span className="sr-only">Send</span><ChatIcon><path d="M12 19V5m-6 6 6-6 6 6" /></ChatIcon></button>
@@ -637,7 +645,7 @@ export function ChatPanel({
       </section>
 
       <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}>
-        {contextLedger ? <StatsPanel ledger={contextLedger} /> : contextError ? <div role="alert"><p>{contextError}</p><button type="button" className={buttonClassName({ variant: "secondary", size: "sm" })} onClick={() => void loadContext()}>Try again</button></div> : <p role="status" aria-busy={contextLoading}>Loading your financial summary…</p>}
+        {contextLedger ? <StatsPanel ledger={contextLedger} /> : contextError ? <div role="alert"><p>{contextError}</p><button type="button" className={buttonClassName({ variant: "secondary", size: "sm" })} onClick={() => void loadContext()}>Try again</button></div> : <ChatContextSkeleton />}
       </ContextSheet>
     </div>
   );
@@ -693,6 +701,17 @@ function ContextSheet({ open, onClose, children }: { open: boolean; onClose: () 
     if (open && !node.open) { previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null; node.showModal(); }
     else if (!open && node.open) { node.close(); previousFocus.current?.focus({ preventScroll: true }); }
   }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const node = dialog.current;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      if (node?.open) node.close();
+      previousFocus.current?.focus({ preventScroll: true });
+    };
+  }, [open]);
   return <dialog ref={dialog} id="alfred-production-chat-contextSheet" className="alfred-production-chat-contextSheet" aria-labelledby="alfred-production-chat-contextTitle" onCancel={(event) => { event.preventDefault(); onClose(); }} onClose={() => { previousFocus.current?.focus({ preventScroll: true }); if (open) onClose(); }} onClick={(event) => {
     if (event.target !== event.currentTarget) return;
     const box = event.currentTarget.getBoundingClientRect();
@@ -703,7 +722,7 @@ function ContextSheet({ open, onClose, children }: { open: boolean; onClose: () 
     const first = controls[0], last = controls.at(-1);
     if (event.shiftKey && document.activeElement === first && last) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last && first) { event.preventDefault(); first.focus(); }
-  }}><span className="alfred-production-chat-contextHandle" aria-hidden="true" /><header><div><h2 id="alfred-production-chat-contextTitle">Conversation context</h2><p>Your recorded activity, alongside Chat</p></div><button className={buttonClassName({ variant: "secondary", size: "icon" })} type="button" aria-label="Close context" onClick={onClose} autoFocus><ChatIcon><path d="m6 6 12 12M6 18 18 6" /></ChatIcon></button></header><div className="alfred-production-chat-contextSheetBody">{children}</div><footer><button className={buttonClassName({ variant: "ghost", size: "sm" })} type="button" onClick={onClose}>Back to chat <span aria-hidden="true">↗</span></button></footer></dialog>;
+  }}><header><div><h2 id="alfred-production-chat-contextTitle">Conversation context</h2><p>Your recorded activity, alongside Chat</p></div><button className={buttonClassName({ variant: "secondary", size: "icon" })} type="button" aria-label="Close context" onClick={onClose} autoFocus><ChatIcon><path d="m6 6 12 12M6 18 18 6" /></ChatIcon></button></header><div className="alfred-production-chat-contextSheetBody">{children}</div><footer><button className={buttonClassName({ variant: "ghost", size: "sm" })} type="button" onClick={onClose}>Back to chat <span aria-hidden="true">↗</span></button></footer></dialog>;
 }
 
 function TelegramBadge() {

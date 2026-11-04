@@ -4,13 +4,14 @@ import { useEffect, useState, type ReactNode } from "react";
 
 import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
+import { SettingsSectionSkeleton } from "@/app/components/page-skeletons";
 import { Button, Card, Field, inputClass } from "@/app/components/ui";
 import { Select } from "@/app/components/select";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
 import { AutomationsSection } from "@/app/settings/automations-section";
-import { resolveSettingsSection, SETTINGS_SECTIONS, SettingsNavigation, type SettingsSectionId } from "@/app/settings/settings-navigation";
+import { resolveSettingsSection, SETTINGS_SECTIONS, SETTINGS_SECTION_DESCRIPTIONS, SettingsNavigation, type SettingsSectionId } from "@/app/settings/settings-navigation";
 import { DataSection } from "@/app/settings/data-section";
 import { AccountRulesSection } from "@/app/settings/account-rules-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
@@ -138,6 +139,7 @@ export function SettingsView({
 
         <div id="alfred-settings-detail" role="region" aria-label={SETTINGS_SECTIONS.find(item => item.id === section)?.label ?? "Settings"} className="alfred-settings-detail min-w-0 flex-1">
           <Button variant="ghost" className="alfred-settings-mobileBack" onClick={showSections}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>Back to settings</Button>
+          <p className="alfred-settings-context">{SETTINGS_SECTION_DESCRIPTIONS[section]}</p>
           {section === "profile" ? (
             <Card title="Profile">
               <div className="grid gap-4 sm:grid-cols-2">
@@ -259,11 +261,10 @@ export function SettingsView({
 }
 
 function DeferredSection({ title, error, onRetry }: { title: string; error?: string; onRetry: () => void }) {
+  if (!error) return <SettingsSectionSkeleton title={title} />;
   return <Card title={title}>
-    <p role={error ? "alert" : "status"} className={`flex items-center gap-2 text-sm ${error ? "text-danger" : "text-muted"}`}>
-      {error ? null : <Spinner />}{error || "Loading this section…"}
-    </p>
-    {error ? <Button className="mt-4" onClick={onRetry}>Try again</Button> : null}
+    <p role="alert" className="text-sm text-danger">{error}</p>
+    <Button className="mt-4" onClick={onRetry}>Try again</Button>
   </Card>;
 }
 

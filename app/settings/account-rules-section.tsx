@@ -2,7 +2,7 @@
 
 import { useEffect, useState, type FormEvent } from "react";
 
-import { Button, Card, Dialog, Field, inputClass } from "@/app/components/ui";
+import { Button, Card, Dialog, DialogActions, Field, inputClass } from "@/app/components/ui";
 import { Select } from "@/app/components/select";
 import { CategoryCombobox } from "@/app/components/category-combobox";
 import { Spinner } from "@/app/components/status";
@@ -133,7 +133,7 @@ export function AccountRulesSection({ transport = browserTransport }: { transpor
       {change?.binding && data ? <dl className="space-y-2 text-sm"><div><dt className="text-xs text-muted">Only this account</dt><dd>{data.accounts.find((account) => account.id === change.binding!.accountId)?.label || "Unavailable account"}</dd></div><div><dt className="text-xs text-muted">Bank message details</dt><dd>{change.binding.provider} · ending {change.binding.accountSuffix} · {change.binding.currency}</dd></div><div><dt className="text-xs text-muted">State</dt><dd>{change.binding.active ? "Enabled" : "Disabled"}</dd></div></dl> : null}
       {broad ? <label className="mt-4 flex items-start gap-2 text-sm leading-6"><input type="checkbox" checked={allScopeAcknowledged} onChange={(event) => setAllScopeAcknowledged(event.target.checked)} disabled={busy} className="mt-1.5 accent-[var(--accent)]" /><span>I explicitly want every merchant/text in this direction on this one account. Other accounts are excluded.</span></label> : null}
       {error ? <p role="alert" className="mt-3 text-sm text-danger">{error}</p> : null}
-      <div className="alfred-buttonGroup--mobileStack mt-5 flex justify-end gap-2"><Button variant="ghost" className="alfred-button--mobileFull" onClick={() => setChange(null)} disabled={busy}>Cancel</Button><Button variant="primary" className="alfred-button--mobileFull" onClick={() => void confirmChange()} disabled={busy || !!broad && !allScopeAcknowledged} aria-busy={busy}>{busy ? <Spinner /> : null}{change?.binding ? "Confirm account link" : "Confirm rule"}</Button></div>
+      <DialogActions className="mt-5"><Button variant="ghost" className="alfred-button--mobileFull" onClick={() => setChange(null)} disabled={busy}>Cancel</Button><Button variant="primary" className="alfred-button--mobileFull" onClick={() => void confirmChange()} disabled={busy || !!broad && !allScopeAcknowledged} aria-busy={busy}>{busy ? <Spinner /> : null}{change?.binding ? "Confirm account link" : "Confirm rule"}</Button></DialogActions>
     </Dialog>
   </Card>;
 }

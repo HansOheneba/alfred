@@ -23,6 +23,11 @@ const KNOWN_SERVICES: [string, string, RegExp][] = [
   ["water", "Water bill", /ghana water|\bgwcl\b/i],
 ];
 
+/** Prefill a reviewable bill without changing the detected renewal date or cadence. */
+export function renewalSuggestionBillDraft(suggestion: RenewalSuggestion): Pick<BillRecord, "name" | "nextDate" | "amount" | "currency" | "cadence"> {
+  return { name: suggestion.name, nextDate: suggestion.expectedDate, amount: suggestion.expectedAmount ?? suggestion.lastAmount, currency: suggestion.currency, cadence: suggestion.cadence };
+}
+
 const monthIndex = (date: Date) => date.getUTCFullYear() * 12 + date.getUTCMonth();
 
 function estimateCadence(

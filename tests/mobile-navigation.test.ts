@@ -74,8 +74,10 @@ describe("mobile Settings section navigation", () => {
     const region = () => nodes(view.value).find(node => node.props.id === "alfred-settings-detail")!;
     expect(region().props.role).toBe("region");
     expect(region().props["aria-label"]).toBe("Profile");
+    expect(nodes(view.value).find(node => node.props.className === "alfred-settings-context")?.props.children).toBe("Your name, currency and preferences");
     view.choose("goals");
     expect(region().props["aria-label"]).toBe("Savings goals");
+    expect(nodes(view.value).find(node => node.props.className === "alfred-settings-context")?.props.children).toBe("What you’re saving towards");
     expect(location.hash).toBe("#goals");
     location.hash = "#profile"; for (const callback of listeners.get("popstate") ?? []) callback(); view.render();
     expect(region().props["aria-label"]).toBe("Profile");

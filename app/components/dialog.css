@@ -23,6 +23,7 @@
 .alfred-dialog-body { min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; padding:20px; }
 .alfred-dialog-body > :first-child { margin-top:0; }
 .alfred-dialog-actions { position:sticky; bottom:-20px; z-index:1; margin-inline:-20px; padding:16px 20px; border-top:1px solid var(--line); background:var(--surface); }
+.alfred-dialog-actionGroup { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; }
 @media(max-width:720px) {
   .alfred-dialog { inset:auto 0 0; margin:0; width:100%; max-height:calc(100dvh - max(12px,env(safe-area-inset-top))); border:1px solid var(--line); border-bottom:0; border-radius:24px 24px 0 0; }
   .alfred-dialog[open] { animation:alfred-sheet-enter 180ms ease-out; }
@@ -31,6 +32,7 @@
   .alfred-dialog-header > button { width:44px; height:44px; }
   .alfred-dialog-body { padding:20px 20px max(20px,env(safe-area-inset-bottom)); }
   .alfred-dialog-actions { padding-bottom:max(16px,env(safe-area-inset-bottom)); }
+  .alfred-dialog-actionGroup { align-items:stretch; }
 }
 @keyframes alfred-sheet-enter { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
 @media(prefers-reduced-motion:reduce) { .alfred-dialog[open] { animation:none; } }
