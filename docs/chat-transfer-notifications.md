@@ -37,6 +37,19 @@ current pair, preserve later edits and fees, and remember the rejection so a
 later alert does not silently recreate it. Naming accounts binds these observed
 alerts; it does not create a blanket rule for every future provider message.
 
+Automatic pairing is optional to SMS capture. Each attempt uses a savepoint:
+recoverable matching or pair-write failures remove all partial pairing effects
+while retaining the new alert and its explicit fee. Connection, transaction or
+rollback uncertainty still aborts the outer ingest rather than acknowledging an
+uncertain result. The outer commit is never replayed.
+
+Both matching checks use the complete bounded neighborhood around the two
+potential legs, within the accounting source-version check. If that neighborhood
+overflows or includes an eligible alert outside the ordinary current-source
+coverage, pairing is deferred. Missing evidence is never proof of uniqueness.
+This preserves alerts for review; it does not expand or restore full historical
+accounting coverage.
+
 ## Notification previews
 
 `Show amounts in notifications` is an explicit account preference. Its default

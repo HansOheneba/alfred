@@ -44,7 +44,7 @@ export class AuthError extends Error {
 }
 
 export class DatabaseError extends Error {
-  constructor(message = "The ledger is temporarily unavailable.") {
+  constructor(message = "The ledger is temporarily unavailable.", readonly sqlState?: string) {
     super(message);
     this.name = "DatabaseError";
   }

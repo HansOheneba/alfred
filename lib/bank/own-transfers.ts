@@ -3,16 +3,40 @@ import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { bindMovementAccount } from "@/lib/account-rules/matcher";
 import { normalizeRuleText, type AccountRuleState } from "@/lib/account-rules/types";
 import { validateAccountData } from "@/lib/finance/accounting/accounts";
-import { loadAccountingState } from "@/lib/finance/accounting/persisted-store";
+import { loadAccountingState, type AccountingResult } from "@/lib/finance/accounting/persisted-store";
 import { accountingData, stableJson } from "@/lib/finance/accounting/reducer";
 import { hydrateAccountingSources } from "@/lib/finance/accounting/sources";
-import type { AccountingState, CashMovement, FinancialAccount, TransferLink } from "@/lib/finance/accounting/types";
+import { AccountingError, type AccountingState, type CashMovement, type FinancialAccount, type TransferLink } from "@/lib/finance/accounting/types";
 import { toMinor } from "@/lib/finance/money";
 import { query, withBankIngestTransaction } from "@/lib/supabase/connection";
+import { DatabaseError } from "@/lib/errors";
+import { logInfo } from "@/lib/log";
 import { createSupabaseBankStore, listBankTransferWindow, type BankMessage } from "./store";
 import { isOwnName, parseBankText, withoutRecipient } from "./parse";
 
 const WINDOW_MS = 600_000;
+class PairingDeferred extends Error {
+  constructor(readonly reason: "stale" | "ambiguous" | "unavailable") { super("Automatic transfer pairing needs review."); }
+}
+
+function fatalPairFailure(error: unknown): boolean {
+  if (!(error instanceof DatabaseError)) return false;
+  // Unknown driver/connection failures and cancellation/transaction shutdown remain fatal.
+  // A successful savepoint rollback is not permission to conceal an uncertain outer transaction.
+  return !error.sqlState || /^(?:08|25|57)/.test(error.sqlState);
+}
+
+/** Complete bounded evidence must be present in the ordinary accounting source
+ * snapshot. A 201st unseen competitor vetoes pairing; it is never ignored. */
+function coveredTransferMessages(loaded: AccountingResult): BankMessage[] | null {
+  if (!loaded.transferWindow?.complete) return null;
+  const recent = new Map((loaded.bankMessages ?? []).map((row) => [row.id, row]));
+  for (const message of loaded.transferWindow.messages) {
+    const movement = loaded.state.movements.find((row) => row.id === `bank:${message.id}` && row.ownerId === loaded.state.ownerId && row.sourceKind === "bank" && !row.sourceMissing);
+    if (!movement || !recent.has(message.id) || stableJson(recent.get(message.id)) !== stableJson(message)) return null;
+  }
+  return loaded.transferWindow.messages;
+}
 const key = (value: string) => normalizeRuleText(value).replace(/[^a-z0-9]/g, "");
 /** Only established provider names are aliases; arbitrary account labels never establish a source identity. */
 export function transferProvider(value: string): string {
@@ -142,9 +166,10 @@ export function savedOwnTransferNotices(state: AccountingState, messages: BankMe
 
 export async function loadOwnTransferNotices(settings: SupabaseSettings, ownerId: string, bankIds: string[]): Promise<Map<string, OwnTransferNotice>> {
   if (!bankIds.length) return new Map();
-  const accounting = await loadAccountingState(settings, ownerId);
+  const accounting = await loadAccountingState(settings, ownerId, undefined, bankIds);
   if (accounting.availability !== "ready") return new Map();
-  const messages = accounting.bankMessages ?? await createSupabaseBankStore(settings).listMessages(ownerId);
+  const messages = coveredTransferMessages(accounting);
+  if (!messages) return new Map();
   const result = savedOwnTransferNotices(accounting.state, messages);
   for (const candidate of ownTransferCandidates(accounting.state, messages)) for (const id of [candidate.outgoingBankMessageId, candidate.incomingBankMessageId]) if (!result.has(id)) result.set(id, candidate);
   const wanted = new Set(bankIds);
@@ -172,26 +197,31 @@ async function persistPair(settings: SupabaseSettings, ownerId: string, pair: Ow
   const bank = createSupabaseBankStore(settings);
   await query(settings, "select id from public.bank_messages where owner_id=$1::uuid and id=any($2::uuid[]) order by id for update", [ownerId, [pair.outgoingBankMessageId, pair.incomingBankMessageId]]);
   await query(settings, "select owner_id from public.accounting_states where owner_id=$1::uuid for update", [ownerId]);
-  const before = await loadAccountingState(settings, ownerId);
-  const messages = before.bankMessages ?? await bank.listMessages(ownerId);
+  const pivots = [pair.outgoingBankMessageId, pair.incomingBankMessageId];
+  const before = await loadAccountingState(settings, ownerId, undefined, pivots);
+  const messages = coveredTransferMessages(before);
+  if (!messages) throw new PairingDeferred("unavailable");
   const outgoing = messages.find((row) => row.id === pair.outgoingBankMessageId), incoming = messages.find((row) => row.id === pair.incomingBankMessageId);
-  if (before.availability !== "ready" || !outgoing || !incoming || !sameMoney(outgoing, incoming) || !withinWindow(outgoing, incoming) || !boundMessage(before.state, outgoing, undefined, pair.fromAccount.id) || !boundMessage(before.state, incoming, undefined, pair.toAccount.id)) throw new Error("Transfer evidence changed before saving.");
+  if (before.availability !== "ready" || !outgoing || !incoming || !sameMoney(outgoing, incoming) || !withinWindow(outgoing, incoming) || !boundMessage(before.state, outgoing, undefined, pair.fromAccount.id) || !boundMessage(before.state, incoming, undefined, pair.toAccount.id)) throw new PairingDeferred("stale");
   const selected = { ...before.state, movements: before.state.movements.map((row) => row.id === `bank:${outgoing.id}` ? { ...row, accountId: pair.fromAccount.id } : row.id === `bank:${incoming.id}` ? { ...row, accountId: pair.toAccount.id } : row) };
   const stillUnique = ownTransferCandidates(selected, messages).filter((row) => row.outgoingBankMessageId === outgoing.id || row.incomingBankMessageId === incoming.id);
-  if (stillUnique.length !== 1 || stillUnique[0].pairId !== pair.pairId) throw new Error("Transfer became ambiguous before saving.");
+  if (stillUnique.length !== 1 || stillUnique[0].pairId !== pair.pairId) throw new PairingDeferred("ambiguous");
   const automatic: TransferLink["automatic"] = { version: 1, pairedRevision: before.state.revision + 1,
     outgoing: { movementStatus: before.state.movements.find((row) => row.id === `bank:${outgoing.id}`)!.status, bankStatus: outgoing.status as "needs_label" | "transfer", bankKind: outgoing.kind as "payment" | "transfer_own" },
     incoming: { movementStatus: before.state.movements.find((row) => row.id === `bank:${incoming.id}`)!.status, bankStatus: incoming.status as "needs_label" | "transfer", bankKind: incoming.kind as "payment" | "transfer_own" } };
   for (const id of [pair.outgoingBankMessageId, pair.incomingBankMessageId]) await bank.updateMessage(ownerId, id, { kind: "transfer_own", status: "transfer" });
-  const fresh = await loadAccountingState(settings, ownerId);
-  if (fresh.availability !== "ready") throw new Error("Account storage is unavailable.");
+  const fresh = await loadAccountingState(settings, ownerId, undefined, pivots);
+  if (fresh.availability !== "ready") throw new PairingDeferred("unavailable");
+  const finalMessages = coveredTransferMessages(fresh);
+  if (!finalMessages) throw new PairingDeferred("unavailable");
   const finalSelected = { ...fresh.state, movements: fresh.state.movements.map((row) => row.id === `bank:${outgoing.id}` ? { ...row, accountId: pair.fromAccount.id } : row.id === `bank:${incoming.id}` ? { ...row, accountId: pair.toAccount.id } : row) };
-  const finalCandidates = ownTransferCandidates(finalSelected, fresh.bankMessages ?? await bank.listMessages(ownerId)).filter((row) => row.outgoingBankMessageId === outgoing.id || row.incomingBankMessageId === incoming.id);
-  if (finalCandidates.length !== 1 || finalCandidates[0].pairId !== pair.pairId) throw new Error("Transfer became ambiguous before the atomic write.");
+  const finalCandidates = ownTransferCandidates(finalSelected, finalMessages).filter((row) => row.outgoingBankMessageId === outgoing.id || row.incomingBankMessageId === incoming.id);
+  if (finalCandidates.length !== 1 || finalCandidates[0].pairId !== pair.pairId) throw new PairingDeferred("ambiguous");
   const next = pairOwnTransferState(fresh.state, pair, requestId, now.toISOString(), automatic);
   const fingerprint = next.audit.at(-1)!.actionFingerprint;
   const rows = await query<{ result: { status: string; state?: AccountingState } }>(settings, "select public.alfred_write_accounting_state($1::uuid,$2::bigint,$3,$4,$5,$6::jsonb) as result", [ownerId, fresh.state.revision, requestId, fingerprint, fresh.sourceVersion, JSON.stringify(next)]);
-  if (!["saved", "duplicate"].includes(rows[0]?.result.status)) throw new Error("Transfer records changed before saving.");
+  if (["stale", "source_changed", "conflict"].includes(rows[0]?.result.status)) throw new PairingDeferred("stale");
+  if (!["saved", "duplicate"].includes(rows[0]?.result.status)) throw new Error("The transfer store did not confirm its metadata write.");
   const confirmedMessages = [ { ...outgoing, status: "transfer" as const, kind: "transfer_own" as const }, { ...incoming, status: "transfer" as const, kind: "transfer_own" as const } ];
   return savedOwnTransferNotices(next, confirmedMessages).get(pair.outgoingBankMessageId)!;
 }
@@ -201,19 +231,42 @@ export async function reconcileNewOwnTransfers(settings: SupabaseSettings, profi
   const pairedIds = new Set<string>();
   if (!newBankIds.length) return pairedIds;
   const bank = createSupabaseBankStore(settings);
-  const fresh = await listBankTransferWindow(settings, profile.profileId, newBankIds);
-  const relevant = fresh.filter((row) => newBankIds.includes(row.id));
-  if (!relevant.some((row) => fresh.some((other) => other.id !== row.id && other.direction !== row.direction && sameMoney(row, other) && withinWindow(row, other)))) return pairedIds;
-  const [loaded, names] = await Promise.all([loadAccountingState(settings, profile.profileId), bank.accountNames(profile.profileId)]);
+  const gate = await listBankTransferWindow(settings, profile.profileId, newBankIds);
+  if (!gate.complete) return pairedIds;
+  const nearby = gate.messages;
+  const relevant = nearby.filter((row) => newBankIds.includes(row.id));
+  if (!relevant.some((row) => nearby.some((other) => other.id !== row.id && other.direction !== row.direction && sameMoney(row, other) && withinWindow(row, other)))) return pairedIds;
+  let loaded: AccountingResult; let names: string[];
+  try { [loaded, names] = await Promise.all([loadAccountingState(settings, profile.profileId, undefined, newBankIds), bank.accountNames(profile.profileId)]); }
+  catch (error) {
+    // A source-version mismatch is a read-only optimistic conflict, not a failed
+    // SQL statement. No pairing write has run, so the valid new SMS can commit.
+    if (!(error instanceof AccountingError) || error.code !== "stale") throw error;
+    logInfo("own_transfer_pair_deferred", { reason: "stale" }); return pairedIds;
+  }
   if (loaded.availability !== "ready" || !loaded.state.accounts.length) return pairedIds;
-  const candidates = ownTransferCandidates(loaded.state, fresh).filter((pair) => newBankIds.includes(pair.outgoingBankMessageId) || newBankIds.includes(pair.incomingBankMessageId));
+  const messages = coveredTransferMessages(loaded);
+  if (!messages) return pairedIds;
+  const candidates = ownTransferCandidates(loaded.state, messages).filter((pair) => newBankIds.includes(pair.outgoingBankMessageId) || newBankIds.includes(pair.incomingBankMessageId));
   for (const pair of candidates) {
     if (loaded.state.transferRejections?.some((rejected) => rejected === pair.pairId || rejected.split(":").slice(1).some((id) => id === pair.outgoingBankMessageId || id === pair.incomingBankMessageId))) continue;
-    const outgoing = fresh.find((row) => row.id === pair.outgoingBankMessageId)!, incoming = fresh.find((row) => row.id === pair.incomingBankMessageId)!;
+    const outgoing = messages.find((row) => row.id === pair.outgoingBankMessageId)!, incoming = messages.find((row) => row.id === pair.incomingBankMessageId)!;
     if (outgoing.readBy !== "rules" || incoming.readBy !== "rules" || !positiveOwnTransferEvidence(outgoing, incoming, names)) continue;
     const requestId = `own_transfer_${createHash("sha256").update(pair.pairId).digest("hex")}`;
-    await persistPair(settings, profile.profileId, pair, requestId);
-    pairedIds.add(pair.outgoingBankMessageId); pairedIds.add(pair.incomingBankMessageId);
+    await query(settings, "savepoint alfred_automatic_transfer_pair");
+    try {
+      await persistPair(settings, profile.profileId, pair, requestId);
+      await query(settings, "release savepoint alfred_automatic_transfer_pair");
+      pairedIds.add(pair.outgoingBankMessageId); pairedIds.add(pair.incomingBankMessageId);
+    } catch (error) {
+      // Roll back EVERY pairing effect, including bank classification, snapshots,
+      // accounting state and its event, without discarding the newly ingested SMS.
+      // Any rollback/release failure escapes and aborts the outer transaction.
+      await query(settings, "rollback to savepoint alfred_automatic_transfer_pair");
+      await query(settings, "release savepoint alfred_automatic_transfer_pair");
+      if (fatalPairFailure(error)) throw error;
+      logInfo("own_transfer_pair_deferred", { reason: error instanceof PairingDeferred ? error.reason : "pair_write_failed" });
+    }
   }
   return pairedIds;
 }
@@ -224,9 +277,10 @@ export function createTransferConversationDeps(settings: SupabaseSettings): Tran
       const bank = createSupabaseBankStore(settings), target = await bank.getMessage(ownerId, bankMessageId);
       const base: TransferChatContext = { ownerId, bankMessageId, status: "none", amount: target?.amount ?? "0.00", currency: target?.currency ?? "GHS", accounts: [], evidenceFingerprint: "" };
       if (!target) return base;
-      const loaded = await loadAccountingState(settings, ownerId);
-      const messages = loaded.bankMessages ?? await bank.listMessages(ownerId);
+      const loaded = await loadAccountingState(settings, ownerId, undefined, [bankMessageId]);
       if (loaded.availability !== "ready") return { ...base, status: "unavailable" };
+      const messages = coveredTransferMessages(loaded);
+      if (!messages) return { ...base, status: "unavailable" };
       base.evidenceFingerprint = conversationEvidence(loaded.state, messages, target);
       base.accounts = loaded.state.accounts.filter((row) => row.currency === target.currency && row.includeInCash).map(({ id, label, provider }) => ({ id, label, provider }));
       const saved = savedOwnTransferNotices(loaded.state, messages).get(bankMessageId);
@@ -242,9 +296,10 @@ export function createTransferConversationDeps(settings: SupabaseSettings): Tran
         const bank = createSupabaseBankStore(settings), target = await bank.getMessage(ownerId, bankMessageId);
         if (!target) return { status: "stale", changed: false };
         await query(settings, "select id from public.bank_messages where owner_id=$1::uuid and occurred_at between $2::timestamptz and $3::timestamptz order by id for update", [ownerId, new Date(Date.parse(target.occurredAt) - WINDOW_MS).toISOString(), new Date(Date.parse(target.occurredAt) + WINDOW_MS).toISOString()]);
-        const loaded = await loadAccountingState(settings, ownerId);
-        const messages = loaded.bankMessages ?? await bank.listMessages(ownerId);
+        const loaded = await loadAccountingState(settings, ownerId, undefined, [bankMessageId]);
         if (loaded.availability !== "ready") return { status: "unavailable", changed: false };
+        const messages = coveredTransferMessages(loaded);
+        if (!messages) return { status: "unavailable", changed: false };
         const saved = savedOwnTransferNotices(loaded.state, messages).get(bankMessageId);
         if (saved) return { status: "paired", transfer: saved, changed: false };
         if (!input.evidenceFingerprint || input.evidenceFingerprint !== conversationEvidence(loaded.state, messages, target)) return { status: "stale", changed: false };
@@ -270,9 +325,10 @@ export function createTransferConversationDeps(settings: SupabaseSettings): Tran
         const bank = createSupabaseBankStore(settings), initial = await bank.getMessage(ownerId, bankMessageId);
         if (!initial) return { status: "stale", changed: false };
         await query(settings, "select id from public.bank_messages where owner_id=$1::uuid and occurred_at between $2::timestamptz and $3::timestamptz order by id for update", [ownerId, new Date(Date.parse(initial.occurredAt) - WINDOW_MS).toISOString(), new Date(Date.parse(initial.occurredAt) + WINDOW_MS).toISOString()]);
-        const loaded = await loadAccountingState(settings, ownerId);
+        const loaded = await loadAccountingState(settings, ownerId, undefined, [bankMessageId]);
         if (loaded.availability !== "ready") return { status: "unavailable", changed: false };
-        const messages = loaded.bankMessages ?? await bank.listMessages(ownerId);
+        const messages = coveredTransferMessages(loaded);
+        if (!messages) return { status: "unavailable", changed: false };
         const pair = savedOwnTransferNotices(loaded.state, messages).get(bankMessageId);
         if (!pair || pair.pairId !== input.expectedPairId || input.evidenceFingerprint !== conversationEvidence(loaded.state, messages, initial)) return { status: "stale", changed: false };
         const link = loaded.state.transfers.find((row) => row.id === pair.pairId);
@@ -294,6 +350,8 @@ export function createTransferConversationDeps(settings: SupabaseSettings): Tran
         const next: AccountingState = { ...fresh.state, revision, transfers: fresh.state.transfers.filter((row) => row.id !== pair.pairId),
           transferRejections: [...new Set([...(fresh.state.transferRejections ?? []), pair.pairId])],
           movements: fresh.state.movements.map((row) => movementIds.includes(row.id) ? { ...row, status: "review", automaticTransferStale: false } : row),
+          // The logical before-image is the validated paired state, not the
+          // intermediate source-reset projection. Both reads share its locked revision.
           audit: [...fresh.state.audit, { id: `revision:${revision}`, requestId, action: "reject_automatic_transfer", actionFingerprint: fingerprint, at, revision, before: accountingData(loaded.state) }].slice(-50) };
         validateAccountData(next);
         const rows = await query<{ result: { status: string } }>(settings, "select public.alfred_write_accounting_state($1::uuid,$2::bigint,$3,$4,$5,$6::jsonb) as result", [ownerId, fresh.state.revision, requestId, fingerprint, fresh.sourceVersion, JSON.stringify(next)]);
