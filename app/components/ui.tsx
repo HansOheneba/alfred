@@ -1,9 +1,11 @@
 "use client";
 
-import { useEffect, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
+import { cloneElement, isValidElement, useEffect, useId, useRef, type ButtonHTMLAttributes, type ReactNode } from "react";
 
 import { Spinner } from "@/app/components/status";
 import { buttonClassName, type ButtonSize, type ButtonVariant } from "./button-styles";
+import { Select } from "./select";
+import "./dialog.css";
 
 // Category hues from the My Money palette: distinct, but muted enough to sit beside the teal.
 export const CATEGORY_COLORS = ["#7254ca", "#137d70", "#c77493", "#c9a15f", "#6194dd", "#b94e5b", "#67a69b", "#9b91b3", "#e08a5c", "#8d8994"];
@@ -23,7 +25,7 @@ export function Button({
 
 export function Card({ title, action, children, className = "" }: { title?: ReactNode; action?: ReactNode; children: ReactNode; className?: string }) {
   return (
-    <section className={`rounded-2xl border border-line bg-surface p-4 sm:p-5 ${className}`}>
+    <section className={`min-w-0 rounded-2xl border border-line bg-surface p-4 sm:p-5 ${className}`}>
       {title || action ? (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
           {title ? <h2 className="text-sm font-medium text-ink">{title}</h2> : <span />}
@@ -46,40 +48,76 @@ export function Stat({ label, value, hint, tone }: { label: string; value: strin
   );
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: ReactNode; children: ReactNode }) {
+export function Field({ label, hint, error, children }: { label: string; hint?: ReactNode; error?: ReactNode; children: ReactNode }) {
+  const id = useId();
+  const labelId = `${id}-label`, hintId = `${id}-hint`, errorId = `${id}-error`;
+  let control = children;
+  // Associate direct native controls without changing custom components, refs or form behavior.
+  if (isValidElement<{ "aria-labelledby"?: string; "aria-describedby"?: string; "aria-invalid"?: boolean | "true" | "false"; "aria-errormessage"?: string }>(children)
+    && (children.type === Select || typeof children.type === "string" && ["input", "select", "textarea"].includes(children.type))) {
+    const description = [children.props["aria-describedby"], hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ");
+    control = cloneElement(children, {
+      ...(children.type === Select ? { "aria-labelledby": children.props["aria-labelledby"] || labelId } : {}),
+      ...(description ? { "aria-describedby": description } : {}),
+      ...(error ? { "aria-invalid": true, "aria-errormessage": errorId } : {}),
+    });
+  }
   return (
-    <label className="flex flex-col gap-1.5 text-sm">
-      <span className="text-ink">{label}</span>
-      {children}
-      {hint ? <span className="text-xs text-muted">{hint}</span> : null}
+    <label className="alfred-field">
+      <span id={labelId} className="alfred-field-label">{label}</span>
+      {control}
+      {hint ? <span id={hintId} className="alfred-field-hint">{hint}</span> : null}
+      {error ? <span id={errorId} className="alfred-field-hint alfred-field-hint--error">{error}</span> : null}
     </label>
   );
 }
 
-export const inputClass =
-  "h-10 w-full rounded-xl border border-line-strong bg-bg px-3 text-sm text-ink placeholder:text-faint focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft";
+export const inputClass = "alfred-input";
 
 /** A modal built on <dialog>, so focus trapping and Escape come from the browser. */
-export function Dialog({ open, onClose, title, children }: { open: boolean; onClose: () => void; title: string; children: ReactNode }) {
+export function Dialog({ open, onClose, title, children, dismissible = true }: { open: boolean; onClose: () => void; title: string; children: ReactNode; dismissible?: boolean }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const previousFocus = useRef<HTMLElement | null>(null);
+  const titleId = useId();
   useEffect(() => {
     const node = ref.current;
     if (!node) return;
-    if (open && !node.open) node.showModal();
+    if (open && !node.open) {
+      previousFocus.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+      node.showModal();
+    }
     if (!open && node.open) node.close();
   }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const overflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = overflow;
+      if (previousFocus.current?.isConnected) previousFocus.current.focus({ preventScroll: true });
+    };
+  }, [open]);
+  const dismiss = () => { if (dismissible) onClose(); };
   return (
     <dialog
       ref={ref}
-      onClose={onClose}
+      aria-labelledby={titleId}
+      onCancel={(event) => { event.preventDefault(); dismiss(); }}
+      onClose={() => { if (open) dismiss(); }}
       onClick={(event) => {
-        if (event.target === ref.current) onClose();
+        if (event.target !== event.currentTarget) return;
+        const box = event.currentTarget.getBoundingClientRect();
+        if (event.clientX < box.left || event.clientX > box.right || event.clientY < box.top || event.clientY > box.bottom) dismiss();
       }}
-      className="m-auto w-[min(28rem,calc(100vw-2rem))] rounded-2xl border border-line-strong bg-surface p-0 text-ink shadow-2xl backdrop:bg-black/60"
+      className="alfred-dialog"
     >
-      <div className="p-5">
-        <h2 className="text-base font-medium">{title}</h2>
-        <div className="mt-3">{children}</div>
+      <div className="alfred-dialog-surface">
+        <span className="alfred-sheet-handle" aria-hidden="true" />
+        <header className="alfred-dialog-header">
+          <h2 id={titleId}>{title}</h2>
+          <Button variant="secondary" size="icon" onClick={dismiss} disabled={!dismissible} aria-label="Close dialog"><span aria-hidden="true">×</span></Button>
+        </header>
+        <div className="alfred-dialog-body">{children}</div>
       </div>
     </dialog>
   );
@@ -105,9 +143,9 @@ export function ConfirmDialog({
   onClose: () => void;
 }) {
   return (
-    <Dialog open={open} onClose={onClose} title={title}>
+    <Dialog open={open} onClose={onClose} title={title} dismissible={!busy}>
       <div className="text-sm leading-6 text-muted">{body}</div>
-      <div className="mt-5 flex justify-end gap-2">
+      <div className="alfred-dialog-actions mt-5 flex justify-end gap-2">
         <Button variant="ghost" onClick={onClose} disabled={busy}>
           Cancel
         </Button>

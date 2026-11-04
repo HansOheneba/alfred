@@ -1,11 +1,13 @@
 "use client";
 
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import { useMemo, useState } from "react";
 
 import { buttonClassName } from "@/app/components/button-styles";
 import { AccountingRowAction, isAccountingRow } from "@/app/dashboard/accounting-row-action";
 import { Spinner } from "@/app/components/status";
+import { Select } from "@/app/components/select";
 import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerRow } from "@/lib/finance/analytics";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
@@ -15,8 +17,26 @@ import { formatMinor } from "@/lib/finance/money";
 import "./transactions-table.css";
 
 const PAGE = 15;
+const MOBILE_RECENT = 6;
 
 type Sort = "date-desc" | "date-asc" | "amount-desc" | "amount-asc";
+type TransactionFilters = { search: string; type: "all" | "expense" | "income"; category: string; sort: Sort };
+const clearFilters: TransactionFilters = { search: "", type: "all", category: "all", sort: "date-desc" };
+
+export function filterOverviewTransactions(rows: LedgerRow[], filters: TransactionFilters): LedgerRow[] {
+  const needle = filters.search.trim().toLowerCase();
+  const list = rows.filter((row) =>
+    (filters.type === "all" || row.type === filters.type) &&
+    (filters.category === "all" || row.category === filters.category) &&
+    (!needle || row.description.toLowerCase().includes(needle) || row.category.toLowerCase().includes(needle)),
+  );
+  return [...list].sort((left, right) => {
+    if (filters.sort === "amount-desc") return right.minor - left.minor;
+    if (filters.sort === "amount-asc") return left.minor - right.minor;
+    const byDate = left.date.localeCompare(right.date);
+    return filters.sort === "date-asc" ? byDate : -byDate;
+  });
+}
 
 export function TransactionsTable({
   rows,
@@ -39,25 +59,30 @@ export function TransactionsTable({
   const [deleting, setDeleting] = useState<LedgerRow | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [filtersOpen, setFiltersOpen] = useState(false);
+  const [draftFilters, setDraftFilters] = useState<TransactionFilters>({ ...clearFilters });
+  const [rowActions, setRowActions] = useState<LedgerRow | null>(null);
 
   const activeCategory = category ?? (categoryFilter === "all" ? null : categoryFilter);
   const categories = useMemo(() => [...new Set(rows.map((row) => row.category))].sort(), [rows]);
 
-  const filtered = useMemo(() => {
-    const needle = search.trim().toLowerCase();
-    const list = rows.filter(
-      (row) =>
-        (type === "all" || row.type === type) &&
-        (!activeCategory || row.category === activeCategory) &&
-        (!needle || row.description.toLowerCase().includes(needle) || row.category.toLowerCase().includes(needle)),
-    );
-    return [...list].sort((left, right) => {
-      if (sort === "amount-desc") return right.minor - left.minor;
-      if (sort === "amount-asc") return left.minor - right.minor;
-      const byDate = left.date.localeCompare(right.date);
-      return sort === "date-asc" ? byDate : -byDate;
-    });
-  }, [rows, type, activeCategory, search, sort]);
+  const filtered = useMemo(() => filterOverviewTransactions(rows, { search, type, category: activeCategory ?? "all", sort }), [rows, type, activeCategory, search, sort]);
+  const activeFilterCount = Number(Boolean(search.trim())) + Number(type !== "all") + Number(Boolean(activeCategory)) + Number(sort !== "date-desc");
+
+  function openFilters() {
+    setDraftFilters({ search, type, category: activeCategory ?? "all", sort });
+    setFiltersOpen(true);
+  }
+
+  function applyFilters() {
+    setSearch(draftFilters.search);
+    setType(draftFilters.type);
+    setSort(draftFilters.sort);
+    setCategoryFilter(draftFilters.category);
+    if (category && draftFilters.category !== category) onClearCategory();
+    setShown(PAGE);
+    setFiltersOpen(false);
+  }
 
   async function remove() {
     if (!deleting) return;
@@ -82,8 +107,9 @@ export function TransactionsTable({
           Transactions <span className="font-normal text-muted">· {rangeLabel}</span>
         </span>
       }
+      action={<Button size="sm" className="alfred-button--compact alfred-transaction-filterToggle" onClick={openFilters} aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"} aria-haspopup="dialog"><FilterIcon />Filters{activeFilterCount ? <span className="alfred-transaction-filterCount">{activeFilterCount}</span> : null}</Button>}
     >
-      <div className="alfred-transaction-filters">
+      <div className="alfred-transaction-filters alfred-transaction-desktopFilters">
         <label className="alfred-transaction-field" htmlFor="tx-search">
           <span>Search transactions</span>
           <input
@@ -99,43 +125,34 @@ export function TransactionsTable({
         </label>
         <label className="alfred-transaction-field" htmlFor="tx-type">
           <span>Type</span>
-          <span className="alfred-transaction-select">
-            <select id="tx-type" aria-label="Type" className={inputClass} value={type} onChange={(event) => setType(event.target.value as typeof type)}>
-              <option value="all">All types</option>
-              <option value="expense">Expenses</option>
-              <option value="income">Income</option>
-            </select>
-            <SelectChevron />
-          </span>
+          <Select id="tx-type" aria-label="Type" className={inputClass} value={type} onChange={(event) => { setType(event.target.value as typeof type); setShown(PAGE); }}>
+            <option value="all">All types</option>
+            <option value="expense">Expenses</option>
+            <option value="income">Income</option>
+          </Select>
         </label>
         <label className="alfred-transaction-field" htmlFor="tx-category">
           <span>Category</span>
-          <span className="alfred-transaction-select">
-            <select
-              id="tx-category"
-              aria-label="Category"
-              className={inputClass}
-              value={category ?? categoryFilter}
-              disabled={Boolean(category)}
-              onChange={(event) => setCategoryFilter(event.target.value)}
-            >
-              <option value="all">All categories</option>
-              {categories.map((item) => <option key={item} value={item}>{item}</option>)}
-            </select>
-            <SelectChevron />
-          </span>
+          <Select
+            id="tx-category"
+            aria-label="Category"
+            className={inputClass}
+            value={category ?? categoryFilter}
+            disabled={Boolean(category)}
+            onChange={(event) => { setCategoryFilter(event.target.value); setShown(PAGE); }}
+          >
+            <option value="all">All categories</option>
+            {categories.map((item) => <option key={item} value={item}>{item}</option>)}
+          </Select>
         </label>
         <label className="alfred-transaction-field" htmlFor="tx-sort">
           <span>Sort</span>
-          <span className="alfred-transaction-select">
-            <select id="tx-sort" aria-label="Sort" className={inputClass} value={sort} onChange={(event) => setSort(event.target.value as Sort)}>
-              <option value="date-desc">Newest first</option>
-              <option value="date-asc">Oldest first</option>
-              <option value="amount-desc">Largest first</option>
-              <option value="amount-asc">Smallest first</option>
-            </select>
-            <SelectChevron />
-          </span>
+          <Select id="tx-sort" aria-label="Sort" className={inputClass} value={sort} onChange={(event) => { setSort(event.target.value as Sort); setShown(PAGE); }}>
+            <option value="date-desc">Newest first</option>
+            <option value="date-asc">Oldest first</option>
+            <option value="amount-desc">Largest first</option>
+            <option value="amount-asc">Smallest first</option>
+          </Select>
         </label>
       </div>
 
@@ -201,37 +218,14 @@ export function TransactionsTable({
               </tbody>
             </table>
 
-            <ul className="flex flex-col gap-2 md:hidden">
-              {filtered.slice(0, shown).map((row) => (
-                <li key={row.id} className="rounded-xl border border-line bg-bg p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="truncate text-sm">{row.description}</p>
-                      <p className="mt-1 text-xs text-muted">
-                        {row.category} · {formatDisplayDate(row.date)}
-                        <time className="alfred-transaction-time" dateTime={row.date} title="Only the transaction date was recorded">Time not recorded</time>
-                      </p>
-                    </div>
-                    <p className={`shrink-0 text-sm tabular-nums ${row.type === "income" ? "text-income" : ""}`}>
-                      {row.type === "income" ? "+" : ""}
-                      {formatMinor(row.minor, row.currency)}
-                    </p>
-                  </div>
-                  <div className="mt-2 flex justify-end gap-1">
-                    {isAccountingRow(row.id) ? <AccountingRowAction /> : <>
-                      <Button size="sm" variant="ghost" onClick={() => setEditing(row)} aria-label={`Edit ${row.description}`}>
-                      Edit
-                    </Button>
-                    <Button size="sm" variant="ghost" onClick={() => setDeleting(row)} aria-label={`Delete ${row.description}`}>
-                      Delete
-                    </Button>
-                      </>}
-                  </div>
-                </li>
-              ))}
+            <ul className="alfred-transaction-mobileList" aria-label="Recent transactions">
+              {filtered.slice(0, MOBILE_RECENT).map((row) => <li key={row.id}>
+                {isAccountingRow(row.id) ? <Link href="/accounts?tab=activity" className="alfred-transaction-row" aria-label={`View ${row.description} in account activity`}><TransactionRowContent row={row} /></Link>
+                  : <button type="button" className="alfred-transaction-row" onClick={() => setRowActions(row)} aria-label={`Options for ${row.description}`} aria-haspopup="dialog"><TransactionRowContent row={row} /></button>}
+              </li>)}
             </ul>
 
-            <div className="mt-4 flex items-center justify-between text-xs text-muted">
+            <div className="alfred-transaction-desktopPagination mt-4 items-center justify-between text-xs text-muted">
               <span>
                 Showing {Math.min(shown, filtered.length)} of {filtered.length}
               </span>
@@ -244,6 +238,30 @@ export function TransactionsTable({
           </>
         )}
       </div>
+
+      <div className="alfred-transaction-footer">
+        <span className="alfred-transaction-mobileCount">{filtered.length > MOBILE_RECENT ? `${MOBILE_RECENT} of ${filtered.length}` : `${filtered.length} ${filtered.length === 1 ? "transaction" : "transactions"}`}</span>
+        <Link href="/accounts?tab=activity" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-transaction-viewAll" })}>View all transactions <span aria-hidden="true">↗</span></Link>
+      </div>
+
+      <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filter transactions">
+        <form className="alfred-transaction-filterSheet" onSubmit={(event) => { event.preventDefault(); applyFilters(); }}>
+          <Field label="Search"><input className={inputClass} value={draftFilters.search} placeholder="Description or category" onChange={(event) => setDraftFilters((previous) => ({ ...previous, search: event.target.value }))} /></Field>
+          <Field label="Type"><Select className={inputClass} value={draftFilters.type} onChange={(event) => setDraftFilters((previous) => ({ ...previous, type: event.target.value as TransactionFilters["type"] }))}><option value="all">All types</option><option value="expense">Expenses</option><option value="income">Income</option></Select></Field>
+          <Field label="Category"><Select className={inputClass} value={draftFilters.category} onChange={(event) => setDraftFilters((previous) => ({ ...previous, category: event.target.value }))}><option value="all">All categories</option>{categories.map((item) => <option key={item} value={item}>{item}</option>)}</Select></Field>
+          <Field label="Sort"><Select className={inputClass} value={draftFilters.sort} onChange={(event) => setDraftFilters((previous) => ({ ...previous, sort: event.target.value as Sort }))}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Largest first</option><option value="amount-asc">Smallest first</option></Select></Field>
+          <div className="alfred-transaction-filterSheetActions"><Button variant="ghost" onClick={() => setDraftFilters({ ...clearFilters })}>Reset filters</Button><Button type="submit" variant="primary">Apply filters</Button></div>
+        </form>
+      </Dialog>
+
+      <Dialog open={Boolean(rowActions)} onClose={() => setRowActions(null)} title="Transaction options">
+        {rowActions ? <div className="alfred-transaction-options">
+          <p className="font-medium">{rowActions.description}</p>
+          <p className="text-sm text-muted">{rowActions.category} · {formatDisplayDate(rowActions.date)}</p>
+          <Button onClick={() => { setEditing(rowActions); setRowActions(null); }}>Edit transaction</Button>
+          <Button variant="danger" onClick={() => { setDeleting(rowActions); setRowActions(null); }}>Delete transaction</Button>
+        </div> : null}
+      </Dialog>
 
       {editing ? (
         <EditDialog
@@ -277,8 +295,18 @@ export function TransactionsTable({
   );
 }
 
-function SelectChevron() {
-  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m7 10 5 5 5-5" /></svg>;
+function FilterIcon() {
+  return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="M4 7h16M4 17h16M8 4v6M16 14v6" /></svg>;
+}
+
+function TransactionRowContent({ row }: { row: LedgerRow }) {
+  const incoming = row.type === "income" ? row.minor >= 0 : row.minor < 0;
+  return <>
+    <span className={`alfred-transaction-direction is-${incoming ? "in" : "out"}`} aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">{incoming ? <path d="M17 7 7 17M7 7v10h10" /> : <path d="M7 17 17 7M7 7h10v10" />}</svg></span>
+    <span className="alfred-transaction-description"><span className="alfred-transaction-name">{row.description}</span><span className="alfred-transaction-meta"><span>{row.category}</span><time dateTime={row.date}>{formatDisplayDate(row.date)}</time></span></span>
+    <span className={`alfred-transaction-amount is-${incoming ? "in" : "out"}`}><span className="tabular-nums">{incoming ? "+" : "−"}{formatMinor(Math.abs(row.minor), row.currency)}</span><span>{row.minor < 0 ? "Adjustment" : row.type === "income" ? "Money in" : "Money out"}</span></span>
+    <svg className="alfred-transaction-rowChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+  </>;
 }
 
 function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => void; onSaved: () => void }) {
@@ -326,7 +354,7 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
         }}
       >
         <Field label="Type">
-          <select
+          <Select
             className={inputClass}
             value={type}
             onChange={(event) => {
@@ -338,7 +366,7 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
           >
             <option value="expense">Expense</option>
             <option value="income">Income</option>
-          </select>
+          </Select>
         </Field>
         <Field label={`Amount (${row.currency})`}>
           <input className={inputClass} inputMode="decimal" value={amount} onChange={(event) => setAmount(event.target.value)} required />
@@ -347,14 +375,14 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
           <input className={inputClass} value={description} maxLength={200} onChange={(event) => setDescription(event.target.value)} required />
         </Field>
         <Field label="Category">
-          <select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>
+          <Select className={inputClass} value={category} onChange={(event) => setCategory(event.target.value)}>
             {options.includes(category) ? null : <option value={category}>{category}</option>}
             {options.map((item) => (
               <option key={item} value={item}>
                 {item}
               </option>
             ))}
-          </select>
+          </Select>
         </Field>
         <Field label="Date">
           <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} required />

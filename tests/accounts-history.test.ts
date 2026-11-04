@@ -37,7 +37,7 @@ describe("bounded account history", () => {
     active.tab = "activity";
     const state = records(3000), before = structuredClone(state), markup = workspace(state);
     expect((markup.match(/<tr>/g) ?? []).length).toBe(26);
-    expect((markup.match(/<article/g) ?? []).length).toBe(25);
+    expect((markup.match(/class="alfred-accounts-movementRow"/g) ?? []).length).toBe(25);
     expect(markup).toContain("1–25 of 3000 movements"); expect(markup).toContain("3000 movements");
     expect(markup).not.toContain("Fictional movement 2999"); expect(state).toEqual(before);
     expect(markup).toContain('aria-label="Next movements page"');

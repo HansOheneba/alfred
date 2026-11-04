@@ -7,6 +7,7 @@ import { useRouter } from "next/navigation";
 import { AuthScreen } from "@/app/components/auth-screen";
 import { Spinner } from "@/app/components/status";
 import { buttonClassName } from "@/app/components/button-styles";
+import { Field, inputClass } from "@/app/components/ui";
 import type { OtpVerifyType } from "@/lib/auth/issue-otp";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { paymentSignInReturn } from "@/app/chat/payment-link";
@@ -237,7 +238,7 @@ export function AuthForm({ mode, returnTo }: { mode: AuthMode; returnTo?: string
                   value={password}
                   aria-invalid={invalid}
                   onChange={(event) => setPassword(event.target.value)}
-                  className={`${inputClass} pr-16`}
+                  className={`${inputClass} alfred-input--password`}
                 />
                 <button
                   type="button"
@@ -424,16 +425,6 @@ function EmailField({
   );
 }
 
-function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
-  return (
-    <label className="flex flex-col gap-2 text-sm text-ink">
-      <span>{label}</span>
-      {children}
-      {hint ? <span className="text-xs text-faint">{hint}</span> : null}
-    </label>
-  );
-}
-
 function Feedback({ error, notice }: { error: string; notice: string }) {
   return (
     <div className="min-h-5" aria-live="polite">
@@ -460,8 +451,6 @@ function QuietButton({ children, ...props }: ButtonHTMLAttributes<HTMLButtonElem
 
 const headingClass = "font-display text-[1.65rem] font-medium leading-tight tracking-tight text-ink";
 const supportClass = "mt-2 text-sm leading-6 text-muted";
-const inputClass =
-  "h-12 w-full rounded-xl border border-line-strong bg-surface px-3.5 text-base text-ink placeholder:text-faint transition-colors hover:border-accent/40 focus:border-accent focus:outline-none focus:ring-2 focus:ring-accent-soft";
 const primaryButtonClass = buttonClassName({ variant: "primary", size: "md", className: "w-full" });
 const quietButtonClass = buttonClassName({ variant: "ghost", size: "sm" });
 const textLinkClass = "text-accent underline decoration-accent/40 underline-offset-4 hover:decoration-accent focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-accent";

@@ -1,4 +1,5 @@
 /* Approved application UI, shared by authenticated production routes. */
+.alfred-app, .alfred-ui-pageShell, .alfred-ui-main { min-inline-size: 0; }
 .alfred-app {
   --ui-space: 4px;
   --ui-text-small: 12px;
@@ -15,12 +16,13 @@
   background: var(--bg);
 }
 html[data-theme="dark"] .alfred-app {
-  --bg: #18151f;
-  --surface-2: #2b2635;
-  --line: #393140;
-  --line-strong: #4a4153;
-  --muted: #b1a3c0;
-  --faint: #a093ad;
+  /* Dark mode inherits the shared palette instead of the light app overrides. */
+  --bg: inherit;
+  --surface-2: inherit;
+  --line: inherit;
+  --line-strong: inherit;
+  --muted: inherit;
+  --faint: inherit;
 }
 .alfred-ui-pageShell { min-height: 100dvh; padding-bottom: calc(112px + env(safe-area-inset-bottom)); }
 .alfred-ui-header { padding-top: env(safe-area-inset-top); position: sticky; top: 0; z-index: 20; border-bottom: 1px solid var(--line); background: var(--surface); }
@@ -82,8 +84,8 @@ body:has(dialog[open]) .alfred-ui-dock { visibility: hidden; pointer-events: non
 .alfred-ui-metric[data-kind="income"] { --metric-ink: #216644; --metric-icon: #d9ecdf; background: #edf8ef; border-color: #cde5d4; color: var(--metric-ink); }
 .alfred-ui-metric:is([data-kind="expense"],[data-kind="income"]) :is(.alfred-ui-metricValue,.alfred-ui-metricHint), .alfred-ui-metric:is([data-kind="expense"],[data-kind="income"]) .alfred-ui-metricHeading h2 { color: var(--metric-ink); }
 .alfred-ui-metric:is([data-kind="expense"],[data-kind="income"]) .alfred-ui-metricHeading > span { color: var(--metric-ink); background: var(--metric-icon); }
-html[data-theme="dark"] .alfred-ui-metric[data-kind="expense"] { --metric-ink: #f2b3a8; --metric-icon: #54332f; background: #352321; border-color: #66413a; }
-html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a0d7b6; --metric-icon: #294b38; background: #1d3025; border-color: #395a45; }
+html[data-theme="dark"] .alfred-ui-metric[data-kind="expense"] { --metric-ink: var(--outgoing); --metric-icon: var(--surface-2); background: var(--surface); border-color: var(--line); }
+html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: var(--income); --metric-icon: var(--surface-2); background: var(--surface); border-color: var(--line); }
 
 
 .alfred-ui-dashboard > section:not(.alfred-ui-summary), .alfred-ui-dashboard > div > section:not(.alfred-ui-totalBalance) { border-radius: 16px; }
@@ -104,9 +106,10 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: #a
 .alfred-ui-insightAskButton { width: 100%; }
 
 .alfred-ui-insightQuestionForm { margin: 0; }
-.alfred-ui-insightInput { display: flex; align-items: center; min-width: 0; height: 56px; gap: 8px; padding: 4px 4px 4px 12px; background: var(--surface); border: 1px solid var(--line-strong); border-radius: 12px; }
-.alfred-ui-insightInput:focus-within { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
-.alfred-ui-insightInput input { flex: 1; min-width: 0; height: 44px; font-size: 14px; line-height: 20px; outline: none; background: transparent; }
+.alfred-ui-insightInput { display:flex; align-items:center; min-width:0; min-height:54px; gap:8px; padding:4px 4px 4px 12px; background:var(--field-bg,var(--surface)); border:1px solid var(--field-border,var(--line-strong)); border-radius:var(--field-radius,8px); box-shadow:var(--field-shadow,0 1px 2px #1018280d); transition:border-color 150ms,box-shadow 150ms; }
+.alfred-ui-insightInput:focus-within { border-color:var(--field-focus-border,var(--accent)); box-shadow:var(--field-shadow,0 1px 2px #1018280d),0 0 0 4px var(--field-focus-ring,var(--accent-soft)); }
+.alfred-ui-insightInput > :not(input) { flex-shrink:0; }
+.alfred-ui-insightInput input { flex:1 1 0%; width:0; min-width:0; height:44px; padding:10px 0; border:0; border-radius:0; box-shadow:none; color:var(--ink); font-size:16px; line-height:24px; outline:none; background:transparent; }
 .alfred-ui-insightInput input::placeholder { color: var(--muted); }
 
 .alfred-ui-insightInput button svg { width: 20px; height: 20px; }

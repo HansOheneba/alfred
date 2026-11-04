@@ -42,29 +42,31 @@
 }
 
 :root[data-theme="dark"] {
-  --bg: #18151f;
-  --surface: #211d29;
-  --surface-2: #2b2635;
-  --line: #393140;
-  --line-strong: #4a4153;
+  /* Neutral layers keep colour in actions and financial meaning. */
+  --bg: #0a0a0a;
+  --surface: #111111;
+  --surface-2: #1a1a1a;
+  --line: #2a2a2a;
+  --line-strong: #666666;
+  --scrim: rgb(0 0 0 / .56);
 
-  --ink: #faf8fd;
-  --muted: #b1a3c0;
-  --faint: #857a92;
+  --ink: #ededed;
+  --muted: #a0a0a0;
+  --faint: #8f8f8f;
 
-  --accent: #5cc4b2;
-  --accent-strong: #7fd6c6;
-  --accent-ink: #0b211d;
-  --accent-soft: rgba(92, 196, 178, 0.14);
+  --accent: #ededed;
+  --accent-strong: #ffffff;
+  --accent-ink: #0a0a0a;
+  --accent-soft: #1f1f1f;
 
-  --brand: #b59cff;
-  --brand-soft: #352942;
+  --brand: #b3b3b3;
+  --brand-soft: #242424;
 
-  --income: #83c5ab;
-  --outgoing: #edaaa2;
+  --income: #9ac9a8;
+  --outgoing: #e7ac92;
 
-  --danger: #f0998c;
-  --success: #83c5ab;
+  --danger: #efa291;
+  --success: #9ac9a8;
 
   color-scheme: dark;
 }

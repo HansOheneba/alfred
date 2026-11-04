@@ -7,6 +7,7 @@ import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { Button, Card, Dialog, EmptyState, Field, categoryColor, inputClass } from "@/app/components/ui";
 import { Spinner } from "@/app/components/status";
+import { Select } from "@/app/components/select";
 import { formatMinor } from "@/lib/finance/money";
 import { INVESTMENT_KINDS, KIND_LABELS, type InvestmentKind } from "@/lib/investments/kinds";
 import type { Contribution } from "@/lib/investments/store";
@@ -338,7 +339,7 @@ function InvestmentCard({ item, onChange }: { item: InvestmentView; onChange: (p
             id={`value-${investment.id}`}
             inputMode="decimal"
             autoFocus
-            className={`${inputClass} h-9 max-w-40`}
+            className={`${inputClass} max-w-40`}
             placeholder={`Worth now (${investment.currency})`}
             value={value}
             onChange={(event) => setValue(event.target.value)}
@@ -397,19 +398,19 @@ function AddInvestment({ open, onClose, onSaved }: { open: boolean; onClose: () 
         </Field>
         <div className="grid grid-cols-2 gap-3">
           <Field label="Kind">
-            <select className={inputClass} value={form.kind} onChange={(event) => set({ kind: event.target.value as InvestmentKind, currency: event.target.value === "us_stocks" ? "USD" : "GHS" })}>
+            <Select className={inputClass} value={form.kind} onChange={(event) => set({ kind: event.target.value as InvestmentKind, currency: event.target.value === "us_stocks" ? "USD" : "GHS" })}>
               {INVESTMENT_KINDS.map((kind) => (
                 <option key={kind} value={kind}>
                   {KIND_LABELS[kind]}
                 </option>
               ))}
-            </select>
+            </Select>
           </Field>
           <Field label="Currency">
-            <select className={inputClass} value={form.currency} onChange={(event) => set({ currency: event.target.value })}>
+            <Select className={inputClass} value={form.currency} onChange={(event) => set({ currency: event.target.value })}>
               <option value="GHS">Cedis (GHS)</option>
               <option value="USD">Dollars (USD)</option>
-            </select>
+            </Select>
           </Field>
         </div>
         {fixed ? (

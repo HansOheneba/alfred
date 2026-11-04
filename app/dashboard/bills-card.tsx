@@ -6,6 +6,7 @@ import { useState } from "react";
 
 import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
+import { Select } from "@/app/components/select";
 import { Button, Card, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { BillCadence, BillRecord, RenewalSuggestion, UpcomingBill } from "@/lib/finance/bills";
 import type { BillAction } from "@/lib/finance/bill-schedule";
@@ -346,12 +347,12 @@ function BillForm({
           <input className={inputClass} type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} required />
         </Field>
         <Field label="Repeats">
-          <select className={inputClass} value={cadence} onChange={(e) => setCadence(e.target.value as BillCadence)}>
+          <Select className={inputClass} value={cadence} onChange={(e) => setCadence(e.target.value as BillCadence)}>
             <option value="once">One time</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
             <option value="yearly">Yearly</option>
-          </select>
+          </Select>
         </Field>
       </div>
       {!varies ? (

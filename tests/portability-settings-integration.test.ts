@@ -18,7 +18,10 @@ describe("portability in normal Settings", () => {
     vi.stubGlobal("fetch", fetch);
     const markup = renderToStaticMarkup(createElement(SettingsView, { initial, ledger, botUsername: null, home: "chat" }));
     expect(markup).toMatch(/<nav[^>]*aria-label="Settings sections"/);
-    expect(markup).toMatch(/<button[^>]*data-section="data"[^>]*>Data &amp; privacy<\/button>/);
+    const dataButton = /<button\b[^>]*data-section="data"[^>]*>([\s\S]*?)<\/button>/.exec(markup);
+    expect(dataButton).not.toBeNull();
+    expect(dataButton![0]).toContain('aria-label="Data &amp; privacy"');
+    expect(dataButton![1].replace(/<[^>]+>/g, "")).toContain("Data &amp; privacy");
     expect(fetch).not.toHaveBeenCalled();
   });
 

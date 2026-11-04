@@ -1,0 +1,158 @@
+/* Untitled UI field geometry, using Alfred's existing colour and type palette. */
+:root {
+  --field-bg: var(--surface);
+  --field-border: #d0d5dd;
+  --field-shadow: 0 1px 2px rgba(16, 24, 40, .05);
+  --field-radius: 8px;
+  --field-focus-border: color-mix(in srgb, var(--accent) 40%, var(--surface));
+  --field-focus-ring: color-mix(in srgb, var(--accent) 10%, var(--surface));
+  --field-error-border: #fda29b;
+  --field-error-ring: #fee4e2;
+}
+
+:root[data-theme="dark"] {
+  --field-border: var(--line-strong);
+  --field-focus-border: color-mix(in srgb, var(--accent) 75%, var(--surface));
+  --field-focus-ring: color-mix(in srgb, var(--accent) 18%, var(--surface));
+  --field-error-border: color-mix(in srgb, var(--danger) 75%, var(--surface));
+  --field-error-ring: color-mix(in srgb, var(--danger) 18%, var(--surface));
+}
+
+.alfred-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  color: var(--ink);
+}
+.alfred-field-label { font-size: 14px; line-height: 20px; font-weight: 500; }
+.alfred-field-hint { color: var(--muted); font-size: 14px; line-height: 20px; font-weight: 400; }
+.alfred-field-hint--error { color: var(--danger); }
+
+/* Compound Chat and insight composers own their internal geometry and focus ring. */
+.alfred-input,
+:where(.alfred-app :is(input, select, textarea):not([hidden], [type="hidden"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="button"], [type="submit"], [type="reset"], .sr-only, .alfred-production-chat-composer textarea, #alfred-chat-message, .alfred-ui-insightInput input)) {
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  min-block-size: 46px;
+  border: 1px solid var(--field-border);
+  border-radius: var(--field-radius);
+  padding: 10px 14px;
+  background-color: var(--field-bg);
+  box-shadow: var(--field-shadow);
+  color: var(--ink);
+  font-family: var(--font-sans);
+  font-size: 16px;
+  font-weight: 400;
+  line-height: 24px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+
+  &::placeholder { color: var(--muted); opacity: 1; }
+  &:focus { border-color: var(--field-focus-border); outline: none; box-shadow: var(--field-shadow), 0 0 0 4px var(--field-focus-ring); }
+  &[aria-invalid="true"] {
+    border-color: var(--field-error-border);
+    padding-inline-end: 42px;
+    background-image: url("/icons/input-alert.svg");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    background-size: 16px 16px;
+  }
+  &[aria-invalid="true"]:focus { box-shadow: var(--field-shadow), 0 0 0 4px var(--field-error-ring); }
+  &[readonly] { background-color: var(--surface-2); }
+  &:disabled { color: var(--muted); background-color: var(--surface-2); cursor: not-allowed; opacity: 1; }
+  &:disabled::placeholder { color: var(--muted); }
+  &::-webkit-date-and-time-value { min-block-size: 24px; text-align: start; }
+}
+
+textarea.alfred-input,
+:where(.alfred-app textarea:not(.alfred-production-chat-composer textarea, #alfred-chat-message, [hidden], .sr-only)) {
+  block-size: auto;
+  min-block-size: 128px;
+  resize: vertical;
+  &[aria-invalid="true"] { background-position: right 14px top 14px; }
+}
+
+select.alfred-input,
+:where(.alfred-app select:not([multiple], [size], [hidden], .sr-only)) {
+  appearance: none;
+  padding-inline-end: 44px;
+  background-image: url("/icons/input-chevron-down.svg");
+  background-position: right 14px center;
+  background-repeat: no-repeat;
+  background-size: 20px 20px;
+  &[aria-invalid="true"] {
+    padding-inline-end: 70px;
+    background-image: url("/icons/input-alert.svg"), url("/icons/input-chevron-down.svg");
+    background-position: right 44px center, right 14px center;
+    background-size: 16px 16px, 20px 20px;
+  }
+}
+select.alfred-input:is([multiple], [size]) { appearance: auto; background-image: none; padding-inline-end: 14px; }
+
+input.alfred-input[type="file"],
+:where(.alfred-app input[type="file"]:not([hidden], .sr-only)) {
+  padding: 6px 8px;
+  &::file-selector-button {
+    margin-inline-end: 12px;
+    border: 1px solid var(--field-border);
+    border-radius: 6px;
+    padding: 5px 10px;
+    background: var(--surface-2);
+    color: var(--ink);
+    font-family: inherit;
+    font-size: 14px;
+    line-height: 20px;
+    cursor: pointer;
+  }
+  &:disabled::file-selector-button { color: var(--faint); cursor: not-allowed; }
+}
+
+.alfred-input.alfred-input--password { padding-inline-end: 68px; }
+.alfred-input.alfred-input--password[aria-invalid="true"] { padding-inline-end: 94px; background-position: right 68px center; }
+
+/* Native inputs retain their focus, keyboard, label and mixed-state semantics. */
+:where(.alfred-app, .auth-screen) input:is([type="checkbox"], [type="radio"]):not([hidden], .sr-only) {
+  appearance: none;
+  display: inline-grid;
+  place-content: center;
+  flex: 0 0 20px;
+  inline-size: 20px;
+  block-size: 20px;
+  min-inline-size: 20px;
+  margin-block: 0;
+  padding: 0;
+  border: 1px solid var(--field-border);
+  border-radius: 6px;
+  background: var(--field-bg);
+  vertical-align: middle;
+  cursor: pointer;
+  &:checked, &:indeterminate { border-color: var(--accent); background-color: var(--accent-soft); }
+  &:focus-visible { outline: none; box-shadow: 0 0 0 4px var(--field-focus-ring); }
+  &:disabled { border-color: var(--line-strong); background-color: var(--surface-2); opacity: .55; cursor: not-allowed; }
+}
+:where(.alfred-app, .auth-screen) input[type="checkbox"]:not([hidden], .sr-only)::after {
+  content: "";
+  inline-size: 14px;
+  block-size: 14px;
+  background-color: var(--accent);
+  mask: url("/icons/input-check.svg") center / 14px 14px no-repeat;
+  visibility: hidden;
+}
+:where(.alfred-app, .auth-screen) input[type="checkbox"]:checked::after { visibility: visible; }
+:where(.alfred-app, .auth-screen) input[type="checkbox"]:indeterminate::after { visibility: visible; mask: none; inline-size: 10px; block-size: 2px; border-radius: 1px; }
+:where(.alfred-app, .auth-screen) input[type="radio"]:not([hidden], .sr-only) {
+  border-radius: 50%;
+  &:checked::after { content: ""; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--accent); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alfred-input, :where(.alfred-app input, .alfred-app select, .alfred-app textarea) { transition: none; }
+}
+@media (forced-colors: active) {
+  :where(.alfred-app, .auth-screen) input:is([type="checkbox"], [type="radio"]):not([hidden], .sr-only),
+  select.alfred-input, :where(.alfred-app select) { appearance: auto; }
+  :where(.alfred-app, .auth-screen) input:is([type="checkbox"], [type="radio"])::after { display: none; }
+}

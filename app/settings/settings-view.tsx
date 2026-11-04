@@ -5,6 +5,7 @@ import { useEffect, useState, type ReactNode } from "react";
 import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
 import { Button, Card, Field, inputClass } from "@/app/components/ui";
+import { Select } from "@/app/components/select";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
@@ -58,6 +59,7 @@ export function SettingsView({
   refreshKey?: string;
 }) {
   const [section, setSection] = useState<SettingsSectionId>("profile");
+  const [mobileSectionOpen, setMobileSectionOpen] = useState(false);
   const [form, setForm] = useState(initial);
   const [saved, setSaved] = useState(initial);
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
@@ -70,20 +72,28 @@ export function SettingsView({
     const fromHash = () => {
       const next = resolveSettingsSection(window.location.hash);
       if (next) setSection(next);
+      setMobileSectionOpen(next !== null);
     };
     fromHash();
     window.addEventListener("hashchange", fromHash);
-    return () => window.removeEventListener("hashchange", fromHash);
+    window.addEventListener("popstate", fromHash);
+    return () => {
+      window.removeEventListener("hashchange", fromHash);
+      window.removeEventListener("popstate", fromHash);
+    };
   }, []);
-
-  // On phones the tabs scroll sideways, so keep the open one visible.
-  useEffect(() => {
-    document.querySelector<HTMLElement>(`[data-section="${section}"]`)?.scrollIntoView({ block: "nearest", inline: "center" });
-  }, [section]);
 
   function choose(id: SettingsSectionId) {
     setSection(id);
-    window.history.replaceState(null, "", `#${id}`);
+    setMobileSectionOpen(true);
+    if (window.location.hash !== `#${id}`) window.history.pushState(window.history.state, "", `#${id}`);
+    if (window.matchMedia?.("(max-width: 767px)").matches) requestAnimationFrame(() => document.querySelector<HTMLElement>(".alfred-settings-mobileBack")?.focus({ preventScroll: true }));
+  }
+
+  function showSections() {
+    setMobileSectionOpen(false);
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${window.location.search}`);
+    if (window.matchMedia?.("(max-width: 767px)").matches) requestAnimationFrame(() => document.querySelector<HTMLElement>(`.alfred-settings-navigation [data-section="${section}"]`)?.focus({ preventScroll: true }));
   }
 
   function update<K extends keyof AccountSettings>(key: K, value: AccountSettings[K]) {
@@ -117,8 +127,8 @@ export function SettingsView({
   const saveBar = <SaveBar dirty={dirty} state={save} onSave={() => void submit()} onReset={() => setForm(saved)} />;
 
   return (
-    <div className="mx-auto w-full max-w-5xl px-4 py-6 pb-20 sm:py-8">
-      <header className="mb-6">
+    <div className="alfred-settings mx-auto w-full max-w-5xl px-4 py-6 pb-20 sm:py-8" data-mobile-section-open={mobileSectionOpen}>
+      <header className="alfred-settings-heading mb-6">
         <h1 className="font-display text-2xl font-medium leading-tight tracking-tight">Settings</h1>
         <p className="mt-1 text-sm text-muted">How Alfred knows you, what he keeps track of, and where he can reach you.</p>
       </header>
@@ -126,7 +136,8 @@ export function SettingsView({
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
         <SettingsNavigation section={section} onChoose={choose} />
 
-        <div className="min-w-0 flex-1">
+        <div className="alfred-settings-detail min-w-0 flex-1">
+          <Button variant="ghost" className="alfred-settings-mobileBack" onClick={showSections}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>Back to settings</Button>
           {section === "profile" ? (
             <Card title="Profile">
               <div className="grid gap-4 sm:grid-cols-2">
@@ -140,22 +151,22 @@ export function SettingsView({
                   />
                 </Field>
                 <Field label="Currency" hint="Your main currency for totals and charts.">
-                  <select value={form.currency} onChange={(event) => update("currency", event.target.value)} className={inputClass}>
+                  <Select value={form.currency} onChange={(event) => update("currency", event.target.value)} className={inputClass}>
                     {[...new Set([form.currency, ...CURRENCIES])].map((code) => (
                       <option key={code} value={code}>
                         {code}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <Field label="Timezone" hint="Decides what counts as today and when reminders arrive.">
-                  <select value={form.timezone} onChange={(event) => update("timezone", event.target.value)} className={inputClass}>
+                  <Select value={form.timezone} onChange={(event) => update("timezone", event.target.value)} className={inputClass}>
                     {[...new Set([form.timezone, ...TIMEZONES])].map((zone) => (
                       <option key={zone} value={zone}>
                         {zone.replace(/_/g, " ")}
                       </option>
                     ))}
-                  </select>
+                  </Select>
                 </Field>
                 <div className="sm:col-span-2">
                   <Field label="Financial goals" hint="Anything you're working towards. Alfred keeps it in mind.">

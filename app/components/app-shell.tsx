@@ -129,7 +129,7 @@ export function PrivacyToggle() {
       aria-pressed={masked}
       aria-label={masked ? "Reveal amounts" : "Hide amounts"}
       title={masked ? "Reveal amounts" : "Hide amounts"}
-      className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-ui-privacy" })}
+      className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-button--compact alfred-ui-privacy" })}
     >
       <Icon className="size-4">
         {masked ? (
@@ -188,7 +188,7 @@ export function AppShell({ current, name, fill = false, headerAction, children }
           <div className="alfred-ui-headerActions">
             <PrivacyToggle/>
             {headerAction}
-            <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-ui-themeButton" })} onClick={() => setAppearance(appearance === "light" ? "dark" : "light")} aria-label={`Switch to ${appearance === "light" ? "dark" : "light"} appearance`}>{appearance === "light" ? "Dark" : "Light"}</button>
+            <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-button--compact alfred-ui-themeButton" })} onClick={() => setAppearance(appearance === "light" ? "dark" : "light")} aria-label={`Switch to ${appearance === "light" ? "dark" : "light"} appearance`}>{appearance === "light" ? "Dark" : "Light"}</button>
             {!chat ? <Link href="/settings#profile" className="alfred-app-profile" aria-label={name ? `${name}: profile and settings` : "Profile and settings"} title="Profile and settings"><Initial name={name}/></Link> : null}
           </div>
         </div>
