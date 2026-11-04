@@ -22,6 +22,18 @@ owned cash account in that currency; multiple accounts or conflicting suffixes
 require clarification. User classifications, loans, refunds, holds, settlement
 links and missing or changed source evidence must not be overwritten.
 
+Older Money imports may retain the placeholder provider `Imported Money Tracker`.
+For the exact original `hubtel-wallet` and `mtn-momo` keys, matching can derive an
+effective provider from an active owner-scoped retained Money archive, its native
+snapshot and the imported account provenance. Names alone are insufficient.
+These facts stay outside the saved accounting state: account IDs, labels,
+providers and repeat-import comparisons are unchanged. Current explicit provider
+or account edits take precedence, and duplicate identities remain ambiguous.
+This compatibility fallback needs no database migration or repeat upload. It
+trusts archives validated and stored by the import pipeline; matching does not
+rebuild each archived ZIP or recheck every checksum. It cannot create a missing
+SMS leg or release a held collector alert.
+
 The owner-serialized ingest transaction stores both bank dispositions and the
 accounting transfer link together, with source fingerprints, revision checks
 and an audit event. The transferred principal is not ordinary income or

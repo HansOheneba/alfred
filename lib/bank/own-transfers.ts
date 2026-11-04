@@ -13,6 +13,7 @@ import { DatabaseError } from "@/lib/errors";
 import { logInfo } from "@/lib/log";
 import { createSupabaseBankStore, listBankTransferWindow, type BankMessage } from "./store";
 import { isOwnName, parseBankText, withoutRecipient } from "./parse";
+import type { ImportedTransferProviders } from "./imported-account-providers";
 
 const WINDOW_MS = 600_000;
 class PairingDeferred extends Error {
@@ -82,7 +83,7 @@ function protectedMovement(state: AccountingState, movement: CashMovement, messa
 
 /** Exact saved assignment wins. Otherwise use explicit bindings, or the only configured cash account for a known provider.
  * A suffix-bearing source never falls back to provider-only matching. Multiple accounts always require a chat choice. */
-export function resolveTransferAccount(state: AccountingState, message: BankMessage, rules?: AccountRuleState, explicitId?: string): FinancialAccount | null {
+export function resolveTransferAccount(state: AccountingState, message: BankMessage, rules?: AccountRuleState, explicitId?: string, importedProviders?:ImportedTransferProviders): FinancialAccount | null {
   if (message.ownerId !== state.ownerId) return null;
   const movement = state.movements.find((row) => row.id === `bank:${message.id}` && row.ownerId === state.ownerId && row.sourceId === message.id && !row.sourceMissing);
   if (!movement) return null;
@@ -94,13 +95,13 @@ export function resolveTransferAccount(state: AccountingState, message: BankMess
   if (/\b(?:A\/C|Acct|Account)(?:\s*(?:No\.?|Number|ending(?: in)?))?\s*[:.#]?\s*[X*x•.\s-]*\d{3,}\b/i.test(message.raw)) return null;
   const provider = transferProvider(message.source);
   if (!["hubtel", "momo", "absa", "gcb"].includes(provider)) return null;
-  const matches = owned.filter((account) => transferProvider(account.provider) === provider);
+  const matches = owned.filter((account) => (account.provider === "Imported Money Tracker" ? importedProviders?.get(account.id) : transferProvider(account.provider)) === provider);
   return matches.length === 1 ? matches[0] : null;
 }
 
-function boundMessage(state: AccountingState, message: BankMessage, rules?: AccountRuleState, explicitId?: string): Bound | null {
+function boundMessage(state: AccountingState, message: BankMessage, rules?: AccountRuleState, explicitId?: string, importedProviders?:ImportedTransferProviders): Bound | null {
   const movement = state.movements.find((row) => row.id === `bank:${message.id}` && row.ownerId === state.ownerId);
-  const account = resolveTransferAccount(state, message, rules, explicitId);
+  const account = resolveTransferAccount(state, message, rules, explicitId, importedProviders);
   if (!movement || !account || protectedMovement(state, movement, message)) return null;
   if (state.transfers.some((row) => row.outgoing.movementId === movement.id || row.incoming.movementId === movement.id)) return null;
   return { message, movement, account };
@@ -133,18 +134,18 @@ function notice(outgoing: Bound, incoming: Bound, ownerId: string, paired: boole
     evidenceFingerprint: createHash("sha256").update(stableJson([outgoing.message.id, outgoing.movement.sourceFingerprint, incoming.message.id, incoming.movement.sourceFingerprint, outgoing.account.id, incoming.account.id])).digest("hex") };
 }
 
-function conversationEvidence(state: AccountingState, messages: BankMessage[], target: BankMessage): string {
+function conversationEvidence(state: AccountingState, messages: BankMessage[], target: BankMessage, importedProviders?:ImportedTransferProviders): string {
   const relevant = messages.filter((row) => row.ownerId === state.ownerId && (row.id === target.id || row.direction !== target.direction && sameMoney(row, target) && withinWindow(row, target))).map((message) => {
     const movement = state.movements.find((row) => row.id === `bank:${message.id}`);
     return { id: message.id, fingerprint: movement?.sourceFingerprint ?? null, status: movement?.status ?? null, accountId: movement?.accountId ?? null, categoryOrigin: movement?.categoryOrigin ?? null };
   }).sort((a, b) => a.id.localeCompare(b.id));
   const accounts = state.accounts.filter((row) => row.currency === target.currency).map(({ id, provider, currency, includeInCash }) => ({ id, provider, currency, includeInCash })).sort((a, b) => a.id.localeCompare(b.id));
-  return createHash("sha256").update(stableJson({ target: target.id, relevant, accounts })).digest("hex");
+  return createHash("sha256").update(stableJson({ target: target.id, relevant, accounts,...(importedProviders?.size ? {importedProviders:[...importedProviders].sort(([a],[b])=>a.localeCompare(b))}: {}) })).digest("hex");
 }
 
 /** Read-only exact matching, with uniqueness checked in both directions rather than choosing the nearest amount. */
-export function ownTransferCandidates(state: AccountingState, messages: BankMessage[], rules?: AccountRuleState): OwnTransferNotice[] {
-  const bound = messages.filter((row) => row.ownerId === state.ownerId).map((row) => boundMessage(state, row, rules)).filter((row): row is Bound => row !== null);
+export function ownTransferCandidates(state: AccountingState, messages: BankMessage[], rules?: AccountRuleState, importedProviders?:ImportedTransferProviders): OwnTransferNotice[] {
+  const bound = messages.filter((row) => row.ownerId === state.ownerId).map((row) => boundMessage(state, row, rules,undefined,importedProviders)).filter((row): row is Bound => row !== null);
   const possible = bound.filter((row) => row.message.direction === "out").flatMap((outgoing) => bound.filter((row) => row.message.direction === "in" && row.account.id !== outgoing.account.id && sameMoney(outgoing.message, row.message) && withinWindow(outgoing.message, row.message)).map((incoming) => ({ outgoing, incoming })));
   return possible.filter((pair) => possible.filter((row) => row.outgoing.message.id === pair.outgoing.message.id).length === 1 && possible.filter((row) => row.incoming.message.id === pair.incoming.message.id).length === 1).map(({ outgoing, incoming }) => notice(outgoing, incoming, state.ownerId, false));
 }
@@ -171,7 +172,7 @@ export async function loadOwnTransferNotices(settings: SupabaseSettings, ownerId
   const messages = coveredTransferMessages(accounting);
   if (!messages) return new Map();
   const result = savedOwnTransferNotices(accounting.state, messages);
-  for (const candidate of ownTransferCandidates(accounting.state, messages)) for (const id of [candidate.outgoingBankMessageId, candidate.incomingBankMessageId]) if (!result.has(id)) result.set(id, candidate);
+  for (const candidate of ownTransferCandidates(accounting.state, messages,undefined,accounting.transferProviders)) for (const id of [candidate.outgoingBankMessageId, candidate.incomingBankMessageId]) if (!result.has(id)) result.set(id, candidate);
   const wanted = new Set(bankIds);
   return new Map([...result].filter(([id]) => wanted.has(id)));
 }
@@ -193,7 +194,7 @@ export function pairOwnTransferState(state: AccountingState, pair: OwnTransferNo
   validateAccountData(next); return next;
 }
 
-async function persistPair(settings: SupabaseSettings, ownerId: string, pair: OwnTransferNotice, requestId: string, now = new Date()): Promise<OwnTransferNotice> {
+async function persistPair(settings: SupabaseSettings, ownerId: string, pair: OwnTransferNotice, requestId: string, now = new Date(), explicitAccounts?:{fromAccountId?:string;toAccountId?:string}): Promise<OwnTransferNotice> {
   const bank = createSupabaseBankStore(settings);
   await query(settings, "select id from public.bank_messages where owner_id=$1::uuid and id=any($2::uuid[]) order by id for update", [ownerId, [pair.outgoingBankMessageId, pair.incomingBankMessageId]]);
   await query(settings, "select owner_id from public.accounting_states where owner_id=$1::uuid for update", [ownerId]);
@@ -202,9 +203,13 @@ async function persistPair(settings: SupabaseSettings, ownerId: string, pair: Ow
   const messages = coveredTransferMessages(before);
   if (!messages) throw new PairingDeferred("unavailable");
   const outgoing = messages.find((row) => row.id === pair.outgoingBankMessageId), incoming = messages.find((row) => row.id === pair.incomingBankMessageId);
-  if (before.availability !== "ready" || !outgoing || !incoming || !sameMoney(outgoing, incoming) || !withinWindow(outgoing, incoming) || !boundMessage(before.state, outgoing, undefined, pair.fromAccount.id) || !boundMessage(before.state, incoming, undefined, pair.toAccount.id)) throw new PairingDeferred("stale");
+  if (before.availability !== "ready" || !outgoing || !incoming || !sameMoney(outgoing, incoming) || !withinWindow(outgoing, incoming) || !boundMessage(before.state, outgoing, undefined, pair.fromAccount.id,before.transferProviders) || !boundMessage(before.state, incoming, undefined, pair.toAccount.id,before.transferProviders)) throw new PairingDeferred("stale");
+  // Discovery is not consent to override a later provider/account edit. Only an
+  // explicit, freshly guarded chat choice may bypass automatic source resolution.
+  if (explicitAccounts?.fromAccountId && explicitAccounts.fromAccountId !== pair.fromAccount.id || explicitAccounts?.toAccountId && explicitAccounts.toAccountId !== pair.toAccount.id) throw new PairingDeferred("stale");
+  if (resolveTransferAccount(before.state,outgoing,undefined,explicitAccounts?.fromAccountId,before.transferProviders)?.id !== pair.fromAccount.id || resolveTransferAccount(before.state,incoming,undefined,explicitAccounts?.toAccountId,before.transferProviders)?.id !== pair.toAccount.id) throw new PairingDeferred("stale");
   const selected = { ...before.state, movements: before.state.movements.map((row) => row.id === `bank:${outgoing.id}` ? { ...row, accountId: pair.fromAccount.id } : row.id === `bank:${incoming.id}` ? { ...row, accountId: pair.toAccount.id } : row) };
-  const stillUnique = ownTransferCandidates(selected, messages).filter((row) => row.outgoingBankMessageId === outgoing.id || row.incomingBankMessageId === incoming.id);
+  const stillUnique = ownTransferCandidates(selected, messages,undefined,before.transferProviders).filter((row) => row.outgoingBankMessageId === outgoing.id || row.incomingBankMessageId === incoming.id);
   if (stillUnique.length !== 1 || stillUnique[0].pairId !== pair.pairId) throw new PairingDeferred("ambiguous");
   const automatic: TransferLink["automatic"] = { version: 1, pairedRevision: before.state.revision + 1,
     outgoing: { movementStatus: before.state.movements.find((row) => row.id === `bank:${outgoing.id}`)!.status, bankStatus: outgoing.status as "needs_label" | "transfer", bankKind: outgoing.kind as "payment" | "transfer_own" },
@@ -215,7 +220,7 @@ async function persistPair(settings: SupabaseSettings, ownerId: string, pair: Ow
   const finalMessages = coveredTransferMessages(fresh);
   if (!finalMessages) throw new PairingDeferred("unavailable");
   const finalSelected = { ...fresh.state, movements: fresh.state.movements.map((row) => row.id === `bank:${outgoing.id}` ? { ...row, accountId: pair.fromAccount.id } : row.id === `bank:${incoming.id}` ? { ...row, accountId: pair.toAccount.id } : row) };
-  const finalCandidates = ownTransferCandidates(finalSelected, finalMessages).filter((row) => row.outgoingBankMessageId === outgoing.id || row.incomingBankMessageId === incoming.id);
+  const finalCandidates = ownTransferCandidates(finalSelected, finalMessages,undefined,fresh.transferProviders).filter((row) => row.outgoingBankMessageId === outgoing.id || row.incomingBankMessageId === incoming.id);
   if (finalCandidates.length !== 1 || finalCandidates[0].pairId !== pair.pairId) throw new PairingDeferred("ambiguous");
   const next = pairOwnTransferState(fresh.state, pair, requestId, now.toISOString(), automatic);
   const fingerprint = next.audit.at(-1)!.actionFingerprint;
@@ -247,7 +252,7 @@ export async function reconcileNewOwnTransfers(settings: SupabaseSettings, profi
   if (loaded.availability !== "ready" || !loaded.state.accounts.length) return pairedIds;
   const messages = coveredTransferMessages(loaded);
   if (!messages) return pairedIds;
-  const candidates = ownTransferCandidates(loaded.state, messages).filter((pair) => newBankIds.includes(pair.outgoingBankMessageId) || newBankIds.includes(pair.incomingBankMessageId));
+  const candidates = ownTransferCandidates(loaded.state, messages,undefined,loaded.transferProviders).filter((pair) => newBankIds.includes(pair.outgoingBankMessageId) || newBankIds.includes(pair.incomingBankMessageId));
   for (const pair of candidates) {
     if (loaded.state.transferRejections?.some((rejected) => rejected === pair.pairId || rejected.split(":").slice(1).some((id) => id === pair.outgoingBankMessageId || id === pair.incomingBankMessageId))) continue;
     const outgoing = messages.find((row) => row.id === pair.outgoingBankMessageId)!, incoming = messages.find((row) => row.id === pair.incomingBankMessageId)!;
@@ -285,7 +290,8 @@ export function createTransferConversationDeps(settings: SupabaseSettings): Tran
       base.accounts = loaded.state.accounts.filter((row) => row.currency === target.currency && row.includeInCash).map(({ id, label, provider }) => ({ id, label, provider }));
       const saved = savedOwnTransferNotices(loaded.state, messages).get(bankMessageId);
       if (saved) return { ...base, status: "paired", transfer: saved };
-      const candidate = ownTransferCandidates(loaded.state, messages).find((row) => row.outgoingBankMessageId === bankMessageId || row.incomingBankMessageId === bankMessageId);
+      base.evidenceFingerprint = conversationEvidence(loaded.state,messages,target,loaded.transferProviders);
+      const candidate = ownTransferCandidates(loaded.state, messages,undefined,loaded.transferProviders).find((row) => row.outgoingBankMessageId === bankMessageId || row.incomingBankMessageId === bankMessageId);
       if (candidate) return { ...base, status: "candidate", transfer: candidate };
       const peers = messages.filter((row) => row.id !== target.id && row.ownerId === ownerId && row.direction !== target.direction && sameMoney(row, target) && withinWindow(row, target));
       return { ...base, status: peers.length ? "ambiguous" : "none" };
@@ -296,25 +302,26 @@ export function createTransferConversationDeps(settings: SupabaseSettings): Tran
         const bank = createSupabaseBankStore(settings), target = await bank.getMessage(ownerId, bankMessageId);
         if (!target) return { status: "stale", changed: false };
         await query(settings, "select id from public.bank_messages where owner_id=$1::uuid and occurred_at between $2::timestamptz and $3::timestamptz order by id for update", [ownerId, new Date(Date.parse(target.occurredAt) - WINDOW_MS).toISOString(), new Date(Date.parse(target.occurredAt) + WINDOW_MS).toISOString()]);
+        await query(settings, "select owner_id from public.accounting_states where owner_id=$1::uuid for update", [ownerId]);
         const loaded = await loadAccountingState(settings, ownerId, undefined, [bankMessageId]);
         if (loaded.availability !== "ready") return { status: "unavailable", changed: false };
         const messages = coveredTransferMessages(loaded);
         if (!messages) return { status: "unavailable", changed: false };
         const saved = savedOwnTransferNotices(loaded.state, messages).get(bankMessageId);
         if (saved) return { status: "paired", transfer: saved, changed: false };
-        if (!input.evidenceFingerprint || input.evidenceFingerprint !== conversationEvidence(loaded.state, messages, target)) return { status: "stale", changed: false };
+        if (!input.evidenceFingerprint || input.evidenceFingerprint !== conversationEvidence(loaded.state, messages, target,loaded.transferProviders)) return { status: "stale", changed: false };
         // Explicit account choices only bind these two observed source legs, never all provider activity.
         const explicit = { ...loaded.state, movements: loaded.state.movements.map((row) => {
           const message = messages.find((item) => item.id === row.sourceId && item.ownerId === ownerId);
           if (!message || !sameMoney(message, target) || !withinWindow(message, target)) return row;
           const accountId = message.direction === "out" ? input.fromAccountId : input.toAccountId;
-          return accountId && resolveTransferAccount(loaded.state, message, undefined, accountId) ? { ...row, accountId } : row;
+          return accountId && resolveTransferAccount(loaded.state, message, undefined, accountId,loaded.transferProviders) ? { ...row, accountId } : row;
         }) };
-        const pairs = ownTransferCandidates(explicit, messages).filter((row) => row.outgoingBankMessageId === bankMessageId || row.incomingBankMessageId === bankMessageId);
+        const pairs = ownTransferCandidates(explicit, messages,undefined,loaded.transferProviders).filter((row) => row.outgoingBankMessageId === bankMessageId || row.incomingBankMessageId === bankMessageId);
         if (pairs.length !== 1) return { status: "ambiguous", changed: false };
         if (input.fromAccountId && input.fromAccountId !== pairs[0].fromAccount.id || input.toAccountId && input.toAccountId !== pairs[0].toAccount.id) return { status: "stale", changed: false };
         if (input.expectedPairId && input.expectedPairId !== pairs[0].pairId) return { status: "stale", changed: false };
-        const paired = await persistPair(settings, ownerId, pairs[0], `chat_transfer_${createHash("sha256").update(input.requestId).digest("hex")}`);
+        const paired = await persistPair(settings, ownerId, pairs[0], `chat_transfer_${createHash("sha256").update(input.requestId).digest("hex")}`,undefined,{fromAccountId:input.fromAccountId,toAccountId:input.toAccountId});
         return { status: "paired", transfer: paired, changed: true };
       });
     },
@@ -325,7 +332,7 @@ export function createTransferConversationDeps(settings: SupabaseSettings): Tran
         const bank = createSupabaseBankStore(settings), initial = await bank.getMessage(ownerId, bankMessageId);
         if (!initial) return { status: "stale", changed: false };
         await query(settings, "select id from public.bank_messages where owner_id=$1::uuid and occurred_at between $2::timestamptz and $3::timestamptz order by id for update", [ownerId, new Date(Date.parse(initial.occurredAt) - WINDOW_MS).toISOString(), new Date(Date.parse(initial.occurredAt) + WINDOW_MS).toISOString()]);
-        const loaded = await loadAccountingState(settings, ownerId, undefined, [bankMessageId]);
+        const loaded = await loadAccountingState(settings, ownerId, undefined, [bankMessageId],false);
         if (loaded.availability !== "ready") return { status: "unavailable", changed: false };
         const messages = coveredTransferMessages(loaded);
         if (!messages) return { status: "unavailable", changed: false };

@@ -4,20 +4,21 @@ import { listRawTransactions } from "../../supabase/finance-store";
 import { query } from "../../supabase/connection";
 import { loadAccountRules } from "../../account-rules/store";
 import { applyAccountRules } from "../../account-rules/matcher";
+import { loadImportedTransferProviders, type ImportedTransferProviders } from "../../bank/imported-account-providers";
 import type { TransactionRecord } from "../types";
 import { actionFingerprint, applyAccountingAction } from "./reducer";
 import { hydrateAccountingSources, sourceMovements } from "./sources";
 import { AccountingError, emptyAccountingState, type AccountingAction, type AccountingState, type CashMovement } from "./types";
 
-export type AccountingResult={state:AccountingState;availability:"ready"|"migration-required";sourceVersion:string|null;rawTransactions:TransactionRecord[];bankMessages?:BankMessage[];transferWindow?:BankTransferWindow};
+export type AccountingResult={state:AccountingState;availability:"ready"|"migration-required";sourceVersion:string|null;rawTransactions:TransactionRecord[];bankMessages?:BankMessage[];transferWindow?:BankTransferWindow;transferProviders?:ImportedTransferProviders};
 async function sourceVersion(settings:SupabaseSettings,ownerId:string) {
   const rows=await query<{version:string}>(settings,"select public.alfred_accounting_source_version($1::uuid) as version",[ownerId]);
   return rows[0].version;
 }
 
 /** Does not initialize or migrate tables. Legacy ledgers remain usable before the additive migration. */
-export async function loadAccountingState(settings:SupabaseSettings,ownerId:string,providedRaw?:TransactionRecord[],transferPivotIds?:string[]):Promise<AccountingResult> {
-  const ready=await query<{ready:boolean;portability_ready:boolean}>(settings,"select to_regclass('public.accounting_states') is not null and to_regprocedure('public.alfred_write_accounting_state(uuid,bigint,text,text,text,jsonb)') is not null as ready, to_regclass('public.imported_finance_sources') is not null as portability_ready");
+export async function loadAccountingState(settings:SupabaseSettings,ownerId:string,providedRaw?:TransactionRecord[],transferPivotIds?:string[],includeImportedProviderFacts=true):Promise<AccountingResult> {
+  const ready=await query<{ready:boolean;portability_ready:boolean;receipts_ready:boolean}>(settings,"select to_regclass('public.accounting_states') is not null and to_regprocedure('public.alfred_write_accounting_state(uuid,bigint,text,text,text,jsonb)') is not null as ready, to_regclass('public.imported_finance_sources') is not null as portability_ready, to_regclass('public.finance_import_receipts') is not null as receipts_ready");
   const availability=ready[0]?.ready ? "ready" : "migration-required";
   const versionBefore=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
   const [saved,raw,messages,imported,rules,transferWindow]=await Promise.all([
@@ -29,16 +30,17 @@ export async function loadAccountingState(settings:SupabaseSettings,ownerId:stri
     loadAccountRules(settings,ownerId),
     transferPivotIds?.length ? listBankTransferWindow(settings,ownerId,transferPivotIds) : Promise.resolve(undefined),
   ]);
-  const versionAfter=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
-  if (versionBefore!==versionAfter) throw new AccountingError("Source records changed while loading. Refresh and try again.","stale");
   const base=saved[0]?.state ?? emptyAccountingState(ownerId);
   if (base.ownerId!==ownerId) throw new AccountingError("Financial state belongs to another owner.","ownership");
+  const transferProviders=transferPivotIds?.length && includeImportedProviderFacts && ready[0]?.receipts_ready ? await loadImportedTransferProviders(settings,ownerId,base.accounts) : undefined;
+  const versionAfter=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
+  if (versionBefore!==versionAfter) throw new AccountingError("Source records changed while loading. Refresh and try again.","stale");
   const fresh=[...sourceMovements(ownerId,raw,messages),...imported.map((row) => row.movement)];
   // Bind explicit account identities before hydration so authoritative balance snapshots
   // are generated normally. Reapply categories after hydration so manual overrides win.
   const bound=applyAccountRules({...base,movements:fresh},rules.state);
   const hydrated=hydrateAccountingSources(base,bound.movements);
-  return {state:applyAccountRules(hydrated,rules.state),availability,sourceVersion:versionAfter,rawTransactions:raw,bankMessages:messages,...(transferWindow ? {transferWindow} : {})};
+  return {state:applyAccountRules(hydrated,rules.state),availability,sourceVersion:versionAfter,rawTransactions:raw,bankMessages:messages,...(transferWindow ? {transferWindow} : {}),...(transferProviders ? {transferProviders} : {})};
 }
 
 export async function saveAccountingAction(settings:SupabaseSettings,ownerId:string,action:AccountingAction):Promise<AccountingResult> {
