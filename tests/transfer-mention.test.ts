@@ -12,6 +12,7 @@ describe("transfer conversation wording", () => {
   it("acknowledges the saved named pair in either direction without a modal or purpose question", () => {
     for (const row of [source, { ...source, id: incoming, direction: "in" as const }]) {
       const mention = transferMention(row, pair)!;
+      expect(mention.body).toContain(row.direction === "in" ? "incoming alert" : "outgoing alert");
       expect(mention.body).toContain("GH₵1.00 transfer from Holiday wallet to Everyday MoMo");
       expect(mention.body).toContain("isn't counted as income or spending");
       expect(mention.body).not.toMatch(/review|modal|what was|settled|bank confirmed/i);
@@ -22,6 +23,8 @@ describe("transfer conversation wording", () => {
     const mention = transferMention({ ...source, kind: "payment", status: "needs_label" }, { ...pair, state: "candidate" })!;
     expect(mention.body).toContain("could be a transfer"); expect(mention.body).toContain("Was this money moving between your own accounts?");
     expect(mention.body).not.toContain("I've linked"); expect(mention.requiresPurpose).toBe(true); expect(mention.ledgerChanged).toBe(false);
+    const incomingMention = transferMention({ ...source, id: incoming, direction: "in", kind: "payment", status: "needs_label" }, { ...pair, state: "candidate" })!;
+    expect(incomingMention.body).toContain("incoming alert for GH₵1.00");
   });
   it("does not overwrite a later label or trust mismatched owner, source, account, currency or principal", () => {
     for (const patch of [{ ownerId: "foreign" }, { currency: "USD" }, { amount: "0.50" }, { outgoingBankMessageId: incoming }, { fromAccount: pair.toAccount }]) {

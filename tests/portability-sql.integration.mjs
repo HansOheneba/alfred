@@ -4,6 +4,7 @@
  */
 import assert from 'node:assert/strict';
 import { readFile, readdir } from 'node:fs/promises';
+import { createArchive, readArchive, hashValue } from '../portability/archive.mjs';
 const { PGlite } = await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const db = new PGlite();
 const owner = '00000000-0000-4000-8000-000000000001';
@@ -21,21 +22,30 @@ const receipt = async (id, who = owner) => scalar('select public.alfred_confirm_
 const undo = async (id, who = owner) => scalar('select public.alfred_undo_finance_import($1::uuid,$2) as value', [who,id]);
 let serial = 0;
 const retainedPreviewIds = new Set();
+const validatedArchives = new Map();
 async function stage({ id = `synthetic-${++serial}`, sourceOwner = owner, malformed = false, failAfterReceipt = false, expires = false, nativePlan = {}, archiveId: chosenArchiveId, dataId } = {}) {
   // Dispose of unconfirmed synthetic test stages; preserve the one reused staleness fixture.
   // This touches staging only, never any finance record, source, receipt or imported native data.
   await rows('delete from public.finance_import_previews where owner_id=$1::uuid and not (id=any($2::text[]))',[owner,[...retainedPreviewIds]]);
   const base = await state() || empty();
-  const archiveId = chosenArchiveId ?? (++serial).toString(16).padStart(64,'0');
   const identity = dataId ?? id;
   const account = {id:`${identity}:account`,label:'Synthetic account',provider:'Fixture',currency:'GHS',includeInCash:true,createdAt:now};
-  const movement = {id:`${identity}:payment`,ownerId:sourceOwner,accountId:account.id,direction:'out',status:'confirmed',sourceStatus:'confirmed',amountMinor:1000,feeMinor:50,taxMinor:10,currency:'GHS',date:'2026-11-02',occurredAt:now,description:'Synthetic payment',category:'Groceries',sourceCategory:'Groceries',sourceId:`synthetic:${identity}`,sourceKind:'manual',sourceFingerprint:archiveId,legacyTransactionId:null,feeTransactionId:null,legacyClassification:null};
+  const sourceFingerprint=await hashValue({identity,direction:'out',amountMinor:1000,feeMinor:50,taxMinor:10,currency:'GHS'});
+  const movement = {id:`${identity}:payment`,ownerId:sourceOwner,accountId:account.id,direction:'out',status:'confirmed',sourceStatus:'confirmed',amountMinor:1000,feeMinor:50,taxMinor:10,currency:'GHS',date:'2026-11-02',occurredAt:now,description:'Synthetic payment',category:'Groceries',sourceCategory:'Groceries',sourceId:`synthetic:${identity}`,sourceKind:'manual',sourceFingerprint,legacyTransactionId:null,feeTransactionId:null,legacyClassification:null};
+  let archive=chosenArchiveId?validatedArchives.get(chosenArchiveId):null;
+  if(chosenArchiveId)assert.ok(archive,'Repeated synthetic imports reuse an already validated canonical archive');
+  else {
+    const {ownerId:_sourceOwner,...portableMovement}=movement;void _sourceOwner;
+    archive=await readArchive(await createArchive({sourceApp:'money-tracker',namespace:`synthetic:sql:${identity}`,exportedAt:now,timezone:'Africa/Accra',currency:'GHS',coverage:[],datasets:{accounts:[account],movements:[portableMovement],snapshots:[],transfers:[],settlements:[]}}));
+    validatedArchives.set(archive.archiveId,archive);
+  }
+  const archiveId=archive.archiveId;
   const next = {...base,revision:base.revision+1,accounts:[...base.accounts,account],movements:[...base.movements,{...movement,ownerId:owner}],audit:[...base.audit,{id:`import:${id}`,requestId:`import:${id}`,action:'import',actionFingerprint:archiveId,at:now,revision:base.revision+1,before:{accounts:base.accounts,movements:base.movements,snapshots:base.snapshots,transfers:base.transfers,settlements:base.settlements}}].slice(-50)};
   const source = malformed ? {...movement,id:'not-in-next-state'} : movement;
   const summary = {canConfirm:true,counts:{accounts:1,movements:1,snapshots:0,transfers:0,settlements:0},unsupported:['plans are preserved only']};
   await rows(`insert into public.finance_import_previews(owner_id,id,archive_id,source_version,expected_revision,base_hash,before_state,next_state,sources,archive,summary,expires_at,native_version,native_plan)
   values($1::uuid,$2,$3,$4,$5,'synthetic-base',$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10::jsonb,now()+($11::int*interval '1 minute'),$12,$13::jsonb)`,
-  [owner,id,archiveId,await version(),base.revision,JSON.stringify(base),JSON.stringify(next),JSON.stringify([source]),JSON.stringify({manifest:{sourceApp:'money-tracker'},datasets:{fixture:'synthetic'}}),JSON.stringify(summary),expires?-1:20,await scalar('select public.alfred_portability_native_version($1::uuid) as value',[owner]),JSON.stringify(nativePlan)]);
+  [owner,id,archiveId,await version(),base.revision,JSON.stringify(base),JSON.stringify(next),JSON.stringify([source]),JSON.stringify(archive),JSON.stringify(summary),expires?-1:20,await scalar('select public.alfred_portability_native_version($1::uuid) as value',[owner]),JSON.stringify(nativePlan)]);
   if(failAfterReceipt) await db.exec(`create or replace function public.synthetic_fail_accounting_insert() returns trigger language plpgsql as $$ begin raise exception 'synthetic failure after imported source insert'; end $$; create trigger synthetic_fail_import before insert on public.accounting_events for each row execute function public.synthetic_fail_accounting_insert();`);
   return {id,next,base,archiveId,movement};
 }
@@ -328,10 +338,11 @@ try {
   const quotaConcurrent='00000000-0000-4000-8000-000000000013';
   await rows('insert into auth.users(id) values($1::uuid),($2::uuid),($3::uuid)',[quotaOwner,quotaForeign,quotaConcurrent]);
   const quotaStage=async(who,id,minutes=20)=>{
-    const archiveId=(++serial).toString(16).padStart(64,'0');
+    const archive=await readArchive(await createArchive({sourceApp:'money-tracker',namespace:`synthetic:quota:${id}`,exportedAt:now,timezone:'Africa/Accra',currency:'GHS',coverage:[],datasets:{accounts:[],movements:[],snapshots:[],transfers:[],settlements:[]}}));
+    const archiveId=archive.archiveId;
     const before={ownerId:who,revision:0,accounts:[],movements:[],snapshots:[],transfers:[],settlements:[],audit:[]};
     const next={...before,revision:1,audit:[{id:`import:${id}`,requestId:`import:${id}`,action:'import',actionFingerprint:archiveId,at:now,revision:1,before:{accounts:[],movements:[],snapshots:[],transfers:[],settlements:[]}}]};
-    return rows(`insert into public.finance_import_previews(owner_id,id,archive_id,source_version,native_version,native_plan,expected_revision,base_hash,before_state,next_state,sources,archive,summary,expires_at) values($1::uuid,$2,$3,public.alfred_accounting_source_version($1::uuid),public.alfred_portability_native_version($1::uuid),'{}'::jsonb,0,'synthetic',$4::jsonb,$5::jsonb,'[]'::jsonb,'{"fixture":"synthetic"}'::jsonb,'{"canConfirm":true}'::jsonb,now()+($6::int*interval '1 minute'))`,[who,id,archiveId,JSON.stringify(before),JSON.stringify(next),minutes]);
+    return rows(`insert into public.finance_import_previews(owner_id,id,archive_id,source_version,native_version,native_plan,expected_revision,base_hash,before_state,next_state,sources,archive,summary,expires_at) values($1::uuid,$2,$3,public.alfred_accounting_source_version($1::uuid),public.alfred_portability_native_version($1::uuid),'{}'::jsonb,0,'synthetic',$4::jsonb,$5::jsonb,'[]'::jsonb,$6::jsonb,'{"canConfirm":true}'::jsonb,now()+($7::int*interval '1 minute'))`,[who,id,archiveId,JSON.stringify(before),JSON.stringify(next),JSON.stringify(archive),minutes]);
   };
   const quotaCount=(who)=>scalar('select count(*)::int as value from public.finance_import_previews where owner_id=$1::uuid',[who]);
   const financeBeforeQuota=await rows(`select public.alfred_accounting_source_version($1::uuid) as source,public.alfred_portability_native_version($1::uuid) as native,(select count(*)::int from public.accounting_states) as states,(select count(*)::int from public.accounting_events) as events,(select count(*)::int from public.finance_import_receipts) as receipts`,[quotaOwner]);

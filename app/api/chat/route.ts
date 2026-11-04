@@ -14,6 +14,8 @@ import { createStudioDeps, handleProfileTurn, openChoices } from "@/lib/studio/h
 import { getAuthUser } from "@/lib/supabase/session";
 import { userFacingError } from "@/lib/telegram/messages";
 import { includePaymentChatEntry, loadPaymentChatEntry } from "@/app/chat/payment-entry";
+import { chatReadDeadline } from "@/app/chat/read-deadline";
+import { paymentLinkId } from "@/app/chat/payment-link";
 
 export const maxDuration = 60;
 
@@ -34,25 +36,55 @@ function present(message: ChatMessageRecord) {
 
 export async function GET(request?: Request): Promise<Response> {
   await connection();
-  const user = await getAuthUser();
   const headers = { "cache-control": "private, no-store" };
+  let user;
+  try { user = await chatReadDeadline(getAuthUser(), 8000); }
+  catch { return Response.json({ ok: false, text: "Alfred couldn't check your sign-in. Please try again." }, { status: 503, headers }); }
   if (!user) return Response.json({ ok: false, text: "Sign in to talk to Alfred." }, { status: 401, headers });
   try {
     const settings = getStudioSettings();
-    if ((await openAccount(settings.supabase, user)) === "not_invited") {
+    if ((await chatReadDeadline(openAccount(settings.supabase, user), 8000)) === "not_invited") {
       return Response.json({ ok: false, text: NOT_INVITED }, { status: 403, headers });
     }
     const requestedPayment = request ? new URL(request.url).searchParams.getAll("payment") : [];
+    const part = request ? new URL(request.url).searchParams.get("part") : null;
+    if (part && !["payment", "history", "choices"].includes(part)) return Response.json({ ok: false, text: "That conversation request isn't supported." }, { status: 400, headers });
+    const paymentId = requestedPayment.length === 1 ? paymentLinkId(requestedPayment[0]) : null;
+    if (part === "payment") {
+      const paymentEntry = paymentId
+        ? await chatReadDeadline(loadPaymentChatEntry(settings.supabase, user.id, paymentId), 8000)
+        : { state: "unavailable" as const };
+      return Response.json({ ok: true, ownerId: user.id, messages: paymentEntry.state === "ready" ? [present(paymentEntry.message)] : [], paymentEntry, part }, { headers });
+    }
+    if (part === "history") {
+      const history = await chatReadDeadline(createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80), 8000);
+      return Response.json({ ok: true, ownerId: user.id, messages: history.map(present), part }, { headers });
+    }
+    if (part === "choices") {
+      // No 80-message history or accounting hydration is needed to offer the
+      // selected source's current buttons. A late read cannot file anything.
+      const [entry, recent, profile] = await chatReadDeadline(Promise.all([
+        requestedPayment.length && paymentId ? loadPaymentChatEntry(settings.supabase, user.id, paymentId, { loadTransfer: async () => null }) : Promise.resolve(null),
+        requestedPayment.length ? Promise.resolve([] as ChatMessageRecord[]) : createSupabaseMessageLog(settings.supabase).listRecent(user.id, 1),
+        createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id),
+      ]), 8000);
+      const selected = requestedPayment.length ? entry?.state === "ready" ? entry.message : undefined : recent.at(-1);
+      let choicesUnavailable = false;
+      const choices = profile && selected
+        ? await chatReadDeadline(openChoices(profile, createStudioDeps(settings), selected), 2500).catch(() => { choicesUnavailable = true; return []; })
+        : [];
+      return Response.json({ ok: true, ownerId: user.id, messages: [], choices, choicesUnavailable, part, ...(requestedPayment.length ? { choiceTarget: paymentId, sourceVersion: entry?.state === "ready" ? entry.sourceVersion : null } : {}) }, { headers });
+    }
     const [recent, paymentEntry] = await Promise.all([
-      createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80),
-      requestedPayment.length ? loadPaymentChatEntry(settings.supabase, user.id, requestedPayment.length === 1 ? requestedPayment[0] : requestedPayment)
+      chatReadDeadline(createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80), 8000),
+      requestedPayment.length ? chatReadDeadline(loadPaymentChatEntry(settings.supabase, user.id, requestedPayment.length === 1 ? requestedPayment[0] : requestedPayment), 8000)
         .catch((error) => { logError("web_chat_payment_entry", error); return { state: "unavailable" } as const; }) : Promise.resolve(null),
     ]);
     const history = includePaymentChatEntry(recent, paymentEntry);
-    const profile = await createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id);
+    const profile = await chatReadDeadline(createSupabaseAccountDirectory(settings.supabase).loadOwner(user.id), 8000);
     // Buttons are a convenience: the history still loads if they can't be worked out.
     const choices = profile
-      ? await openChoices(profile, createStudioDeps(settings), paymentEntry?.state === "ready" ? paymentEntry.message : requestedPayment.length ? undefined : history.at(-1)).catch((error) => (logError("web_chat_choices", error), []))
+      ? await chatReadDeadline(openChoices(profile, createStudioDeps(settings), paymentEntry?.state === "ready" ? paymentEntry.message : requestedPayment.length ? undefined : history.at(-1)), 2500).catch((error) => (logError("web_chat_choices", error), []))
       : [];
     return Response.json({ ok: true, ownerId: user.id, messages: history.map(present), choices, ...(requestedPayment.length ? { paymentEntry } : {}) }, { headers });
   } catch (error) {
@@ -75,6 +107,17 @@ export async function POST(request: Request): Promise<Response> {
     json = await request.json();
   } catch {
     return Response.json({ ok: false, text: "Send a text message." }, { status: 400 });
+  }
+
+  if (json && typeof json === "object" && !Array.isArray(json) && Object.hasOwn(json, "expectedOwnerId")) {
+    const input = json as Record<string, unknown>, expectedOwnerId = paymentLinkId(input.expectedOwnerId);
+    if (!expectedOwnerId) return Response.json({ ok: false, text: "Reload this page to check your session." }, { status: 400 });
+    if (expectedOwnerId !== user.id.toLowerCase()) return Response.json({ ok: false, sessionChanged: true, text: "Your session changed. Reload this page to continue." }, { status: 409 });
+    // The owner assertion is only a fence, never an authority. Existing strict
+    // action schemas still validate the actual user instruction below.
+    const instruction = { ...input };
+    delete instruction.expectedOwnerId;
+    json = instruction;
   }
 
   const text = chatTextSchema.safeParse(json);

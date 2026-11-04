@@ -12,14 +12,17 @@ async function excluded(label: Label): Promise<IngestOutcome> {
   const received = await ingestBankText(deps, owner, text, { channel: 'mac' });
   const outcome = received.outcomes[0];
   expect(outcome.outcome).toBe('needs_label');
-  expect((await applyLabel(deps, owner, outcome.message.id, label)).ok).toBe(true);
+  // Old skipped records remain readable; current payment questions cannot create
+  // a new skip. Rehearse history directly without invoking the removed action.
+  if (label.kind === 'skip') await bank.updateMessage(owner.profileId, outcome.message.id, { status: 'skipped' });
+  else expect((await applyLabel(deps, owner, outcome.message.id, label)).ok).toBe(true);
   expect(await ledger.listTransactions(owner.profileId)).toEqual([]);
   const message = await bank.getMessage(owner.profileId, outcome.message.id);
   expect(message?.status).toBe('skipped');
   return { ...outcome, outcome: 'skipped', message: message! };
 }
 
-describe('neutral summaries of explicitly excluded payments', () => {
+describe('neutral summaries of historical exclusions and explicit pass-through records', () => {
   it.each([{ kind: 'skip' }, { kind: 'pass_through' }] as Label[])('does not invent a test charge after $kind', async label => {
     const lines = summarize([await excluded(label)], 'GHS');
     expect(lines).toEqual(['Left out GH₵1.00 to Fictional Person.']);

@@ -39,7 +39,7 @@ describe("answer buttons in the web chat", () => {
     expect(current?.message.id).toBe(asked?.id);
     const labels = chatChoices(current?.buttons).flat().map((choice) => choice.label);
     expect(labels).toContain("Transport");
-    expect(labels).toContain("Skip");
+    expect(labels).not.toContain("Skip");
   });
 
   it("files a tapped choice without the model and asks the next one", async () => {

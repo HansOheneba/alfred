@@ -126,7 +126,9 @@ describe("talking about waiting payments", () => {
     const reply = await answerLabelReply(deps, owner, `That's a fee but ignore the bank that has these details ${MUM}`, async () => [
       { messageIds: [mum.id], label: { kind: "skip" } },
     ]);
-    expect(reply?.text).toBe("Left GH₵12.00 out of your books.");
+    expect(reply?.text).toContain("keep this payment pending");
+    expect(reply?.text).not.toContain("already sorted");
+    expect((await deps.bank.getMessage(owner.profileId, mum.id))?.status).toBe("needs_label");
   });
 });
 

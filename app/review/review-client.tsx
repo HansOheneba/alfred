@@ -14,7 +14,7 @@ import type { ReviewItem } from "@/lib/web/review";
 const OUT_CHOICES = ["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"];
 const IN_CHOICES = ["Salary", "Business", "Gift", "Refund", "Other"];
 
-type Action = "category" | "chip_in" | "refund" | "pass_through" | "transfer" | "skip" | "lent" | "repaid" | "borrowed" | "paid_back";
+type Action = "category" | "chip_in" | "refund" | "pass_through" | "transfer" | "lent" | "repaid" | "borrowed" | "paid_back";
 type Group = { key: string; who: string; items: ReviewItem[] };
 
 const cents = (value: string) => Math.round(Number(value) * 100);
@@ -307,9 +307,6 @@ export function ReviewClient({ items, timeZone }: { items: ReviewItem[]; timeZon
                     </button>
                     <button type="button" className={chip} disabled={busy !== null} onClick={() => label("transfer", "transfer")}>
                       {busy === "transfer" ? <Spinner className="size-3" /> : null}My own money
-                    </button>
-                    <button type="button" className={chip} disabled={busy !== null} onClick={() => label("skip", "skip")}>
-                      {busy === "skip" ? <Spinner className="size-3" /> : null}Skip
                     </button>
                   </div>
                 )}

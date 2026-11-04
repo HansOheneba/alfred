@@ -11,6 +11,8 @@ import { chooseLabel, currentQuestion } from "@/lib/bank/reply";
 import { parseLabelCallback } from "@/lib/bank/notify";
 import { answerTransferConversation } from "@/lib/bank/transfer-conversation";
 import { createTransferConversationDeps, type TransferConversationDeps } from "@/lib/bank/own-transfers";
+import { createPaymentResolutionDeps, type PaymentResolutionDeps } from "@/lib/bank/payment-resolutions";
+import { answerPaymentResolution } from "@/lib/bank/payment-resolution-conversation";
 import { chatChoices, type ChatChoice } from "@/lib/accounts/chat-choices";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import { type ActionContext } from "@/lib/finance/action-router";
@@ -66,6 +68,7 @@ export type StudioDeps = {
   accountRuleCommands?: AccountRuleBotDeps | null;
   /** Deterministic, owner-scoped pairing of the two captured bank alerts. */
   transferConversations?: TransferConversationDeps | null;
+  paymentResolutions?: PaymentResolutionDeps | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -192,6 +195,9 @@ async function respond(
   if (isAccountRuleCommand(text)) return { kind: "text", text: await handleAccountRuleBotCommand(text, ctx.profile.profileId, String(STUDIO_CHAT_ID), deps.accountRuleCommands) ?? "Use /rule help for the fixed command syntax.", intent: "account-rule:command" };
   if (isScopedAccountRuleIntent(text)) return { kind: "text", text: ACCOUNT_RULE_INTENT_GUIDANCE, intent: "account-rule:guidance" };
   if (!newTopic && replyToPayment) {
+    const resolution = await answerPaymentResolution({ text, ownerId: ctx.profile.profileId, focus: replyToPayment,
+      clientId, messages: deps.messages, service: deps.paymentResolutions });
+    if (resolution) return resolution;
     const transfer = await answerTransferConversation({ text, ownerId: ctx.profile.profileId, focus: replyToPayment,
       clientId, messages: deps.messages, service: deps.transferConversations });
     if (transfer) return transfer;
@@ -362,5 +368,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     notebook: createSupabaseNotebookStore(settings.supabase),
     accountRuleCommands: createAccountRuleBotDeps(settings.supabase),
     transferConversations: createTransferConversationDeps(settings.supabase),
+    paymentResolutions: createPaymentResolutionDeps(settings.supabase),
   };
 }

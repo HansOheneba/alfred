@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const TABLES = [
-  "transactions", "bankMessages", "accountRuleStates", "accountRuleEvents", "accountingStates", "accountingEvents", "budgets", "savingsGoals", "loans", "labelUndo", "people", "payeeRules", "aboutMe", "bills",
+  "transactions", "bankMessages", "bankPaymentResolutions", "accountRuleStates", "accountRuleEvents", "accountingStates", "accountingEvents", "budgets", "savingsGoals", "loans", "labelUndo", "people", "payeeRules", "aboutMe", "bills",
   "investments", "investmentHoldings", "investmentValues", "investmentContributions", "messages", "importedSources", "importReceipts",
 ];
 
@@ -172,7 +172,7 @@ describe("read-only Alfred native export", () => {
     expect(coverage.get("alfred.native.settings.reminderPreferences")?.status).toBe("preserved");
     expect(coverage.get("alfred.native.settings.account_names")?.status).toBe("preserved");
     expect(coverage.get("alfred.native.accountRuleStates")?.status).toBe("supported");
-    for (const name of ["transactions", "bankMessages", "accountRuleEvents", "accountingStates", "accountingEvents", "labelUndo", "importedSources", "importReceipts"]) {
+    for (const name of ["transactions", "bankMessages", "bankPaymentResolutions", "accountRuleEvents", "accountingStates", "accountingEvents", "labelUndo", "importedSources", "importReceipts"]) {
       expect(coverage.get(`alfred.native.${name}`)?.status).toBe("preserved");
     }
   });

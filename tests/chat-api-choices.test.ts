@@ -103,9 +103,61 @@ describe("owner-stamped private Chat history and payment choices", () => {
       expect(mocks.paymentEntry).not.toHaveBeenCalled();
     }
   });
+
+  it("loads the selected payment independently without history, profile or answer-choice work", async () => {
+    const payment = "11111111-1111-4111-8111-111111111111";
+    const target = { ...message, paymentNotice: { bankMessageId: payment, requiresPurpose: true } };
+    mocks.paymentEntry.mockResolvedValue({ state: "ready", bankMessageId: payment, sourceVersion: "fictional-version", message: target });
+    const response = await GET(new Request(`https://fictional.example/api/chat?payment=${payment}&part=payment`));
+    expect(await response.json()).toMatchObject({ ok: true, part: "payment", messages: [{ id: target.id }], paymentEntry: { sourceVersion: "fictional-version" } });
+    expect(mocks.history).not.toHaveBeenCalled(); expect(mocks.profile).not.toHaveBeenCalled(); expect(mocks.choices).not.toHaveBeenCalled();
+    expect(mocks.paymentEntry).toHaveBeenCalledExactlyOnceWith(expect.any(Object), ownerId, payment);
+  });
+
+  it("loads optional history without repeating the selected source or choices", async () => {
+    const response = await GET(new Request("https://fictional.example/api/chat?part=history"));
+    expect(await response.json()).toMatchObject({ ok: true, part: "history", messages: [{ id: message.id }] });
+    expect(mocks.history).toHaveBeenCalledExactlyOnceWith(ownerId, 80);
+    expect(mocks.paymentEntry).not.toHaveBeenCalled(); expect(mocks.profile).not.toHaveBeenCalled(); expect(mocks.choices).not.toHaveBeenCalled();
+  });
+
+  it("loads current selected choices without repeating 80-message history or transfer augmentation", async () => {
+    const payment = "11111111-1111-4111-8111-111111111111";
+    const target = { ...message, paymentNotice: { bankMessageId: payment, requiresPurpose: true } };
+    mocks.paymentEntry.mockResolvedValue({ state: "ready", bankMessageId: payment, sourceVersion: "fictional-version", message: target });
+    const response = await GET(new Request(`https://fictional.example/api/chat?payment=${payment}&part=choices`));
+    expect(await response.json()).toMatchObject({ ok: true, part: "choices", messages: [], choices: [[choice]], choiceTarget: payment, sourceVersion: "fictional-version" });
+    expect(mocks.history).not.toHaveBeenCalled();
+    expect(mocks.paymentEntry).toHaveBeenCalledExactlyOnceWith(expect.any(Object), ownerId, payment, expect.objectContaining({ loadTransfer: expect.any(Function) }));
+  });
+
+  it("bounds stalled auth as unavailable rather than falsely treating the user as signed out", async () => {
+    vi.useFakeTimers();
+    try {
+      mocks.auth.mockReturnValue(new Promise(() => undefined));
+      const pending = GET(new Request("https://fictional.example/api/chat?part=payment"));
+      await vi.advanceTimersByTimeAsync(8000);
+      const response = await pending;
+      expect(response.status).toBe(503);
+      expect(await response.json()).toMatchObject({ ok: false, text: expect.stringContaining("check your sign-in") });
+      expect(mocks.history).not.toHaveBeenCalled(); expect(mocks.paymentEntry).not.toHaveBeenCalled();
+    } finally { vi.useRealTimers(); }
+  });
 });
 
 describe("Chat choice submission contract", () => {
+  it("rejects an old UI's owner assertion before any account, rate-limit or financial action", async () => {
+    const response = await POST(new Request("https://fictional.example/api/chat", { method: "POST", body: JSON.stringify({ text: "yes", clientId: "old-owner-turn", expectedOwnerId: "00000000-0000-4000-8000-000000000002", replyToPayment: { bankMessageId: "11111111-1111-4111-8111-111111111111", requiresPurpose: true } }) }));
+    expect(response.status).toBe(409);
+    expect(await response.json()).toMatchObject({ ok: false, sessionChanged: true });
+    expect(mocks.open).not.toHaveBeenCalled(); expect(mocks.allow).not.toHaveBeenCalled(); expect(mocks.profile).not.toHaveBeenCalled(); expect(mocks.turn).not.toHaveBeenCalled();
+  });
+
+  it("accepts a matching owner fence without passing it into action interpretation", async () => {
+    const response = await POST(new Request("https://fictional.example/api/chat", { method: "POST", body: JSON.stringify({ choice: choice.choice, clientId: "same-owner-turn", expectedOwnerId: ownerId.toUpperCase() }) }));
+    expect(response.status).toBe(200);
+    expect(mocks.turn).toHaveBeenCalledExactlyOnceWith(profile, { choice: choice.choice, clientId: "same-owner-turn" }, { synthetic: true });
+  });
   it("preserves both next-payment choices and actual-write metadata", async () => {
     const response = await POST(new Request("http://localhost/api/chat", { method: "POST", body: JSON.stringify({ choice: choice.choice, clientId: "synthetic-choice-submit" }) }));
     expect(response.status).toBe(200);

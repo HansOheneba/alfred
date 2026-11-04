@@ -216,4 +216,13 @@ describe("bank message parser", () => {
     const foreignCard = "Your card was debited with USD 12.00 atGITHUB.COM. Available Balance: GHS 1,840.20.";
     expect(parseBankText(foreignCard, options)).toHaveLength(0);
   });
+
+  it("preserves uncertain failed-alert evidence and fees for explicit resolution, without discarding a completed debit or returned credit", () => {
+    expect(parseBankText("Your payment of GHS 1.00 to FICTIONAL PERSON has failed. Ref: failed12345. Fee charged: GHS0.25.", { ...options, sender: "MobileMoney" })[0]).toMatchObject({ direction:"out",amount:"1.00",fee:"0.25" });
+    expect(parseBankText(`${MOMO_OUT} A separate attempt has failed.`, { ...options, sender: "MobileMoney" })).toHaveLength(1);
+    const merchant="Your payment of GHS 1.00 to PAYMENT FAILED LTD has been completed at 2026-11-04 12:00:00. Fee charged: GHS0.25. Current balance: GHS99.00. Transaction ID: 92300000002.";
+    expect(parseBankText(merchant,{...options,sender:"MobileMoney"})[0]).toMatchObject({direction:"out",amount:"1.00",fee:"0.25"});
+    const returned = "Payment received for GHS 25.00 from FICTIONAL PERSON Current Balance: GHS 100.00. Available Balance: GHS 100.00. Reference: reversal of previous payment. Transaction ID: 92300000001.";
+    expect(parseBankText(returned, { ...options, sender: "MobileMoney" })[0]).toMatchObject({ direction: "in", amount: "25.00" });
+  });
 });

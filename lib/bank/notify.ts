@@ -90,8 +90,7 @@ export function labelButtons(message: BankMessage, ownerName = "", options: { se
   }
   // Money into an investment isn't spending; money out of one isn't income.
   if (options.investing && !ownerLike) extra.push({ text: message.direction === "out" ? "Investment" : "From investment", callbackData: `b:${message.id}:i` });
-  extra.push({ text: "Skip", callbackData: `b:${message.id}:s` });
-  rows.push(extra);
+  if (extra.length) rows.push(extra);
   return rows;
 }
 

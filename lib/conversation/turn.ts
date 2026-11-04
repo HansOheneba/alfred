@@ -20,6 +20,8 @@ import {
   type WaitingPayments,
 } from "@/lib/bank/reply";
 import type { BankMessage, BankStore } from "@/lib/bank/store";
+import { isPaymentSkipRequest, isUnresolvedPaymentNotice, PAYMENT_NOTICE_STAYS_PENDING } from "@/lib/bank/notice-policy";
+import { questionFor } from "@/lib/bank/notify";
 import { openThread } from "@/lib/conversation/thread";
 import { welcomeFor } from "@/lib/conversation/welcome";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
@@ -97,6 +99,14 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   const ingest: IngestDeps | null = deps.bank
     ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }
     : null;
+  if (!options.newTopic && noticeFocus && ingest && isPaymentSkipRequest(text)) {
+    const source = await ingest.bank.getMessage(ctx.profile.profileId, noticeFocus.bankMessageId);
+    if (source?.ownerId === ctx.profile.profileId && isUnresolvedPaymentNotice(source)) {
+      const question = await questionFor(ingest.loans, ctx.profile, source, ingest.people, ingest.bank);
+      return { kind: "text", text: PAYMENT_NOTICE_STAYS_PENDING, intent: "bank:label",
+        buttons: question.buttons, paymentNotice: { bankMessageId: source.id, requiresPurpose: true } };
+    }
+  }
   const separateExpense = noticeFocus && !noticeFocus.requiresPurpose && independentExpenseAllowed ? independentExpenseRequest(text, ctx.profile.currency) : null;
   if (separateExpense) {
     // This is a new, explicit request rather than a purpose answer. The exact
@@ -104,7 +114,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     return ordinaryReply({ ...(await handleAction(separateExpense, ctx)), intent: "create_transaction" });
   }
   if (noticeFocus !== undefined && isLabelUndo(text)) {
-    return keepNoticeFocus({ kind: "text", text: "I haven't undone anything. Open Review to change a specific payment, or start a new topic for a separate request.", intent: "chat:other" }, true);
+    return keepNoticeFocus({ kind: "text", text: "I haven't undone anything. Open Review to change a specific payment, or choose Ask something else for a separate request.", intent: "chat:other" }, true);
   }
   const shortcut = ingest && !options.newTopic ? await labelShortcut(ingest, ctx.profile, text) : null;
   if (shortcut) return ordinaryReply({ kind: "text", text: shortcut.text, intent: "bank:label", buttons: shortcut.buttons });
@@ -186,7 +196,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
       const again = await askAgain(ingest, ctx.profile, waiting.current, purposeQuestionIntro(waiting.current, "I couldn't safely match that answer to the captured payment. Tell me its purpose again or choose below."));
       return keepNoticeFocus({ kind: "text", text: again.text, intent: "bank:label", buttons: again.buttons });
     }
-    return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Nothing was changed. For a separate transaction, choose Start a new topic or give its different amount, currency and date.", intent: "chat:other" }, true);
+    return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Nothing was changed. For a separate transaction, choose Ask something else or give its different amount, currency and date.", intent: "chat:other" }, true);
   }
   const focused = waiting?.exactQuestion ? waiting.current : null;
   if (ingest && focused && actions.some((item) => item.type === "label_payments" && resolvedFrom(item.answers, waiting!.listed).some((answer) => answer.messageIds.includes(focused.id) && !groundedPaymentLabel(text, focused, answer.label)))) {

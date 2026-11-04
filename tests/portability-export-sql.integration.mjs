@@ -9,6 +9,7 @@ import { planNativeRestoration } from '../lib/portability/native-restoration.ts'
 import { moneyNativeSupplement } from '../lib/portability/money-native.ts';
 import { matchAccountRule, applyAccountRules } from '../lib/account-rules/matcher.ts';
 import { CURRENT_FEATURE_IDS_SQL, PENDING_RECEIPT_SELECT_SQL } from '../lib/portability/pending.ts';
+import { createArchive, readArchive } from '../portability/archive.mjs';
 const { PGlite } = await import(process.env.PGLITE_MODULE || '@electric-sql/pglite');
 const db = new PGlite();
 const owner='00000000-0000-4000-8000-000000000001';
@@ -16,6 +17,7 @@ const stranger='00000000-0000-4000-8000-000000000002';
 let assertions=0;
 const check=(actual,expected,message)=>{assert.deepEqual(actual,expected,message);assertions++;};
 const rows=async(sql,values=[]) => (await db.query(sql,values)).rows;
+const fixtureArchive=async(sourceApp,namespace,exportedAt,datasets)=>readArchive(await createArchive({sourceApp,namespace,exportedAt,timezone:'Africa/Accra',currency:'GHS',coverage:[],datasets:{accounts:[],movements:[],snapshots:[],transfers:[],settlements:[],...datasets}}));
 try {
   await db.exec(`create role anon; create role authenticated; create schema auth;
     create function auth.uid() returns uuid language sql stable as $$ select null::uuid $$;
@@ -50,13 +52,13 @@ try {
   await rows(`insert into public.ingest_tokens(owner_id,token_hash) values($1::uuid,'SYNTHETIC_SECRET_SHOULD_NOT_EXPORT')`,[owner]);
   await rows(`update public.telegram_accounts set telegram_user_id=987654321,chat_id=987654321 where owner_id=$1::uuid`,[owner]);
   const historicalState={ownerId:owner,revision:0,accounts:[],movements:[],snapshots:[],transfers:[],settlements:[],audit:[]};
-  const retainedArchive={manifest:{sourceApp:'money-tracker'},datasets:{'moneyTracker.native':{thirdPartyGroups:[{id:'synthetic-preserved-group',note:'Unsupported preserved fixture'}]}}};
-  await rows(`insert into public.finance_import_receipts(owner_id,id,archive_id,archive,summary,before_state,after_state,source_version_after) values($1::uuid,'synthetic-history',$2,$3::jsonb,'{}'::jsonb,$4::jsonb,$4::jsonb,'synthetic-version')`,[owner,'a'.repeat(64),JSON.stringify(retainedArchive),JSON.stringify(historicalState)]);
+  const retainedArchive=await fixtureArchive('money-tracker','synthetic:retained-money','2026-11-02T12:00:00.000Z',{'moneyTracker.native':{thirdPartyGroups:[{id:'synthetic-preserved-group',note:'Unsupported preserved fixture'}]}});
+  await rows(`insert into public.finance_import_receipts(owner_id,id,archive_id,archive,summary,before_state,after_state,source_version_after) values($1::uuid,'synthetic-history',$2,$3::jsonb,'{}'::jsonb,$4::jsonb,$4::jsonb,'synthetic-version')`,[owner,retainedArchive.archiveId,JSON.stringify(retainedArchive),JSON.stringify(historicalState)]);
   await rows(`insert into public.imported_finance_sources(owner_id,movement_id,receipt_id,movement) values($1::uuid,'synthetic-imported','synthetic-history',$2::jsonb)`,[owner,JSON.stringify({id:'synthetic-imported',ownerId:owner,amountMinor:1000,taxMinor:10})]);
   await rows(`insert into public.finance_import_native_origins(owner_id,table_name,record_key,namespace,source_key,receipt_id) values($1::uuid,'budgets','synthetic-budget','synthetic:canonical-source','original-budget','synthetic-history'),($1::uuid,'investments','30000000-0000-4000-8000-000000000001','synthetic:canonical-source','original-investment','synthetic-history')`,[owner]);
   const result=(await rows(ALFRED_EXPORT_SNAPSHOT_SQL,[owner]))[0].native;
   check(result.schema,1,'real snapshot query executes against actual tables and columns');
-  check(Object.keys(result.tables).length,21,'every declared native domain is present');
+  check(Object.keys(result.tables).length,22,'every declared native domain is present');
   check(result.tables.transactions.length,2,'owner filter retains active and deleted owned rows only');
   check(result.tables.transactions.map(row=>row.amount),['123.45','-20.00'],'numeric strings retain exact values and signs');
   check(result.tables.savingsGoals[0].status,'deleted','deleted goal evidence retained');
@@ -79,7 +81,7 @@ try {
   check(JSON.stringify(result).includes('owner_id'),false,'outer projections exclude ownership IDs');
   check(result.retainedArchives.length,1,'import history remains exportable');
   check(result.retainedArchives[0].archive.datasets['moneyTracker.native'].thirdPartyGroups[0].note,'Unsupported preserved fixture','unsupported retained archive records are never dropped');
-  check(result.tables.importReceipts[0].archive_id,'a'.repeat(64),'import receipt provenance retained');
+  check(result.tables.importReceipts[0].archive_id,retainedArchive.archiveId,'import receipt provenance retained');
   check(result.tables.importedSources[0].movement.taxMinor,10,'durable imported tax evidence included');
   check(result.tables.budgets[0].importProvenance,{namespace:'synthetic:canonical-source',sourceId:'original-budget'},'native budget preserves original cross-hop identity');
   check(result.tables.investments[0].importProvenance,{namespace:'synthetic:canonical-source',sourceId:'original-investment'},'native investment preserves original cross-hop identity');
@@ -92,11 +94,13 @@ try {
   check(planned.summary.conflicts,[],'actual planner accepts actual PostgreSQL exported native values');
   check(planned.summary.additions.about_me,0,'source collection filtering note stays archive-only');
   check(Object.values(planned.summary.additions).reduce((sum,n)=>sum+n,0),11,'actual planner stages all applicable native feature records');
-  const importId='synthetic-actual-planner';const importArchiveId='b'.repeat(64);
+  const importId='synthetic-actual-planner';
+  const importArchive=await fixtureArchive('alfred','synthetic:export-source','2026-11-02T12:00:00.000Z',{'alfred.native':result});
+  const importArchiveId=importArchive.archiveId;
   const before={ownerId:destination,revision:0,accounts:[],movements:[],snapshots:[],transfers:[],settlements:[],audit:[]};
   const after={...before,revision:1,audit:[{id:`import:${importId}`,requestId:`import:${importId}`,action:'import',actionFingerprint:importArchiveId,at:'2026-11-02T12:00:00.000Z',revision:1,before:{accounts:[],movements:[],snapshots:[],transfers:[],settlements:[]}}]};
   const versions=(await rows('select public.alfred_accounting_source_version($1::uuid) as source,public.alfred_portability_native_version($1::uuid) as native',[destination]))[0];
-  await rows(`insert into public.finance_import_previews(owner_id,id,archive_id,source_version,native_version,native_plan,expected_revision,base_hash,before_state,next_state,sources,archive,summary,expires_at) values($1::uuid,$2,$3,$4,$5,$6::jsonb,0,'synthetic',$7::jsonb,$8::jsonb,'[]'::jsonb,$9::jsonb,$10::jsonb,now()+interval '20 minutes')`,[destination,importId,importArchiveId,versions.source,versions.native,JSON.stringify(planned.plan),JSON.stringify(before),JSON.stringify(after),JSON.stringify({manifest:{sourceApp:'alfred'},datasets:{'alfred.native':result}}),JSON.stringify({canConfirm:true,counts:{accounts:0,movements:0,snapshots:0,transfers:0,settlements:0},unsupported:[]})]);
+  await rows(`insert into public.finance_import_previews(owner_id,id,archive_id,source_version,native_version,native_plan,expected_revision,base_hash,before_state,next_state,sources,archive,summary,expires_at) values($1::uuid,$2,$3,$4,$5,$6::jsonb,0,'synthetic',$7::jsonb,$8::jsonb,'[]'::jsonb,$9::jsonb,$10::jsonb,now()+interval '20 minutes')`,[destination,importId,importArchiveId,versions.source,versions.native,JSON.stringify(planned.plan),JSON.stringify(before),JSON.stringify(after),JSON.stringify(importArchive),JSON.stringify({canConfirm:true,counts:{accounts:0,movements:0,snapshots:0,transfers:0,settlements:0},unsupported:[]})]);
   const committed=(await rows('select public.alfred_confirm_finance_import($1::uuid,$2) as result',[destination,importId]))[0].result;
   check(committed.status,'saved','actual planner native plan commits through actual atomic SQL RPC');
   const reexported=(await rows(ALFRED_EXPORT_SNAPSHOT_SQL,[destination]))[0].native;
@@ -122,10 +126,10 @@ try {
   await rows(`insert into public.about_me(id,owner_id,note,account) values('80000000-0000-4000-8000-000000000001',$1::uuid,'Synthetic pre-existing destination note',null)`,[moneyDestination]);
   const moneyBefore=(await rows(ALFRED_EXPORT_SNAPSHOT_SQL,[moneyDestination]))[0].native;
   const moneyAt='2026-11-02T12:00:00.000Z';
-  const moneyArchive={archiveId:'c'.repeat(64),manifest:{namespace:'synthetic:money-source',sourceApp:'money-tracker',exportedAt:moneyAt,coverage:[]},datasets:{
+  const moneyArchive=await fixtureArchive('money-tracker','synthetic:money-source',moneyAt,{
     'moneyTracker.native':{planning:{plans:{'2026-11':{month:'2026-11',categoryLimits:{Groceries:12500},repeat:false},'2026-12':{mode:'income-plan',expectedIncome:200000,keepAside:10000,investmentTarget:5000,focus:'Synthetic income plan',repeat:false}},overrides:{payment:{note:'Synthetic exact payment note',purpose:'Synthetic purpose'}},rules:[{id:'synthetic-rule',account:'bank:synthetic',description:'Synthetic merchant',category:'Groceries',active:true}],thirdPartyGroups:[{id:'synthetic-preserved-only'}]},bills:{bills:[{id:'synthetic-rent',name:'Synthetic Money rent',nextDate:'2026-12-01',amount:120000,cadence:'monthly',active:true,confirmedAt:moneyAt}]}},
     'moneyTracker.portfolios':{portfolios:[{id:'synthetic-us',name:'Synthetic Money portfolio',currency:'USD',market:'US stocks',reportedValue:125000,marketAsOf:'2026-11-01',holdings:[{symbol:'SYN',quantity:'2.5',costBasis:10000}]}]},
-  }};
+  });
   const supplemented=moneyNativeSupplement(moneyArchive);
   check(supplemented!==null,true,'Money native supplement recognizes synthetic Money archive');
   const moneyPlanned=planNativeRestoration(moneyBefore,[supplemented],'synthetic:money-destination',moneyAt);
@@ -234,11 +238,11 @@ try {
   const rulePreviewId='synthetic-money-account-rule-native';
   const mainSource='Synthetic Source Main',otherSource='Synthetic Source Other';
   const mainTarget='synthetic-destination-main-account',otherTarget='synthetic-destination-other-account';
-  const anchoredMoney=structuredClone(moneyArchive);
-  anchoredMoney.archiveId='e'.repeat(64);
-  anchoredMoney.datasets.accounts=[{id:mainSource},{id:otherSource}];
-  anchoredMoney.datasets['moneyTracker.native'].snapshot={accounts:[{account:mainSource},{account:otherSource}]};
-  anchoredMoney.datasets['moneyTracker.native'].planning.rules=[{id:'anchored-rule',account:mainSource,description:'  Shop   ABC  ',category:'Food',direction:'out',active:true,createdAt:'2026-11-01T00:00:00.000Z'}];
+  const anchoredDatasets=structuredClone(moneyArchive.datasets);
+  anchoredDatasets.accounts=[mainSource,otherSource].map(id=>({id,label:id,provider:'Synthetic provider',currency:'GHS',includeInCash:true,createdAt:moneyAt}));
+  anchoredDatasets['moneyTracker.native'].snapshot={accounts:[{account:mainSource},{account:otherSource}]};
+  anchoredDatasets['moneyTracker.native'].planning.rules=[{id:'anchored-rule',account:mainSource,description:'  Shop   ABC  ',category:'Food',direction:'out',active:true,createdAt:'2026-11-01T00:00:00.000Z'}];
+  const anchoredMoney=await fixtureArchive('money-tracker','synthetic:money-source',moneyAt,anchoredDatasets);
   const anchoredSource=moneyNativeSupplement(anchoredMoney);
   check(anchoredSource.native.accountRules.rules.length,1,'anchored Money rule receives exact source account mapping');
   check(anchoredSource.native.accountRules.bindings,[],'Money import never guesses a future SMS account binding');

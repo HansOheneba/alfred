@@ -27,6 +27,13 @@ function paymentBody(value) {
   }
   return (value.direction === 'in' ? 'Money in · +' : 'Money out · −') + amount + '. Open Alfred to chat.';
 }
+async function clientResult(promise, fallback) {
+  let timer;
+  try {
+    return await Promise.race([promise, new Promise(resolve => { timer = setTimeout(() => resolve(fallback), 1000); })]);
+  } catch { return fallback; }
+  finally { clearTimeout(timer); }
+}
 self.addEventListener('install', event => event.waitUntil(self.skipWaiting()));
 self.addEventListener('activate', event => event.waitUntil(self.clients.claim()));
 self.addEventListener('push', event => {
@@ -54,11 +61,37 @@ self.addEventListener('notificationclick', event => {
   const kind = event.notification.data?.kind;
   const target = noticePath(kind, event.notification.data?.targetId);
   event.waitUntil((async () => {
-    const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-    const existing = windows.find(client => { try { return new URL(client.url).origin === self.location.origin; } catch { return false; } });
+    const href = new URL(target, self.location.origin).href;
+    let windows = [];
+    // navigate() is only valid for a client controlled by this worker. In
+    // particular, do not take over an unrelated, uncontrolled Safari tab.
+    try { windows = await clientResult(self.clients.matchAll({ type: 'window' }), []); } catch {}
+    const candidates = windows.filter(client => {
+      try { return client.frameType !== 'nested' && new URL(client.url).origin === self.location.origin; } catch { return false; }
+    });
+    const existing = candidates.find(client => client.url === href) ||
+      candidates.find(client => client.focused) ||
+      candidates.find(client => client.visibilityState === 'visible') || candidates[0];
     if (existing) {
-      try { const navigated = await existing.navigate(new URL(target, self.location.origin).href); if (navigated) return navigated.focus(); } catch {}
+      // Bring the installed app forward while the notification tap still has
+      // user activation. Waiting for network navigation first can leave a slow
+      // or resumed app in the background until that navigation completes.
+      let focused;
+      try { focused = clientResult(Promise.resolve(existing.focus()).then(() => true, () => false), false); } catch { focused = Promise.resolve(false); }
+      // A successful Chat reply clears its temporary payment binding while the
+      // URL can remain unchanged. Re-enter payment links even at that URL so a
+      // repeated tap restores the current source rather than an unrelated turn.
+      if (existing.url === href && kind !== 'payment') {
+        if (await focused) return;
+      } else {
+        try {
+          const navigated = await existing.navigate(href);
+          // A focus failure is not a navigation failure. Do not open a duplicate
+          // window after the intended client has already navigated successfully.
+          if (navigated) { await focused; return; }
+        } catch {}
+      }
     }
-    return self.clients.openWindow(new URL(target, self.location.origin).href);
+    return self.clients.openWindow(href);
   })());
 });

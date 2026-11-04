@@ -13,6 +13,8 @@ import { listBankTransferWindow } from "@/lib/bank/store";
 import { loadAccountingState } from "@/lib/finance/accounting/persisted-store";
 import { buildAccountingView, projectAccountingTransactions } from "@/lib/finance/accounting/view";
 import { parseBankText } from "@/lib/bank/parse";
+import { createArchive, readArchive } from "@/portability/archive.mjs";
+import { planImport, type ImportArchive } from "@/lib/portability/model";
 
 const OWNER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
 const NOW = new Date("2026-11-04T11:09:00Z");
@@ -20,7 +22,7 @@ const settings: SupabaseSettings = { host: ALFRED_SUPABASE_HOST, projectRef: ALF
 const profile: UserProfile = { profileId: OWNER, telegramUserId: null, spreadsheetId: "", currency: "GHS", timezone: "Africa/Accra", preferredName: "Fictional", communicationPreference: "concise" };
 let db: PGlite, available = Promise.resolve();
 const statementTrace: string[] = [];
-let injectedFailure: "connection" | "rollback" | "pipe" | "source-version" | null = null;
+let injectedFailure: "connection" | "rollback" | "pipe" | "source-version" | "provider-edit" | null = null;
 let versionReadCount = 0;
 const outgoing = (amount = "1.00", id = "88123456", fee = "0.00") => `GHS ${amount} was withdrawn from your Hubtel wallet. Available balance: GHS 99.00. Fee charged: GHS ${fee}. Transaction ID: ${id}.`;
 const incoming = (amount = "1.00", id = "92300000001", sender = "Credit.Inv") => `Payment received for GHS ${amount} from ${sender} Current Balance: GHS 100.00 . Available Balance: GHS 100.00. Reference: wallet. Transaction ID: ${id}.`;
@@ -35,6 +37,12 @@ beforeAll(async () => {
     available = new Promise<void>((resolve) => { release = resolve; }); await previous;
     return { query: async (text: string, values: unknown[] = []) => {
       statementTrace.push(text);
+      if (injectedFailure === "provider-edit" && text === "savepoint alfred_automatic_transfer_pair") {
+        injectedFailure = null;
+        // Model a committed owner edit after discovery and before pair locking.
+        // It precedes the savepoint, so deferring this optional pair must retain it.
+        await db.query("update accounting_states set revision=revision+1,state=jsonb_set(jsonb_set(state,'{revision}',to_jsonb(revision+1)),'{accounts,0,provider}',to_jsonb('Fictional other bank'::text)) where owner_id=$1", [OWNER]);
+      }
       if (injectedFailure === "connection" && text.includes("select public.alfred_write_accounting_state(")) throw Object.assign(new Error("Synthetic connection uncertainty"), { code: "08006" });
       if (injectedFailure === "pipe" && text.includes("select public.alfred_write_accounting_state(")) throw Object.assign(new Error("Synthetic pipe failure"), { code: "EPIPE" });
       if (injectedFailure === "rollback" && text.startsWith("rollback to savepoint")) throw Object.assign(new Error("Synthetic rollback connection failure"), { code: "08006" });
@@ -72,6 +80,77 @@ async function seedPending(text: string, at: string): Promise<string> {
   return (await db.query<{ id: string }>(`insert into bank_messages(owner_id,source,channel,external_id,text_hash,direction,kind,amount,fee,currency,counterparty,balance,occurred_at,status,raw,read_by)
     values($1,$2,'mac',$3,$4,$5,'payment',$6,$7,'GHS',$8,$9,$10,'needs_label',$11,'rules') returning id`, [OWNER, item.source, item.externalId, item.fingerprint, item.direction, item.amount, item.fee, item.counterparty, item.balance, item.occurredAt, item.raw])).rows[0].id;
 }
+
+/** The original Money export contract has canonical account keys but a generic
+ * provider. Exercise its real ZIP/JSON round trip and destination ID mapping. */
+async function installImportedMoneyAccounts(namespace = "money-site:synthetic-original", keys = ["hubtel-wallet", "mtn-momo"]) {
+  const native = keys.map((account) => ({ account, label: account === "hubtel-wallet" ? "Holiday reserve" : "Everyday phone funds", cash: true, date: NOW.toISOString() }));
+  const bytes = await createArchive({ sourceApp: "money-tracker", namespace, timezone: "Africa/Accra", currency: "GHS", exportedAt: NOW.toISOString(), coverage: [], datasets: {
+    accounts: native.map((row) => ({ id: row.account, label: row.label, provider: "Imported Money Tracker", currency: "GHS", includeInCash: row.cash, createdAt: row.date })),
+    movements: [], snapshots: [], transfers: [], settlements: [], "moneyTracker.native": { snapshot: { currency: "GHS", accounts: native, transactions: [], transfers: [] }, planning: {}, bills: {} },
+  } });
+  const archive = await readArchive(bytes) as ImportArchive;
+  const before = (await saved()).accounts.every((row) => row.provider !== "Imported Money Tracker") ? emptyAccountingState(OWNER) : await saved();
+  const plan = planImport(before, archive, `receipt:${namespace}`, NOW.toISOString());
+  expect(plan.conflicts).toEqual([]);
+  await db.query("update accounting_states set revision=$2,state=$3::jsonb where owner_id=$1", [OWNER, plan.next.revision, JSON.stringify(plan.next)]);
+  await db.query(`insert into finance_import_receipts(owner_id,id,archive_id,archive,summary,before_state,after_state,source_version_after)
+    values($1,$2,$3,$4::jsonb,$5::jsonb,$6::jsonb,$7::jsonb,public.alfred_accounting_source_version($1::uuid))`,
+  [OWNER, `receipt:${namespace}`, archive.archiveId, JSON.stringify(archive), JSON.stringify(plan.summary), JSON.stringify(before), JSON.stringify(plan.next)]);
+  return { archive, imported: plan.next };
+}
+
+describe("Money-imported account identities through actual transfer ingestion", () => {
+  it("recognizes the canonical imported Hubtel/MoMo pair without guessing labels or rewriting saved provider metadata", async () => {
+    const { archive, imported } = await installImportedMoneyAccounts();
+    const originalAccounts = structuredClone(imported.accounts);
+    expect(originalAccounts.every((row) => row.id.startsWith("import:accounts:") && row.provider === "Imported Money Tracker")).toBe(true);
+    await ingest(outgoing("1.00", "88123456", "0.38"));
+    const second = await ingest(incoming());
+    expect(second.outcomes[0].outcome).toBe("transfer");
+    const state = await saved();
+    expect(state.transfers).toHaveLength(1);
+    expect(state.accounts).toEqual(originalAccounts);
+    expect(buildAccountingView(state, "GHS").totals).toEqual({ incomeMinor: 0, spentMinor: 38 });
+    const contexts = await loadOwnTransferNotices(settings, OWNER, second.durableMessageIds);
+    expect(contexts.get(second.durableMessageIds[0])).toMatchObject({ state: "paired", fromAccount: { label: "Holiday reserve" }, toAccount: { label: "Everyday phone funds" } });
+    const replay = planImport(state, archive, "repeat-original-archive", NOW.toISOString());
+    expect(replay.conflicts).toEqual([]); expect(replay.duplicates).toBe(2); expect(replay.additions.accounts).toBe(0);
+    const stored = (await db.query<{ state: AccountingState }>("select state from accounting_states where owner_id=$1", [OWNER])).rows[0].state;
+    expect(stored.accounts).toEqual(originalAccounts);
+    expect(stored).not.toHaveProperty("transferProviders");
+    expect(stored.audit.at(-1)?.before.accounts).toEqual(originalAccounts);
+  });
+  it.each(["missing", "undone"] as const)("keeps both alerts unpaired when retained Money proof is %s", async (condition) => {
+    await installImportedMoneyAccounts();
+    if (condition === "missing") await db.query("delete from finance_import_receipts where owner_id=$1", [OWNER]);
+    else await db.query("update finance_import_receipts set undone_at=now() where owner_id=$1", [OWNER]);
+    await ingest(outgoing()); await ingest(incoming());
+    const state = await saved();
+    expect(state.transfers).toHaveLength(0); expect(state.movements).toHaveLength(2);
+    expect(state.movements.every((row) => row.status === "review" && row.accountId === null)).toBe(true);
+  });
+  it("does not choose between two independently imported Hubtel cash accounts", async () => {
+    await installImportedMoneyAccounts();
+    await installImportedMoneyAccounts("money-site:synthetic-second", ["hubtel-wallet"]);
+    await ingest(outgoing()); await ingest(incoming());
+    expect((await saved()).transfers).toHaveLength(0);
+    expect((await saved()).accounts).toHaveLength(3);
+  });
+  it("preserves a later owner provider edit instead of forcing the discovered imported account into the pair", async () => {
+    await installImportedMoneyAccounts();
+    await ingest(outgoing("1.00", "88123456", "0.38"));
+    injectedFailure = "provider-edit";
+    await ingest(incoming());
+    const loaded = await loadAccountingState(settings, OWNER);
+    expect(loaded.state.transfers).toHaveLength(0);
+    expect(loaded.state.accounts[0].provider).toBe("Fictional other bank");
+    expect(loaded.state.movements).toHaveLength(2);
+    expect(loaded.state.movements.every((row) => row.status === "review")).toBe(true);
+    expect(projectAccountingTransactions(loaded.rawTransactions, loaded.state).filter((row) => row.status === "active")).toMatchObject([{ category: "Fees", amount: "0.38" }]);
+    expect((await db.query("select * from accounting_events where action='automatic_pair_transfer'")).rows).toHaveLength(0);
+  });
+});
 
 describe("deterministic owner-account transfers through durable ingest", () => {
   it("uses a bounded pair preflight without loading accounting history for an unmatched first alert", async () => {

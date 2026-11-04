@@ -12,6 +12,7 @@ import type { LabelAnswer } from "@/lib/finance/schemas";
 import { formatAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
 import type { InlineButton } from "@/lib/telegram/client";
+import { PAYMENT_NOTICE_STAYS_PENDING } from "./notice-policy";
 
 /** How long "undo" reverses labels rather than meaning something else. */
 const UNDO_WINDOW_MS = 30 * 60_000;
@@ -337,6 +338,10 @@ export async function chooseLabel(deps: IngestDeps, profile: UserProfile, data: 
   const message = choice ? await deps.bank.getMessage(profile.profileId, choice.messageId) : null;
   const label = message && choice ? labelFromCode(message, choice.code) : null;
   if (!message || !label) return null;
+  if (label.kind === "skip" && message.kind !== "hold_settle" && message.status === "needs_label") {
+    const question = await questionFor(deps.loans, profile, message, deps.people, deps.bank);
+    return { said: "Leave this payment pending", reply: { text: PAYMENT_NOTICE_STAYS_PENDING, next: message, buttons: question.buttons } };
+  }
   const said = message.kind === "hold_settle" && label.kind === "skip" ? "Yes, same payment" : labelChoiceText(label);
   const result = await applyLabel(deps, profile, message.id, label, options);
   if (!result.ok) return { said, reply: { text: result.text, next: null } };
@@ -493,7 +498,7 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
       if (changes.some((change) => change.messageId === messageId)) continue;
       const correcting = waiting.recent.find((item) => item.message.id === messageId);
       const message = correcting?.message ?? waiting.all.find((item) => item.id === messageId);
-      if (!message) continue;
+      if (!message || message.ownerId !== profile.profileId) continue;
       if (waiting.exactQuestion && messageId !== current?.id) {
         dropped += 1;
         continue;
@@ -507,6 +512,13 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
         pointsAt(text, message, profile, deps.now) ?? (picked.length === 1 && (messageId === current?.id || correcting) ? "current" : null);
       if (!pointer) {
         dropped += 1;
+        continue;
+      }
+      // A stale model/callback skip must never undo a valid earlier label before
+      // the central write guard rejects it. Only an open, positively matched
+      // card-hold settlement can use the legacy duplicate-confirmation code.
+      if (answer.label.kind === "skip" && (correcting || message.kind !== "hold_settle")) {
+        lines.push(message.status === "needs_label" ? PAYMENT_NOTICE_STAYS_PENDING : "I haven't removed or changed that payment. Tell me what needs correcting, or choose Ask something else.");
         continue;
       }
       // A correction puts the payment back first, so the new label replaces the old one.

@@ -47,6 +47,11 @@ const TABLES = {
     columns: "id, source, channel, external_id, text_hash, direction, kind, amount::text, fee::text, currency, counterparty, balance::text, occurred_at, status, transaction_id, fee_transaction_id, asked_at, raw, created_at, announced_at, read_by",
     order: "occurred_at, id",
   },
+  bankPaymentResolutions: {
+    table: "bank_payment_resolutions",
+    columns: "id, bank_message_id, kind, reason, request_id, source_fingerprint, resolved_source_fingerprint, bank_evidence_fingerprint, live_facts_fingerprint, source_snapshot, original_movement_id, original_source_fingerprint, principal_minor::text, settlement_id, accounting_revision::text, created_at, reopened_at",
+    order: "created_at, id",
+  },
   accountRuleStates: { table:"account_rule_states",columns:"revision,state,updated_at",order:"owner_id" },
   accountRuleEvents: { table:"account_rule_events",columns:"revision,request_id,action_fingerprint,before_state,after_state,created_at",order:"revision" },
   accountingStates: { table: "accounting_states", columns: "revision, state, updated_at", order: "owner_id" },
@@ -174,12 +179,16 @@ const RESTORED_NATIVE: Record<string, string> = {
   messages: "Native conversation history is restored as historical records; importing it does not replay actions or send messages.",
 };
 
+const PRESERVED_NATIVE: Record<string, string> = {
+  bankPaymentResolutions: "Explicit no-money-moved reasons and returned-principal links, including immutable source evidence and audit fingerprints, remain lossless native evidence. The shared accounting core restores the resulting excluded movements and valid refund links; historical bank-message IDs and executable resolution actions are never replayed into destination ingestion records.",
+};
+
 function nativeCoverage(native: AlfredNativeExport): ExportCoverage[] {
   const coverage: ExportCoverage[] = Object.entries(native.tables).map(([dataset, records]) => ({
     dataset: `alfred.native.${dataset}`,
     status: RESTORED_NATIVE[dataset] ? "supported" : "preserved",
     count: dataset === "aboutMe" ? records.filter((row) => row.account === null).length : records.length,
-    reason: RESTORED_NATIVE[dataset] ?? "Complete owner-scoped native source/audit records are retained as evidence. The accounting adapter populates supported finance records; raw ingestion and historical mutation state are not replayed.",
+    reason: RESTORED_NATIVE[dataset] ?? PRESERVED_NATIVE[dataset] ?? "Complete owner-scoped native source/audit records are retained as evidence. The accounting adapter populates supported finance records; raw ingestion and historical mutation state are not replayed.",
   }));
   coverage.push({
     dataset: "alfred.native.aboutMe.accountExclusions", status: "preserved",

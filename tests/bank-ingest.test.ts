@@ -91,7 +91,7 @@ describe("bank ingest", () => {
   it("offers category buttons, plus 'My own money' for money coming in", async () => {
     const { deps, owner } = setup();
     const out = (await ingestBankText(deps, owner, RUKAYA, { channel: "shortcut" })).outcomes[0].message;
-    expect(labelButtons(out).flat().map((button) => button.text)).toEqual(["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc", "Skip"]);
+    expect(labelButtons(out).flat().map((button) => button.text)).toEqual(["Food", "Transport", "People", "Personal", "Utilities", "Social", "Subscriptions", "Misc"]);
   });
 
   it("files a typed answer to the open question", async () => {

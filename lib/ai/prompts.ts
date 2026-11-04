@@ -216,7 +216,7 @@ function waitingLines(waiting: { lines: string[]; current: number } | null | und
     "- action paid_back: the user paying back money they borrowed, outgoing only; person is who they paid, or null for the payee. Only for someone the list says the user owes.",
     "- action own_transfer: the user's own money moving between their own accounts.",
     "- action investment: money the user put into an investment (outgoing), like Risevest, Bamboo, a T-bill, a fund or a pension, or took out of one (incoming). investment is its name, like \"Risevest\". It isn't spending or income.",
-    "- action skip: a test, a mistake, a reversal, or something not to count.",
+    "- action skip: only a positively matched card-hold settlement that is the same payment already counted. Never use skip to dismiss an ordinary unresolved payment notice, even for a small test transfer or a request to skip it; leave it pending and ask what happened instead.",
     "If the user says a payment's account isn't theirs or not to look at that account, use ignore_account instead of label_payments; it skips that account's payments for good.",
     "Include a payment only when the message clearly points at it: by name (nicknames and first names count, like Debby for Deborah), amount, date, network, or words like all, both, the rest. \"Everything to X\" covers every listed payment to X and no one else's.",
     "If the user names someone who isn't in the list, they're already sorted: leave that instruction out. Never move it onto other payments.",

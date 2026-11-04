@@ -4,11 +4,43 @@ import { validateDatasets, type Datasets } from "../../portability/archive.mjs";
 import type { BankMessage } from "@/lib/bank/store";
 import { hydrateAccountingSources, sourceMovements } from "@/lib/finance/accounting/sources";
 import { emptyAccountingState, type AccountingState, type CashMovement } from "@/lib/finance/accounting/types";
+import { toMinor } from "@/lib/finance/money";
 import type { TransactionRecord } from "@/lib/finance/types";
 import type { AlfredNativeExport, ExportCoverage } from "./export";
 import { CORE_DOMAINS, type Domain } from "./model";
 
 const iso = (value: unknown) => new Date(String(value)).toISOString();
+
+/** Imported source adapters intentionally do not retain live bank foreign keys.
+ * Preserve a positively recorded fee on an otherwise excluded/review movement
+ * as its own ordinary expense, without asking the destination to trust a live
+ * bank-link claim or counting that fee again if the principal is later edited. */
+export function splitConfirmedBankFeesForPortability(state: AccountingState, transactions: TransactionRecord[], messages: BankMessage[]): AccountingState {
+  const byTransaction = new Map(transactions.filter(row => row.userId === state.ownerId).map(row => [row.transactionId, row]));
+  const byMessage = new Map(messages.filter(row => row.ownerId === state.ownerId).map(row => [row.id, row]));
+  const sourceCounts = new Map<string, number>();
+  for (const movement of state.movements) {
+    const identity = `${movement.sourceKind}:${movement.sourceId}`;
+    sourceCounts.set(identity, (sourceCounts.get(identity) ?? 0) + 1);
+  }
+  const children: CashMovement[] = [];
+  const movements = state.movements.map(movement => {
+    if (movement.ownerId !== state.ownerId || movement.sourceKind !== "bank" || movement.sourceMissing ||
+      !["excluded", "review"].includes(movement.status) || sourceCounts.get(`bank:${movement.sourceId}`) !== 1 ||
+      !movement.feeTransactionId || !Number.isSafeInteger(movement.confirmedFeeMinor) || (movement.confirmedFeeMinor ?? 0) <= 0 || movement.confirmedFeeMinor !== movement.feeMinor) return movement;
+    const message = byMessage.get(movement.sourceId), fee = byTransaction.get(movement.feeTransactionId);
+    if (!message || !fee || message.feeTransactionId !== fee.transactionId || fee.status !== "active" || fee.type !== "expense" || fee.category !== "Fees" ||
+      fee.currency !== movement.currency || message.currency !== movement.currency || fee.sourceUpdateId !== `bank:${message.id}:fee`) return movement;
+    try { if (toMinor(fee.amount) !== movement.confirmedFeeMinor || toMinor(message.fee) !== movement.confirmedFeeMinor) return movement; }
+    catch { return movement; }
+    const child = sourceMovements(state.ownerId, [fee], [])[0];
+    if (!child || state.movements.some(row => row.id === child.id) || children.some(row => row.id === child.id)) return movement;
+    children.push({ ...child, accountId: movement.accountId, occurredAt: movement.occurredAt, sourceLabel: movement.sourceLabel });
+    // Full original amounts/fees, raw SMS and proof remain in alfred.native.
+    return { ...movement, feeMinor: 0, confirmedFeeMinor: 0, feeTransactionId: null };
+  });
+  return children.length ? { ...state, movements: [...movements, ...children] } : state;
+}
 
 /** Reconstruct the exact source adapter input from the same owner-scoped SQL snapshot. */
 export function accountingCoreFromNative(native: AlfredNativeExport, ownerId: string, namespace: string) {
@@ -29,7 +61,7 @@ export function accountingCoreFromNative(native: AlfredNativeExport, ownerId: st
   const ruleDocument=native.tables.accountRuleStates?.[0]?.state as AccountRuleState|undefined;
   const rules=ruleDocument?{...ruleDocument,ownerId}:emptyAccountRuleState(ownerId);
   const bound=applyAccountRules({...base,movements:[...sourceMovements(ownerId,raw,bank),...imported]},rules);
-  const state=applyAccountRules(hydrateAccountingSources(base,bound.movements),rules);
+  const state=splitConfirmedBankFeesForPortability(applyAccountRules(hydrateAccountingSources(base,bound.movements),rules),raw,bank);
   const rawCore = JSON.parse(JSON.stringify(Object.fromEntries(CORE_DOMAINS.map((domain) => [domain, state[domain].map((row) => {
     const { ownerId: _owner, ...portable } = row as unknown as Record<string, unknown>; // Destination ownership always comes from its own session.
     void _owner;

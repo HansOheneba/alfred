@@ -99,7 +99,7 @@ export async function announceWhenQuiet(
 ): Promise<void> {
   await wait(ANNOUNCE_QUIET_MS + 500);
   const bank = createSupabaseBankStore(settings);
-  const claimed = await bank.claimUnannounced(profile.profileId, ANNOUNCE_QUIET_MS);
+  const claimed = (await bank.claimUnannounced(profile.profileId, ANNOUNCE_QUIET_MS)).filter(message=>!["not_completed","returned"].includes(message.status));
   const token = process.env.TELEGRAM_BOT_TOKEN?.trim();
   if (claimed.length === 0 || !token) return;
   const ids = claimed.map((item) => item.transactionId).filter((id): id is string => Boolean(id));

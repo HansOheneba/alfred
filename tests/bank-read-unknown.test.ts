@@ -115,7 +115,7 @@ describe("learning a new bank", () => {
       const message = result.outcomes[0].message;
       expect(result.outcomes[0].outcome).toBe("needs_label");
       expect(message.readBy).toBe("model");
-      expect(labelQuestion(message, "Africa/Accra")).toContain("(I read this Ecobank text myself. If I got it wrong, tap Skip.)");
+      expect(labelQuestion(message, "Africa/Accra")).toContain("(I read this Ecobank text myself. If I read it wrong, tell me what needs correcting.)");
       await applyLabel(deps, owner, message.id, { kind: "category", category: "Food", description: "Groceries" });
     }
     const trusted = await send(ECO("250.00", "900.00", "PS9999"));
