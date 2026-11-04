@@ -8,7 +8,7 @@ import { labelChoiceText, reviewRow, labelFromCode, parseLabelCallback, question
 import { createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
 import { createSupabasePeopleStore, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
-import { askNext } from "@/lib/bank/reply";
+import { askNext, proposedLabelApplier } from "@/lib/bank/reply";
 import { createSupabaseBankStore, type BankStore } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { readImageText, type ImageText } from "@/lib/ocr/read-image";
@@ -364,6 +364,9 @@ function actionContext(
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
     bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
     notebook: deps.notebook ?? null,
+    labelPayments: deps.bank
+      ? proposedLabelApplier({ bank: deps.bank, ledger: deps.store as FinanceStore, now: deps.now(), createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }, profile)
+      : null,
   };
 }
 

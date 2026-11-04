@@ -18,7 +18,15 @@ const GCB_ZERO =
 const GCB_CREDIT =
   "Dear HANS OHENEBA ADUSE OPOKU. Your Prepaid Card  has been credited with an amount of : 66.82 GHS. Your balance is 74.17 GHS. Please call 0800422422 for assistance";
 
+const GCB_VISA_DEBIT =
+  "Dear HANS OHENEBA ADUSE\nYour VISA VPREPAID CLASSIC card has been debited GHS 332.19\nDesc: WWW.MTCGAME.COM +15876003109 HK\nFee: GHS 0.00\nYour balance is GHS 22.52.\nPlease call 0800422422 for assistance";
+
 describe("bank message parser", () => {
+  it("keeps the merchant from a GCB VISA prepaid card charge", () => {
+    const [message] = parseBankText(GCB_VISA_DEBIT, options);
+    expect(message).toMatchObject({ source: "gcb", direction: "out", amount: "332.19", fee: "0.00", counterparty: "MTCGAME.COM", balance: "22.52" });
+  });
+
   it("reads a MoMo payment with its fee, balance and transaction id", () => {
     const [message] = parseBankText(MOMO_OUT, options);
     expect(message).toMatchObject({

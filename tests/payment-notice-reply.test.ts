@@ -544,7 +544,7 @@ describe("replying to a proactive payment-purpose question", () => {
     await state.bank.updateMessage(state.owner.profileId, older.id, { askedAt: NOW.toISOString() });
     await state.notice(target);
     const result = await handleProfileTurn(state.owner, { text: "freelance work", clientId: "purpose-wrong-resolver" }, state.deps);
-    expect(result.text).toContain("couldn't tell which waiting payments");
+    expect(result.text).toContain("haven't changed this payment");
     expect(result.ledgerChanged).toBe(false);
     expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
     expect(result.messages?.find(message => message.role === "assistant")?.paymentNotice).toEqual({ bankMessageId: target.id, requiresPurpose: true });

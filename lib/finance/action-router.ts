@@ -22,7 +22,7 @@ import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } fr
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
-import type { FinanceAction, PendingPayload } from "@/lib/finance/schemas";
+import type { FinanceAction, PendingPayload, ProposedLabel } from "@/lib/finance/schemas";
 import { pendingPayloadSchema } from "@/lib/finance/schemas";
 import {
   inRange,
@@ -88,6 +88,8 @@ export type ActionContext = {
   bank?: BankAccess | null;
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
+  /** Files confirmed labels on captured payments and says what changed. Labels need the bank texts, so this is unset without them. */
+  labelPayments?: ((items: { bankMessageId: string; label: ProposedLabel }[]) => Promise<string>) | null;
 };
 
 export type BankAccess = {
@@ -158,6 +160,10 @@ export async function executeConfirmed(
   ctx: ActionContext,
 ): Promise<{ text: string; context?: ConversationContext }> {
   const userId = ctx.profile.profileId;
+  if (payload.type === "label_payments") {
+    if (!ctx.labelPayments) return { text: "I can't file bank payments right now. Nothing was changed." };
+    return { text: await ctx.labelPayments(payload.items) };
+  }
   if (payload.type === "create_transaction") {
     const result = await writeTransactions({
       store: ctx.store,
@@ -1016,7 +1022,7 @@ function confirmCreateText(drafts: TransactionDraft[]): string {
   return lines.join("\n");
 }
 
-async function saveConfirmation(
+export async function saveConfirmation(
   ctx: ActionContext,
   text: string,
   payload: PendingPayload,

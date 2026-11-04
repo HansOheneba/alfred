@@ -286,6 +286,16 @@ function parseOne(body: string, hint: BankSource | null, generic: boolean): Pars
     return { source: "gcb", externalId, direction: "out", amount, fee: "0.00", counterparty: "GCB prepaid card", reference: "", balance: amountOf(cardDebit[2], true), raw: text };
   }
 
+  // "Your VISA VPREPAID CLASSIC card has been debited GHS 332.19 Desc: WWW.MTCGAME.COM +15876003109 HK Fee: GHS 0.00 Your balance is GHS 22.52."
+  const visaDebit = text.match(new RegExp(`VISA\\s+V?PREPAID\\b.*?card has been debited\\s*GHS\\s*${MONEY}\\s*Desc:\\s*([\\s\\S]*?)\\s*Fee:\\s*GHS\\s*${MONEY}\\s*Your balance is\\s*GHS\\s*${MONEY}`, "i"));
+  if (visaDebit) {
+    const amount = amountOf(visaDebit[1]);
+    if (!amount) return null;
+    // The merchant is the first word of the description; phone numbers and country codes follow it.
+    const merchant = clean(visaDebit[2]).split(/\s+(?=\+?\d)/)[0].replace(/^www\./i, "").slice(0, 120);
+    return { source: "gcb", externalId, direction: "out", amount, fee: amountOf(visaDebit[3], true) ?? "0.00", counterparty: merchant, reference: "", balance: amountOf(visaDebit[4], true), raw: text };
+  }
+
   const cardCredit = text.match(new RegExp(`Prepaid Card.*?credited with an amount of\\s*:\\s*${MONEY}\\s*(?:GHANA CEDIS|GHS)\\.?\\s*Your balance is\\s*${MONEY}`, "i"));
   if (cardCredit) {
     const amount = amountOf(cardCredit[1]);
