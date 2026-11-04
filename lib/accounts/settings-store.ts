@@ -1,5 +1,5 @@
 import type { SupabaseSettings } from "@/lib/config";
-import type { CommunicationPreference } from "@/lib/config";
+import type { CommunicationPreference, UserProfile } from "@/lib/config";
 import { DatabaseError } from "@/lib/errors";
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { parseTelegramUserId } from "@/lib/accounts/directory";
@@ -83,6 +83,21 @@ export async function openAccount(
   await ensureAccount(settings, user.id);
   if (invite.telegramUserId) await createSupabaseAccountDirectory(settings).updateTelegramId(user.id, invite.telegramUserId);
   return "ready";
+}
+
+/**
+ * Opens the account and loads its profile for one signed-in request. Both reads
+ * start together so a page waits for one database round trip, not two; only a
+ * brand-new account, created by openAccount, needs the profile read again.
+ */
+export async function openOwnerProfile(
+  settings: SupabaseSettings,
+  user: { id: string; email?: string | null },
+): Promise<UserProfile | "not_invited" | null> {
+  const directory = createSupabaseAccountDirectory(settings);
+  const [opened, profile] = await Promise.all([openAccount(settings, user), directory.loadOwner(user.id)]);
+  if (opened === "not_invited") return "not_invited";
+  return profile ?? directory.loadOwner(user.id);
 }
 
 export async function ensureAccount(settings: SupabaseSettings, ownerId: string): Promise<void> {

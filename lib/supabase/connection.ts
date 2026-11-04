@@ -11,6 +11,17 @@ const pools = new Map<string, Pool>();
 let preferred: { address: string; port: number } | null = null;
 type TransactionScope = { client: PoolClient; settings: SupabaseSettings; active: boolean };
 const transactions = new AsyncLocalStorage<TransactionScope>();
+// resolve4 skips the OS cache, so an uncached lookup adds a DNS round trip to every
+// query. The pooler's addresses rarely change; unreachable ones are retried below.
+const DNS_TTL_MS = 60_000;
+let resolved: { host: string; addresses: string[]; at: number } | null = null;
+
+async function poolerAddresses(host: string): Promise<string[]> {
+  if (resolved?.host === host && Date.now() - resolved.at < DNS_TTL_MS) return resolved.addresses;
+  const addresses = await resolve4(host);
+  resolved = { host, addresses, at: Date.now() };
+  return addresses;
+}
 
 function sameDatabase(left: SupabaseSettings, right: SupabaseSettings): boolean {
   return left.host === right.host && left.user === right.user && left.database === right.database
@@ -76,7 +87,7 @@ export async function query<T extends QueryResultRow>(
     try { return (await transaction.client.query<T>(text, values)).rows; }
     catch (error) { throw failedQuery(error); }
   }
-  const addresses = await resolve4(settings.host);
+  const addresses = await poolerAddresses(settings.host);
   const candidates: { address: string; port: number }[] = [];
   if (preferred && addresses.includes(preferred.address)) candidates.push(preferred);
   // Transaction mode (6543) shares server connections between clients; session mode (5432) caps
@@ -100,6 +111,7 @@ export async function query<T extends QueryResultRow>(
       // A bad query is not a bad connection: other requests share this pool, so only drop it when unreachable.
       if (full(error)) continue;
       if (!unreachable(error)) throw failedQuery(error);
+      resolved = null;
       if (preferred?.address === candidate.address && preferred.port === candidate.port) preferred = null;
       const key = `${candidate.address}:${candidate.port}`;
       if (pools.get(key) === pool) pools.delete(key);
@@ -122,7 +134,7 @@ export async function withBankIngestTransaction<T>(
     throw new DatabaseError("The ledger transaction owner or database is invalid.");
   }
   if (transactions.getStore()) throw new DatabaseError("A ledger transaction is already active.");
-  const addresses = await resolve4(settings.host);
+  const addresses = await poolerAddresses(settings.host);
   const candidates: { address: string; port: number }[] = [];
   if (preferred && addresses.includes(preferred.address)) candidates.push(preferred);
   for (const port of [6543, 5432]) for (const address of addresses) {
@@ -136,6 +148,7 @@ export async function withBankIngestTransaction<T>(
       client = await pool.connect();
     } catch (error) {
       lastError = error;
+      if (unreachable(error)) resolved = null;
       if (full(error) || unreachable(error)) continue;
       throw failedQuery(error);
     }

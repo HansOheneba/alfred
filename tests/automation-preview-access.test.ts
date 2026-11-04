@@ -1,13 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { NextRequest } from "next/server";
 
-const auth = vi.hoisted(() => ({ getUser: vi.fn(async () => ({ data: { user: null } })), create: vi.fn() }));
+const auth = vi.hoisted(() => ({ getClaims: vi.fn(async () => ({ data: null as { claims: { sub: string } } | null })), create: vi.fn() }));
 vi.mock("@supabase/ssr", () => ({ createServerClient: auth.create }));
 import { AUTOMATION_PREVIEW_PATHS, automationPreviewAllowed, automationPreviewBypassesAuth } from "@/lib/preview/access";
 import { proxy } from "../proxy";
 
 beforeEach(() => {
-  auth.create.mockImplementation(() => ({ auth: { getUser: auth.getUser } }));
+  auth.create.mockImplementation(() => ({ auth: { getClaims: auth.getClaims } }));
 });
 afterEach(() => { vi.clearAllMocks(); vi.unstubAllEnvs(); });
 
@@ -67,7 +67,7 @@ describe("preview proxy keeps real auth untouched", () => {
     const response = await proxy(fixtureRequest(path));
     expect(response.headers.get("x-middleware-next")).toBe("1");
     expect(response.headers.has("set-cookie")).toBe(false);
-    expect(auth.create).not.toHaveBeenCalled(); expect(auth.getUser).not.toHaveBeenCalled();
+    expect(auth.create).not.toHaveBeenCalled(); expect(auth.getClaims).not.toHaveBeenCalled();
   });
   it("ignores routing-like query values on the fixed fictional page", async () => {
     environment();
@@ -83,6 +83,6 @@ describe("preview proxy keeps real auth untouched", () => {
     const { NextRequest } = await import("next/server");
     const request = new NextRequest(`https://fixture.example.invalid${path}`, { method });
     await proxy(request);
-    expect(auth.create).toHaveBeenCalledTimes(1); expect(auth.getUser).toHaveBeenCalledTimes(1);
+    expect(auth.create).toHaveBeenCalledTimes(1); expect(auth.getClaims).toHaveBeenCalledTimes(1);
   });
 });
