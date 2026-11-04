@@ -19,7 +19,7 @@ export const SETTINGS_SECTIONS = [
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
 
-const descriptions: Record<SettingsSectionId, string> = {
+export const SETTINGS_SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   profile: "Your name, currency and preferences",
   replies: "How Alfred talks with you",
   budgets: "Plan your spending",
@@ -81,7 +81,7 @@ export function SettingsNavigation({ section, onChoose }: {
             className="alfred-settings-navigationItem"
           >
             <SettingsIcon section={item.id} />
-            <span className="alfred-settings-navigationCopy"><span className="alfred-settings-navigationLabel">{item.label}</span><span className="alfred-settings-navigationDescription" aria-hidden="true">{descriptions[item.id]}</span></span>
+            <span className="alfred-settings-navigationCopy"><span className="alfred-settings-navigationLabel">{item.label}</span><span className="alfred-settings-navigationDescription" aria-hidden="true">{SETTINGS_SECTION_DESCRIPTIONS[item.id]}</span></span>
             <svg className="alfred-settings-navigationChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
           </button>
         );

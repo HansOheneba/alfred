@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/app/chat/chat-panel";
+import { ChatLoadingState } from "@/app/chat/chat-loading";
 import ChatPage from "@/app/chat/page";
 import { AuthForm } from "@/app/auth-form";
 import { GET as contextRoute } from "@/app/api/chat/context/route";
@@ -141,11 +142,22 @@ describe("Chat server page critical path", () => {
   type Search = { searchParams: Promise<{ question?: string; payment?: string }> };
   type Shell = ReactElement<{ children: ReactElement<{ initialMessages: ThreadMessage[]; initialQuestion: string; ledger?: Ledger | null; financialsEmpty: boolean | null; loadInitialThread: boolean; initialPaymentTarget?: string; initialPaymentEntry?: { state: string } | null }> }>;
   type SuspendedPage = ReactElement<{ children: { type: (props: Search) => Promise<Shell>; props: Search } }>;
+  const suspendedChatPage = (props: Search) => (ChatPage(props) as ReactElement<{ children: SuspendedPage }>).props.children;
+
+  it("shows conversation-shaped loading with a normal editable draft while pre-auth sending remains unavailable", () => {
+    const html = renderToStaticMarkup(createElement(ChatLoadingState));
+    expect(html).toContain('aria-label="Loading your conversation"');
+    expect(html).toContain('rows="1"');
+    expect(html.match(/<textarea[^>]*>[\s\S]*?<\/textarea>/)?.[0]).not.toContain('disabled=""');
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Send"/);
+    expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Attach a screenshot"/);
+    expect(html).not.toContain("A purchase, a payday");
+  });
 
   it("renders the authenticated Chat without starting optional history or finance queries", async () => {
     mocks.loadLedger.mockRejectedValue(new Error("An optional finance request must not block Chat"));
     mocks.listRecent.mockResolvedValue([{ id: "synthetic-history", role: "assistant", body: "History loaded independently.", channel: "web", createdAt: "2026-11-02T12:00:00.000Z", clientId: null }]);
-    const page = ChatPage({ searchParams: Promise.resolve({ question: "Review this draft" }) }) as SuspendedPage;
+    const page = suspendedChatPage({ searchParams: Promise.resolve({ question: "Review this draft" }) }) as SuspendedPage;
     const shell = await page.props.children.type(page.props.children.props);
     const panel = shell.props.children;
     expect(panel.type).toBe(ChatPanel);
@@ -159,7 +171,7 @@ describe("Chat server page critical path", () => {
 
   it.each([true, false])("does not claim a fresh account before the deferred empty check (%s)", async financialsEmpty => {
     mocks.financeLooksEmpty.mockResolvedValue(financialsEmpty);
-    const page = ChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
+    const page = suspendedChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
     const shell = await page.props.children.type(page.props.children.props);
     expect(shell.props.children.props.financialsEmpty).toBeNull();
     expect(mocks.financeLooksEmpty).not.toHaveBeenCalled();
@@ -168,12 +180,12 @@ describe("Chat server page critical path", () => {
 
   it("defers saved bank answer buttons without blocking the composer or normal conversations", async () => {
     mocks.listRecent.mockResolvedValue([{ id: "fictional-bank-question", role: "assistant", body: "Which category?", intent: "bank:label", channel: "telegram", createdAt: "2026-11-03T12:00:00Z", clientId: null }]);
-    const page = ChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
+    const page = suspendedChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
     const shell = await page.props.children.type(page.props.children.props);
     expect(shell.props.children.props.loadInitialThread).toBe(true);
     expect(mocks.loadLedger).not.toHaveBeenCalled();
     mocks.listRecent.mockResolvedValue([]);
-    const empty = ChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
+    const empty = suspendedChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
     const panel = (await empty.props.children.type(empty.props.children.props)).props.children;
     expect(panel.props.loadInitialThread).toBe(true);
     const html = renderToStaticMarkup(panel);
@@ -183,7 +195,7 @@ describe("Chat server page critical path", () => {
 
   it("keeps the conversation usable without claiming empty storage if the initial cheap check fails", async () => {
     mocks.financeLooksEmpty.mockRejectedValue(new Error("Synthetic check unavailable"));
-    const page = ChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
+    const page = suspendedChatPage({ searchParams: Promise.resolve({}) }) as SuspendedPage;
     const shell = await page.props.children.type(page.props.children.props);
     expect(shell.props.children.type).toBe(ChatPanel);
     expect(shell.props.children.props.financialsEmpty).toBeNull();
@@ -196,7 +208,7 @@ describe("Chat server page critical path", () => {
     const target = { id: "source-before-history", clientId: "bank-notice-fictional", role: "assistant", body: "GH₵1.00 moved between your own accounts.", channel: "web", createdAt: "2026-11-01T12:00:00.000Z", paymentNotice: { bankMessageId: payment, requiresPurpose: false } };
     mocks.paymentEntry.mockResolvedValue({ state: "ready", bankMessageId: payment, message: target });
     mocks.listRecent.mockResolvedValue([{ id: "newer", role: "assistant", body: "Later question", channel: "web", createdAt: "2026-11-04T12:00:00.000Z", clientId: null }]);
-    const page = ChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
+    const page = suspendedChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
     const shell = await page.props.children.type(page.props.children.props);
     expect(shell.props.children.props.initialPaymentTarget).toBe(payment);
     expect(shell.props.children.props.initialMessages).toEqual([]);
@@ -213,7 +225,7 @@ describe("Chat server page critical path", () => {
     const payment = "11111111-1111-4111-8111-111111111111";
     mocks.paymentEntry.mockReturnValue(new Promise(() => undefined));
     mocks.listRecent.mockReturnValue(new Promise(() => undefined));
-    const page = ChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
+    const page = suspendedChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
     const shell = await page.props.children.type(page.props.children.props);
     expect(shell.props.children.type).toBe(ChatPanel);
     expect(shell.props.children.props.initialPaymentEntry).toBeNull();
@@ -225,7 +237,7 @@ describe("Chat server page critical path", () => {
   it("preserves only a canonical Chat notification destination through sign-in and reads no private source", async () => {
     mocks.signedIn.mockResolvedValue({ kind: "signed-out" });
     const payment = "AAAAAAAA-AAAA-4AAA-8AAA-AAAAAAAAAAAA";
-    const page = ChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
+    const page = suspendedChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
     const auth = await page.props.children.type(page.props.children.props) as unknown as ReactElement<{ returnTo: string }>;
     expect(auth.type).toBe(AuthForm);
     expect(auth.props.returnTo).toBe(`/chat?payment=${payment.toLowerCase()}`);
@@ -238,7 +250,7 @@ describe("Chat server page critical path", () => {
     try {
       mocks.signedIn.mockReturnValue(new Promise(() => undefined));
       const payment = "11111111-1111-4111-8111-111111111111";
-      const page = ChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
+      const page = suspendedChatPage({ searchParams: Promise.resolve({ payment }) }) as SuspendedPage;
       const pending = page.props.children.type(page.props.children.props);
       await vi.advanceTimersByTimeAsync(8000);
       const html = renderToStaticMarkup(await pending);

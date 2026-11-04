@@ -2,10 +2,13 @@ import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
 import { ChatPanel } from "@/app/chat/chat-panel";
+import { ChatLoadingState } from "@/app/chat/chat-loading";
+import { ChatDraftProvider } from "@/app/chat/chat-draft";
+import { chatDraftScope } from "@/app/chat/chat-draft-scope";
 import { AuthForm } from "@/app/auth-form";
 import { paymentLinkId } from "@/app/chat/payment-link";
 import { chatReadDeadline } from "@/app/chat/read-deadline";
-import { AlfredMark, AppShell } from "@/app/components/app-shell";
+import { AppShell } from "@/app/components/app-shell";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 
 type ChatSearchParams = Promise<{ question?: string | string[]; payment?: string | string[] }>;
@@ -14,9 +17,9 @@ export default function ChatPage({ searchParams }: { searchParams: ChatSearchPar
   if (!publicAuthConfigured()) return <MissingAuthConfig />;
 
   return (
-    <Suspense fallback={<ChatLoading />}>
+    <ChatDraftProvider><Suspense fallback={<ChatLoading />}>
       <SignedInHome searchParams={searchParams} />
-    </Suspense>
+    </Suspense></ChatDraftProvider>
   );
 }
 
@@ -24,10 +27,7 @@ function ChatLoading() {
   return (
     // Keep the app frame in the prefetched shell so a tab switch or launch shows navigation at once.
     <AppShell current="chat" name="" fill>
-      <div className="grid flex-1 place-items-center" role="status" aria-label="Loading conversation" aria-busy="true">
-        <AlfredMark size="size-10" />
-        <p className="sr-only">Loading conversation…</p>
-      </div>
+      <ChatLoadingState />
     </AppShell>
   );
 }
@@ -57,7 +57,7 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
   const name = account.profile.preferredName.trim();
   return (
     <AppShell current="chat" name={name} fill>
-      <ChatPanel key={`${account.userId}:${paymentId || question || "conversation"}`} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={[]} initialPaymentEntry={params.payment !== undefined && !paymentId ? { state: "unavailable" } : null} initialPaymentTarget={paymentId} financialsEmpty={null} loadInitialThread />
+      <ChatPanel key={`${account.userId}:${paymentId || question || "conversation"}`} draftScope={chatDraftScope(params.question, params.payment)} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={[]} initialPaymentEntry={params.payment !== undefined && !paymentId ? { state: "unavailable" } : null} initialPaymentTarget={paymentId} financialsEmpty={null} loadInitialThread />
     </AppShell>
   );
 }

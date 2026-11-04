@@ -39,6 +39,8 @@ export async function POST(request: Request): Promise<Response> {
 
   try {
     if (body.action === "save") {
+      const existing = body.id ? (await store.list(userId)).find((bill) => bill.id === body.id && bill.ownerId === userId) : undefined;
+      if (body.id && !existing) return fail("That bill could not be found.", 404);
       let amount: string | null = null;
       if (body.amount != null && body.amount !== "") {
         const canonical = canonicalizeAmount(body.amount);
@@ -52,9 +54,9 @@ export async function POST(request: Request): Promise<Response> {
         name: body.name,
         nextDate: body.nextDate,
         amount,
-        currency: owner.profile.currency,
+        currency: existing?.currency ?? owner.profile.currency,
         cadence: body.cadence,
-        active: body.active ?? true,
+        active: body.active ?? existing?.active ?? true,
       });
     } else if (body.action === "pause" || body.action === "resume") {
       await store.setActive(userId, body.id, body.action === "resume");

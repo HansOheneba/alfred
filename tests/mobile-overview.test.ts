@@ -41,6 +41,9 @@ describe("responsive overview controls", () => {
     expect(html).toContain("Fictional account 100");
     expect(html).not.toContain("Excluded account");
     expect(html).toContain('class="alfred-ui-totalValue tabular-nums"');
+    const desktopTrigger = html.match(/<button[^>]*aria-haspopup="dialog"[^>]*>[\s\S]*?Show accounts[\s\S]*?<\/button>/)?.[0];
+    expect(desktopTrigger).toContain('aria-expanded="false"');
+    expect(html).toContain("Included accounts</h2>");
   });
 
   it("explains a missing reported balance outside the collapsed details", () => {
@@ -83,6 +86,18 @@ describe("responsive overview controls", () => {
     expect(html).toMatch(/<button[^>]*aria-pressed="false"[^>]*>Running total<\/button>/);
     expect(html).not.toMatch(/<select[^>]*aria-label="(?:Chart mode|Date range)"/);
     expect(html).not.toContain("Talk to Alfred");
+  });
+
+  it("keeps account balance and both period totals together with the weekly comparison after all three", () => {
+    const html = renderToStaticMarkup(createElement(DashboardClient, { ledger: previewLedger, name: "Sample reviewer" }));
+    const summary = html.slice(html.indexOf('aria-label="Account balance and cash flow"'), html.indexOf('class="alfred-ui-insightsAndTrends"'));
+    expect(summary).toContain('aria-label="Total account balance"');
+    expect(summary).toContain('data-kind="expense"');
+    expect(summary).toContain('data-kind="income"');
+    expect(summary).not.toContain('class="alfred-ui-summary"');
+    expect(summary.indexOf('aria-label="Weekly spending comparison"')).toBeGreaterThan(summary.indexOf('data-kind="income"'));
+    expect(summary.match(/aria-label="Weekly spending comparison"/g)).toHaveLength(1);
+    expect(summary).toContain("This week so far");
   });
 
   it("labels spent and income with the selected month while retaining month totals rather than today totals", () => {

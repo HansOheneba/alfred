@@ -11,7 +11,6 @@ import { MonthlyInsights, SummaryMetric as Stat } from "@/app/dashboard/overview
 
 const styles = {
   dashboard: "alfred-ui-dashboard", heading: "alfred-ui-heading", controls: "alfred-ui-controls",
-  summary: "alfred-ui-summary",
   trends: "alfred-ui-trends", legend: "alfred-ui-legend", categories: "alfred-ui-categories",
   transactions: "alfred-ui-transactions",
 } as const;
@@ -23,6 +22,7 @@ import { CategoryDonut, DailyChart, MonthlyChart, SimpleBars } from "@/app/dashb
 import { compactMoney, delta, percent } from "@/app/dashboard/helpers";
 import { CashFlowSankey } from "@/app/dashboard/sankey-chart";
 import { TransactionsTable } from "@/app/dashboard/transactions-table";
+import { OverviewQuickAction } from "@/app/dashboard/overview-quick-actions";
 import {
   RANGE_LABELS,
   accountTotals,
@@ -152,13 +152,11 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
         </p>
       ) : null}
 
-      <div className="alfred-ui-overviewGrid">
+      <div className="alfred-ui-overviewGrid" role="region" aria-label="Account balance and cash flow">
       <DashboardAccountBalance accounting={ledger.accounting} currency={currency} timeZone={timeZone} />
-      <section className={styles.summary} aria-label="Summary">
         <Stat label="Spent" value={formatMinor(spent, currency)} hint={`${RANGE_LABELS[preset]} · ${delta(spent, prevSpent, false).text}`} tone={delta(spent, prevSpent, false).tone} />
         <Stat label="Income" value={formatMinor(earned, currency)} hint={`${RANGE_LABELS[preset]} · ${delta(earned, prevEarned, true).text}`} tone={delta(earned, prevEarned, true).tone} />
         <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
-      </section>
       </div>
 
       <div className="alfred-ui-insightsAndTrends">
@@ -291,12 +289,12 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
             </div>
           )}
         </Card>
-        <Card title={`By weekday · ${rangeLabel}`}>
+        <Card title={`By weekday · ${rangeLabel}`} className="alfred-ui-weekdayCard">
           {spent === 0 ? (
             <EmptyState>No spending in this range.</EmptyState>
           ) : (
             <>
-              <SimpleBars data={weekdays} currency={currency} />
+              <SimpleBars data={weekdays} currency={currency} fillHeight />
               <p className="sr-only">{weekdays.map((item) => `${item.label}: ${formatMinor(item.spent, currency)}`).join("; ")}</p>
             </>
           )}
@@ -312,9 +310,9 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
           currency={currency}
           today={today}
         />
-        <Card title="Budgets · this month" action={<Link href="/settings" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
+        <Card title="Budgets · this month" action={<Link href="/settings#budgets" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
           {budgets.length === 0 ? (
-            <EmptyState>No budgets for this month. Ask Alfred, e.g. &ldquo;Set a food budget of 800&rdquo;.</EmptyState>
+            <OverviewQuickAction kind="budget" currency={currency} today={today} budgets={ledger.budgets} />
           ) : (
             <ul className="flex flex-col gap-4">
               {budgets.map((budget) => {
@@ -350,9 +348,9 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Savings goals" action={<Link href="/settings" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
+        <Card title="Savings goals" action={<Link href="/settings#goals" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
           {goals.length === 0 ? (
-            <EmptyState>No savings goals yet. Ask Alfred, e.g. &ldquo;Save 3000 for a laptop by March&rdquo;.</EmptyState>
+            <OverviewQuickAction kind="goal" currency={currency} today={today} />
           ) : (
             <ul className="flex flex-col gap-4">
               {goals.map((goal) => {
@@ -389,7 +387,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
             </ul>
           )}
         </Card>
-        <OwedCard owed={ledger.owed} owe={ledger.owe} />
+        <OwedCard owed={ledger.owed} owe={ledger.owe} currency={currency} today={today} />
       </div>
 
       {hasAny ? <div className={styles.transactions}><TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} timeZone={timeZone} /></div> : null}
@@ -398,14 +396,12 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
 }
 
 /** Money the person lent out and hasn't had back yet, and what they borrowed and still owe. */
-function OwedCard({ owed, owe }: { owed: Ledger["owed"]; owe: Ledger["owe"] }) {
+function OwedCard({ owed, owe, currency, today }: { owed: Ledger["owed"]; owe: Ledger["owe"]; currency: string; today: string }) {
   const total = owed.reduce((sum, item) => sum + toMinor(item.owed), 0);
   return (
     <Card title="Owed to you" action={total > 0 ? <span className="tabular-nums text-xs text-muted">{formatMinor(total, owed[0].currency)}</span> : undefined}>
-      {owed.length === 0 && owe.length > 0 ? (
-        <p className="text-sm text-muted">No one owes you money.</p>
-      ) : owed.length === 0 ? (
-        <EmptyState>No one owes you money. Tell Alfred when you lend some, e.g. &ldquo;I lent Kofi 100&rdquo;.</EmptyState>
+      {owed.length === 0 ? (
+        <OverviewQuickAction kind="loan" currency={currency} today={today} />
       ) : (
         <ul className="flex flex-col gap-4">
           {owed.map((item) => {

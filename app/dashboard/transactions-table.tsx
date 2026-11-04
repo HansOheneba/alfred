@@ -8,7 +8,7 @@ import { buttonClassName } from "@/app/components/button-styles";
 import { isAccountingRow } from "@/app/dashboard/accounting-row-action";
 import { Spinner } from "@/app/components/status";
 import { Select } from "@/app/components/select";
-import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
+import { Button, Card, ConfirmDialog, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerRow } from "@/lib/finance/analytics";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { formatDisplayDate } from "@/lib/finance/dates";
@@ -109,7 +109,7 @@ export function TransactionsTable({
           Transactions <span className="font-normal text-muted">· {rangeLabel}</span>
         </span>
       }
-      action={<Button size="sm" className="alfred-button--compact alfred-transaction-filterToggle" onClick={openFilters} aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"} aria-haspopup="dialog"><FilterIcon />Filters{activeFilterCount ? <span className="alfred-transaction-filterCount">{activeFilterCount}</span> : null}</Button>}
+      action={<div className="alfred-transaction-headerActions"><Button size="sm" className="alfred-button--compact alfred-transaction-filterToggle" onClick={openFilters} aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"} aria-haspopup="dialog"><FilterIcon />Filters{activeFilterCount ? <span className="alfred-transaction-filterCount">{activeFilterCount}</span> : null}</Button><Link href="/accounts?tab=activity" aria-label="View all transactions" className={buttonClassName({ variant: "primary", size: "sm", className: "alfred-transaction-viewAll" })}><span className="alfred-transaction-viewAllLabel" aria-hidden="true">View all transactions</span><span className="alfred-transaction-viewAllShort" aria-hidden="true">View all</span></Link></div>}
     >
 
       {category ? (
@@ -188,7 +188,6 @@ export function TransactionsTable({
 
       <div className="alfred-transaction-footer">
         <span className="alfred-transaction-mobileCount">{filtered.length > MOBILE_RECENT ? `${MOBILE_RECENT} of ${filtered.length}` : `${filtered.length} ${filtered.length === 1 ? "transaction" : "transactions"}`}</span>
-        <Link href="/accounts?tab=activity" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-transaction-viewAll" })}>View all transactions <span aria-hidden="true">↗</span></Link>
       </div>
 
       <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filter transactions">
@@ -410,14 +409,14 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
             {error}
           </p>
         ) : null}
-        <div className="alfred-buttonGroup--mobileStack mt-2 flex justify-end gap-2">
+        <DialogActions>
           <Button variant="ghost" onClick={onClose} disabled={busy}>
             Cancel
           </Button>
           <Button type="submit" variant="primary" disabled={busy} aria-busy={busy} aria-label="Save changes">
             {busy ? <Spinner /> : "Save changes"}
           </Button>
-        </div>
+        </DialogActions>
       </form>
     </Dialog>
   );

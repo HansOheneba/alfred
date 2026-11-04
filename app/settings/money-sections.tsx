@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 
-import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
+import { Button, Card, ConfirmDialog, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import { Select } from "@/app/components/select";
 import { EXPENSE_CATEGORIES } from "@/lib/finance/categories";
 import { canonicalizeAmount, formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
@@ -265,14 +265,14 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
                 {draftError}
               </p>
             ) : null}
-            <div className="alfred-buttonGroup--mobileStack flex justify-end gap-2">
+            <DialogActions>
               <Button variant="ghost" className="alfred-button--mobileFull" onClick={() => setDraft(null)}>
                 Cancel
               </Button>
               <Button variant="primary" className="alfred-button--mobileFull" type="submit">
                 Review
               </Button>
-            </div>
+            </DialogActions>
           </form>
         ) : null}
       </Dialog>
@@ -478,14 +478,14 @@ export function GoalsSection({ ledger }: { ledger: Ledger }) {
                 {draftError}
               </p>
             ) : null}
-            <div className="alfred-buttonGroup--mobileStack flex justify-end gap-2">
+            <DialogActions>
               <Button variant="ghost" className="alfred-button--mobileFull" onClick={() => setDraft(null)}>
                 Cancel
               </Button>
               <Button variant="primary" className="alfred-button--mobileFull" type="submit">
                 Review
               </Button>
-            </div>
+            </DialogActions>
           </form>
         ) : null}
       </Dialog>

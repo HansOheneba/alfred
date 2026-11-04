@@ -31,6 +31,31 @@
 .alfred-ui-totalBalance--compact .alfred-ui-accountBreakdown li span { overflow-wrap: anywhere; }
 .alfred-ui-totalBalance--compact .alfred-ui-accountBreakdown strong { flex-shrink: 0; }
 .alfred-ui-balanceUnavailable { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.alfred-ui-balanceDesktopDisclosure { display:none; }
+.alfred-ui-balanceOverlayTotal { margin-bottom:20px; padding:16px; border:1px solid var(--line); border-radius:12px; background:var(--surface-2); }
+.alfred-ui-balanceOverlayTotal > p { color:var(--muted); font-size:12px; line-height:20px; }
+.alfred-ui-balanceOverlayTotal > strong { display:block; margin-top:4px; color:var(--ink); font-size:28px; line-height:36px; overflow-wrap:anywhere; }
+.alfred-ui-totalBalance--compact .alfred-ui-balanceOverlay .alfred-ui-accountBreakdown { margin:0; padding:0; border:0; gap:0; }
+.alfred-ui-balanceOverlay .alfred-ui-accountBreakdown > li { min-height:64px; padding-block:12px; border-bottom:1px solid var(--line); }
+.alfred-ui-balanceOverlay .alfred-ui-accountBreakdown > li:last-child { border-bottom:0; }
+.alfred-ui-dashboard .alfred-ui-overviewGrid { grid-template-columns:repeat(2,minmax(0,1fr)); align-items:stretch; }
+.alfred-ui-overviewGrid > .alfred-ui-totalBalance--compact { grid-column:1 / -1; align-self:stretch; }
+.alfred-ui-overviewGrid > .alfred-weekly-comparison { grid-column:1 / -1; }
+.alfred-ui-weekdayCard { display:flex; flex-direction:column; min-width:0; }
+.alfred-ui-weekdayCard > div:first-child { flex-shrink:0; }
+.alfred-ui-fillChart { position:relative; flex:1; min-height:192px; min-width:0; }
+
+@media (min-width:761px) {
+  .alfred-ui-totalBalance--compact .alfred-ui-balanceAccounts { display:none; }
+  .alfred-ui-balanceDesktopDisclosure { display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between; gap:8px 12px; margin-top:auto; padding-top:16px; }
+  .alfred-ui-balanceDesktopDisclosure .alfred-ui-accountCount { min-width:0; margin:0; }
+  .alfred-ui-balanceDesktopDisclosure > button { flex-shrink:0; }
+}
+@media (min-width:1024px) {
+  .alfred-ui-dashboard .alfred-ui-overviewGrid { grid-template-columns:repeat(3,minmax(0,1fr)); }
+  .alfred-ui-overviewGrid > .alfred-ui-totalBalance--compact { display:flex; flex-direction:column; grid-column:auto; }
+  .alfred-ui-overviewGrid > :is(.alfred-ui-totalBalance--compact,.alfred-ui-metric) { min-height:192px; padding:24px; }
+}
 
 .alfred-ui-dashboard .alfred-ui-dailyCard > div:first-child { min-width:0; flex-wrap:wrap; align-items:flex-start; gap:12px; }
 .alfred-ui-dashboard .alfred-ui-dailyCard > div:first-child > h2 { flex:1 1 160px; min-width:0; }

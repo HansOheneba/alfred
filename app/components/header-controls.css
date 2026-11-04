@@ -1,0 +1,7 @@
+.alfred-headerControls { display:inline-flex; align-items:center; flex:none; gap:2px; padding:2px; border:1px solid var(--line); border-radius:14px; background:var(--surface-2); }
+.alfred-headerControls .alfred-headerControl.alfred-button { display:inline-flex; align-items:center; justify-content:center; flex:none; inline-size:44px; min-inline-size:44px; block-size:44px; min-block-size:44px; padding:0; border:0; border-radius:10px; background:transparent; color:var(--muted); box-shadow:none; }
+.alfred-headerControls .alfred-headerControl:hover { background:var(--surface); color:var(--ink); }
+.alfred-headerControls .alfred-headerControl[aria-pressed="true"] { background:var(--surface); color:var(--accent); box-shadow:0 1px 3px rgb(16 24 40 / .08); }
+.alfred-headerControls .alfred-headerControl:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+.alfred-headerControl svg { inline-size:20px; block-size:20px; flex:none; }
+@media (prefers-reduced-motion:no-preference) { .alfred-headerControl { transition:background-color 120ms ease,color 120ms ease; } }

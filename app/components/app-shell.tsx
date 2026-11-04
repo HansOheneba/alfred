@@ -8,6 +8,7 @@ import { buttonClassName } from "./button-styles";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 import { serializeBrowserPreferenceWrite } from "@/lib/portability/browser-preferences-lock";
 import "./app-ui.css";
+import "./header-controls.css";
 
 export type Section = "chat" | "dashboard" | "accounts" | "investments" | "review" | "settings";
 
@@ -129,9 +130,9 @@ export function PrivacyToggle() {
       aria-pressed={masked}
       aria-label={masked ? "Reveal amounts" : "Hide amounts"}
       title={masked ? "Reveal amounts" : "Hide amounts"}
-      className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-button--compact alfred-ui-privacy" })}
+      className={buttonClassName({ variant: "ghost", size: "icon", className: "alfred-button--compact alfred-headerControl alfred-headerPrivacy" })}
     >
-      <Icon className="size-4">
+      <Icon className="size-5">
         {masked ? (
           <>
             <path d="M3 3l18 18" />
@@ -145,34 +146,30 @@ export function PrivacyToggle() {
           </>
         )}
       </Icon>
-      <span className="hidden sm:inline">{masked ? "Amounts hidden" : "Hide amounts"}</span>
     </button>
   );
 }
 
-function Initial({ name, className = "size-8" }: { name: string; className?: string }) {
-  const letter = name.trim().charAt(0).toUpperCase();
+export function AppearanceToggle() {
+  const [appearance, setAppearance] = useAppearance();
+  const dark = appearance === "dark";
+  const label = `Switch to ${dark ? "light" : "dark"} appearance`;
   return (
-    <span className={`grid shrink-0 place-items-center rounded-full border border-line bg-surface-2 text-xs font-semibold text-muted ${className}`} aria-hidden="true">
-      {letter || (
-        <Icon className="size-4">
-          <circle cx="12" cy="8" r="4" />
-          <path d="M4 21a8 8 0 0 1 16 0" />
-        </Icon>
-      )}
-    </span>
+    <button type="button" className={buttonClassName({ variant: "ghost", size: "icon", className: "alfred-button--compact alfred-headerControl alfred-headerAppearance" })}
+      onClick={() => setAppearance(dark ? "light" : "dark")} aria-pressed={dark} aria-label={label} title={label}>
+      <Icon className="size-5">{dark ? <><circle cx="12" cy="12" r="4" /><path d="M12 2v2m0 16v2M2 12h2m16 0h2M4.9 4.9l1.4 1.4m11.4 11.4 1.4 1.4m0-14.2-1.4 1.4M6.3 17.7l-1.4 1.4" /></> : <path d="M20.9 13A9 9 0 0 1 11 3.1 9 9 0 1 0 20.9 13Z" />}</Icon>
+    </button>
   );
 }
 
 /** Authenticated application frame: top bar navigation on wider screens, a bottom tab bar on phones. */
-export function AppShell({ current, name, fill = false, headerAction, children }: {
+export function AppShell({ current, fill = false, headerAction, children }: {
   current: Section;
   name: string;
   fill?: boolean;
   headerAction?: ReactNode;
   children: ReactNode;
 }) {
-  const [appearance, setAppearance] = useAppearance();
   const chat = current === "chat";
   const viewport = useChatViewport(chat);
   return <div ref={viewport} className={`alfred-app${chat ? " alfred-app-chat alfred-chat-viewport" : ""}`}>
@@ -186,10 +183,8 @@ export function AppShell({ current, name, fill = false, headerAction, children }
             {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-4">{item.icon}</Icon><span>{item.label}</span></Link>)}
           </nav>
           <div className="alfred-ui-headerActions">
-            <PrivacyToggle/>
+            <div className="alfred-headerControls" role="group" aria-label="Display controls"><PrivacyToggle/><AppearanceToggle/></div>
             {headerAction}
-            <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-button--compact alfred-ui-themeButton" })} onClick={() => setAppearance(appearance === "light" ? "dark" : "light")} aria-label={`Switch to ${appearance === "light" ? "dark" : "light"} appearance`}>{appearance === "light" ? "Dark" : "Light"}</button>
-            {!chat ? <Link href="/settings#profile" className="alfred-app-profile" aria-label={name ? `${name}: profile and settings` : "Profile and settings"} title="Profile and settings"><Initial name={name}/></Link> : null}
           </div>
         </div>
       </header>

@@ -7,14 +7,17 @@ import { useState } from "react";
 import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
 import { Select } from "@/app/components/select";
-import { Button, Card, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
+import { Button, Card, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { BillCadence, BillRecord, RenewalSuggestion, UpcomingBill } from "@/lib/finance/bills";
 import type { BillAction } from "@/lib/finance/bill-schedule";
+import { renewalSuggestionBillDraft } from "@/lib/finance/bill-renewals";
 import { formatDisplayDate } from "@/lib/finance/dates";
 import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import "./bills-card.css";
 
 export type { BillAction } from "@/lib/finance/bill-schedule";
+
+type BillDraft = Partial<BillRecord> & { suggestionId?: string; variableEstimate?: boolean };
 
 const CADENCE_LABELS: Record<BillCadence, string> = {
   once: "One time",
@@ -44,9 +47,15 @@ export function BillsCard({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [editing, setEditing] = useState<Partial<BillRecord> | null>(null);
+  const [editing, setEditing] = useState<BillDraft | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const [formBusy, setFormBusy] = useState(false);
+
+  function confirmSuggestion(item: RenewalSuggestion) {
+    setEditing({ ...renewalSuggestionBillDraft(item), suggestionId: item.id, variableEstimate: item.expectedAmount === null });
+    setOpen(true);
+  }
 
   const knownUpcoming = upcoming.filter((item) => item.amount !== null);
   const variableCount = upcoming.length - knownUpcoming.length;
@@ -95,19 +104,19 @@ export function BillsCard({
       }
     >
       {upcoming.length === 0 && suggestions.length === 0 ? (
-        <EmptyState>
-          No upcoming bills in the next 30 days.{" "}
-          <button
-            type="button"
+        <div className="alfred-bills-emptyAction">
+          <p>Keep the next payment date and amount in one place.</p>
+          <Button
+            variant="primary"
+            aria-haspopup="dialog"
             onClick={() => {
               setEditing({ name: "", nextDate: today, amount: "", cadence: "monthly" });
               setOpen(true);
             }}
-            className={buttonClassName({ variant: "ghost", size: "sm" })}
           >
             Add a bill
-          </button>
-        </EmptyState>
+          </Button>
+        </div>
       ) : (
         <div className="flex flex-col gap-3">
           {upcoming.length > 0 ? (
@@ -150,15 +159,7 @@ export function BillsCard({
                     </div>
                     <Button
                       size="sm"
-                      onClick={() => {
-                        setEditing({
-                          name: item.name,
-                          nextDate: item.expectedDate,
-                          amount: item.expectedAmount ?? "",
-                          cadence: item.cadence,
-                        });
-                        setOpen(true);
-                      }}
+                      onClick={() => confirmSuggestion(item)}
                     >
                       Confirm
                     </Button>
@@ -175,14 +176,17 @@ export function BillsCard({
       <Dialog
         open={open}
         onClose={close}
-        title={editing ? (editing.id ? "Edit bill" : "Add a bill") : "Bills & renewals"}
+        title={editing ? (editing.suggestionId ? "Confirm bill" : editing.id ? "Edit bill" : "Add a bill") : "Bills & renewals"}
+        dismissible={busy === null && !formBusy}
       >
         {editing ? (
           <BillForm
+            key={JSON.stringify([editing.id ?? editing.suggestionId ?? "new", editing.name, editing.nextDate, editing.amount, editing.cadence, editing.currency, editing.variableEstimate])}
             initial={editing}
-            currency={currency}
+            currency={editing.currency ?? currency}
             today={today}
             onAction={onAction}
+            onBusyChange={setFormBusy}
             onCancel={() => setEditing(null)}
             onSaved={() => {
               setEditing(null);
@@ -260,14 +264,7 @@ export function BillsCard({
                       </div>
                       <Button
                         size="sm"
-                        onClick={() =>
-                          setEditing({
-                            name: item.name,
-                            nextDate: item.expectedDate,
-                            amount: item.expectedAmount ?? "",
-                            cadence: item.cadence,
-                          })
-                        }
+                        onClick={() => confirmSuggestion(item)}
                       >
                         Add
                       </Button>
@@ -278,28 +275,27 @@ export function BillsCard({
             ) : null}
           </div>
         )}
-        <div className="mt-4 flex justify-end">
-          <Button variant="ghost" onClick={close} className="min-h-11">Close</Button>
-        </div>
       </Dialog>
     </Card>
   );
 }
 
-function BillForm({
+export function BillForm({
   initial,
   currency,
   today,
   onCancel,
   onSaved,
   onAction,
+  onBusyChange,
 }: {
-  initial: Partial<BillRecord>;
+  initial: BillDraft;
   currency: string;
   today: string;
   onCancel: () => void;
   onSaved: () => void;
   onAction?: (action: BillAction) => Promise<unknown>;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [name, setName] = useState(initial.name ?? "");
   const [nextDate, setNextDate] = useState(initial.nextDate ?? today);
@@ -310,7 +306,9 @@ function BillForm({
   const [error, setError] = useState("");
 
   async function submit() {
+    if (busy) return;
     setBusy(true);
+    onBusyChange?.(true);
     setError("");
     try {
       const action: BillAction = {
@@ -328,12 +326,13 @@ function BillForm({
       setError(cause instanceof Error ? cause.message : "That bill could not be saved.");
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
 
   return (
     <form
-      className="flex flex-col gap-3"
+      className="alfred-bill-form flex flex-col gap-3"
       data-preview-local-form={onAction ? "true" : undefined}
       onSubmit={(event) => {
         event.preventDefault();
@@ -357,7 +356,7 @@ function BillForm({
         </Field>
       </div>
       {!varies ? (
-        <Field label={`Expected amount (${currency})`}>
+        <Field label={`Expected amount (${currency})`} hint={initial.variableEstimate ? "Recent amounts varied. This is the latest payment; review it or choose “Amount varies each time”." : undefined}>
           <input className={inputClass} inputMode="decimal" value={amount} placeholder="0.00" onChange={(e) => setAmount(e.target.value)} required={!varies} />
         </Field>
       ) : null}
@@ -370,14 +369,14 @@ function BillForm({
           {error}
         </p>
       ) : null}
-      <div className="alfred-buttonGroup--mobileStack mt-2 flex justify-end gap-2">
+      <DialogActions className="mt-2">
         <Button variant="ghost" onClick={onCancel} disabled={busy}>
           Back
         </Button>
         <Button type="submit" variant="primary" disabled={busy}>
-          {busy ? <Spinner /> : "Save bill"}
+          {busy ? <Spinner /> : initial.suggestionId ? "Confirm bill" : "Save bill"}
         </Button>
-      </div>
+      </DialogActions>
     </form>
   );
 }

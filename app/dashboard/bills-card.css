@@ -7,3 +7,7 @@
   .alfred-bills-savedRow > div:first-child { flex:1 1 160px; }
   .alfred-bills-rowActions { justify-content:flex-start; }
 }
+
+.alfred-bill-form .alfred-dialog-actions { margin-top:8px; }
+.alfred-bills-emptyAction { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding:12px 0 4px; }
+.alfred-bills-emptyAction > p { color:var(--muted); font-size:14px; line-height:20px; }

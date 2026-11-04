@@ -153,6 +153,11 @@ describe("in-place transaction details", () => {
     expect(html.match(/aria-label="View details for /g)).toHaveLength(8); // Four desktop buttons and four mobile rows.
     expect(html.match(/href="\/accounts\?tab=activity"/g)).toHaveLength(1);
     expect(html).toContain("View all transactions");
+    const actions = html.match(/<div class="alfred-transaction-headerActions">[\s\S]*?<\/div>/)?.[0];
+    expect(actions).toContain('aria-label="Filters"');
+    expect(actions).toContain('alfred-button--primary');
+    expect(actions).toContain("View all transactions");
+    expect(html.match(/<div class="alfred-transaction-footer">[\s\S]*?<\/div>/)?.[0]).not.toContain("<a");
     expect(html).not.toContain("Manage in Accounts");
     expect(html).not.toContain("alfred-transaction-desktopFilters");
     expect(html).toContain('aria-label="Filters"');
