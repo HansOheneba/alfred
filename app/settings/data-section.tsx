@@ -134,7 +134,7 @@ function PasswordCard() {
             <p id={`${fieldId}-hint`}>Choose a password with at least 8 characters. You can still sign in with an email code.</p>
             <button
               type="button"
-              className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-password-reveal" })}
+              className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-button--compact alfred-password-reveal" })}
               aria-pressed={showPasswords}
               aria-controls={`${fieldId}-password ${fieldId}-confirm`}
               onClick={() => setShowPasswords((value) => !value)}

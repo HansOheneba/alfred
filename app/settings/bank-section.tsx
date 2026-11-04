@@ -36,7 +36,7 @@ function CopyRow({ label, value }: { label: string; value: string }) {
         <code className="min-w-0 flex-1 break-all rounded-xl border border-line-strong bg-bg px-3 py-2 font-mono text-xs leading-5 text-ink">{value}</code>
         <Button
           size="sm"
-          className="h-auto self-stretch"
+          className="alfred-button--compact h-auto self-stretch"
           onClick={async () => {
             try {
               await navigator.clipboard.writeText(value);

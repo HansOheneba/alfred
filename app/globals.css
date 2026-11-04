@@ -1,11 +1,29 @@
 @import "tailwindcss";
 /* Colours and type live in theme.css. */
 @import "./theme.css";
+@import "./components/fields.css";
 
 body {
   background: var(--bg);
   color: var(--ink);
   font-family: var(--font-sans);
+}
+
+@media (max-width: 760px) {
+  html { overscroll-behavior-x: none; }
+  .alfred-ui-main > * { min-inline-size: 0; max-inline-size: 100%; }
+  .alfred-ui-heading > * { min-inline-size: 0; }
+  .alfred-app .recharts-responsive-container { min-inline-size: 0; max-inline-size: 100%; }
+}
+
+@media (max-width: 760px), (pointer: coarse) {
+  /* A readable control size avoids focus zoom on iPhone without disabling pinch zoom. */
+  .alfred-app :is(input, select, textarea):not([type="checkbox"]):not([type="radio"]):not([type="range"]):not([type="color"]) {
+    font-size: 16px;
+    min-inline-size: 0;
+    max-inline-size: 100%;
+  }
+  .alfred-app :is(button, a, summary) { touch-action: manipulation; }
 }
 
 @layer utilities {

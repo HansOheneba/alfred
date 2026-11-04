@@ -1,0 +1,45 @@
+/* Compact overview controls keep every choice available without sideways scrolling. */
+.alfred-ui-rangePicker { display: none; }
+
+.alfred-ui-periodOptions { display: grid; gap: 8px; }
+.alfred-ui-periodOption { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 56px; border: 1px solid var(--line); border-radius: 12px; padding: 12px 16px; color: var(--ink); background: var(--surface); cursor: pointer; font-size: 16px; line-height: 24px; }
+.alfred-ui-periodOption[data-selected="true"] { border-color: var(--accent); color: var(--accent); background: var(--accent-soft); }
+.alfred-ui-periodOption:hover { background: var(--surface-2); }
+.alfred-ui-periodOption:has(input:focus-visible) { outline: 2px solid var(--accent); outline-offset: 2px; }
+.alfred-ui-periodOption input { appearance: none; flex: 0 0 auto; width: 22px; height: 22px; min-height: 22px; margin: 0; border: 1.5px solid var(--line-strong); border-radius: 50%; background: var(--surface); cursor: pointer; }
+.alfred-ui-periodOption input:checked { border-color: var(--accent); background: var(--accent); box-shadow: inset 0 0 0 5px var(--surface); }
+
+.alfred-ui-totalBalance.alfred-ui-totalBalance--compact { display: block; min-width: 0; align-self: start; }
+.alfred-ui-totalBalance--compact .alfred-ui-totalValue { overflow-wrap: anywhere; }
+.alfred-ui-totalBalance--compact .alfred-ui-balanceAccounts { margin-top: 12px; min-width: 0; }
+.alfred-ui-balanceDisclosure { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 44px; cursor: pointer; list-style: none; border-radius: 8px; }
+.alfred-ui-balanceDisclosure::-webkit-details-marker { display: none; }
+.alfred-ui-balanceDisclosure:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.alfred-ui-balanceDisclosure .alfred-ui-accountCount { margin: 0; min-width: 0; flex-wrap: wrap; }
+.alfred-ui-balanceDisclosure > svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--accent); transition: transform 160ms; }
+.alfred-ui-balanceAccounts[open] > .alfred-ui-balanceDisclosure > svg { transform: rotate(180deg); }
+.alfred-ui-totalBalance--compact .alfred-ui-accountBreakdown { border-left: 0; border-top: 1px solid var(--line); margin-top: 12px; padding: 16px 0 0; }
+.alfred-ui-totalBalance--compact .alfred-ui-accountBreakdown li > div { min-width: 0; }
+.alfred-ui-totalBalance--compact .alfred-ui-accountBreakdown li span { overflow-wrap: anywhere; }
+.alfred-ui-totalBalance--compact .alfred-ui-accountBreakdown strong { flex-shrink: 0; }
+.alfred-ui-balanceUnavailable { margin-top: 8px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+
+@media (max-width: 760px) {
+  .alfred-ui-dashboard .alfred-ui-controls:has(.alfred-ui-rangePicker) { display: block; width: 100%; }
+  .alfred-ui-controls:has(.alfred-ui-rangePicker) > .alfred-ui-ranges { display: none; }
+  .alfred-ui-dashboard .alfred-ui-rangePicker { display: flex; align-items: center; justify-content: flex-start; gap: 12px; min-width: 0; width: 100%; min-height: 48px; padding: 12px 14px; border-radius: 12px; font-size: 16px; text-align: left; }
+  .alfred-ui-rangePicker > svg { width: 20px; height: 20px; flex-shrink: 0; color: var(--muted); }
+  .alfred-ui-rangePicker > span { flex: 1; min-width: 0; }
+  .alfred-ui-rangePicker > svg:last-child { width: 18px; height: 18px; }
+  .alfred-ui-dashboard .alfred-ui-trends > section > div:first-child { min-width: 0; flex-wrap: wrap; }
+  .alfred-ui-dashboard .alfred-ui-legend { flex-wrap: wrap; gap: 8px; }
+  .alfred-ui-dashboard .alfred-ui-dailyCard > div:first-child { flex-direction: column; align-items: stretch; gap: 12px; }
+  .alfred-ui-dashboard .alfred-ui-dailyCard > div:first-child > h2 { min-width: 0; }
+  .alfred-ui-dailyCard .alfred-ui-chartModes { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); width: 100%; min-width: 0; gap: 4px; padding: 4px; background: var(--surface-2); }
+  .alfred-ui-dailyCard .alfred-ui-chartModes button { width: 100%; min-width: 0; min-height: 44px; padding-inline: 6px; justify-content: center; font-size: 14px; line-height: 20px; white-space: normal; }
+  .alfred-ui-dailyCard .alfred-ui-chartModes button[aria-pressed="true"] { border-color: transparent; color: var(--accent); background: var(--surface); box-shadow: 0 1px 4px #172d2914; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .alfred-ui-balanceDisclosure > svg { transition: none; }
+}

@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
+import { Select } from "@/app/components/select";
 import { EXPENSE_CATEGORIES } from "@/lib/finance/categories";
 import { canonicalizeAmount, formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import type { Ledger, LedgerBudget, LedgerGoal } from "@/lib/web/ledger";
@@ -227,7 +228,7 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
         {draft ? (
           <form className="flex flex-col gap-4" onSubmit={review}>
             <Field label="Category">
-              <select
+              <Select
                 value={draft.category}
                 disabled={Boolean(draft.existing)}
                 onChange={(event) => setDraft({ ...draft, category: event.target.value })}
@@ -238,7 +239,7 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
                     {category}
                   </option>
                 ))}
-              </select>
+              </Select>
             </Field>
             <Field label={`Amount (${ledger.currency})`}>
               <input

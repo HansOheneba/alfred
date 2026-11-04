@@ -44,6 +44,16 @@ const QUICK_ACTIONS: (Suggestion & { description: string; tone: "expense" | "inc
 
 export const STATS_EVENT = "alfred:open-stats";
 
+/** Size the draft without measuring an empty, not-yet-laid-out input. */
+export function resizeChatComposer(node: { value: string; scrollHeight: number; style: Pick<CSSStyleDeclaration, "height"> }) {
+  if (!node.value) {
+    node.style.height = "";
+    return;
+  }
+  node.style.height = "auto";
+  node.style.height = `${Math.max(44, Math.min(node.scrollHeight, 160))}px`;
+}
+
 /** Retained for existing controls that open the conversation context sheet. */
 export function StatsButton() {
   return (
@@ -271,13 +281,7 @@ export function ChatPanel({
   useEffect(() => {
     const node = inputRef.current;
     if (!node) return;
-    // An empty box stays one line; measuring it before layout settles can report a huge height.
-    if (!text) {
-      node.style.height = "";
-      return;
-    }
-    node.style.height = "auto";
-    node.style.height = `${Math.min(node.scrollHeight, 200)}px`;
+    resizeChatComposer(node);
   }, [text]);
 
   useEffect(() => {
@@ -561,7 +565,10 @@ export function ChatPanel({
   return (
     <div className="alfred-production-chat">
       <section className="alfred-production-chat-conversation" data-empty={showWelcome} aria-label="Chat with Alfred">
-        <h1 className="sr-only">Chat</h1>
+        <header className="alfred-production-chat-toolbar">
+          <h1>Chat</h1>
+          {!financialsEmpty ? <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-button--compact alfred-production-chat-contextToggle" })} aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10v.01" /></ChatIcon><span>Context</span></button> : null}
+        </header>
         {sessionChanged ? <div className="mx-6 mt-3 text-sm text-danger" role="alert"><p>Your session changed. Reload this page to continue.</p><a className="alfred-chat-answer-chip mt-2" href={activePaymentTarget ? `/chat?payment=${activePaymentTarget}` : "/chat"}>Reload</a></div> : null}
 
         {activePaymentTarget && !sourceReady ? <div className="mx-6 mt-3 text-sm text-muted" role="status" aria-busy={readProgress.payment?.state === "loading"}><p>{readProgress.payment?.state === "loading" ? "Opening this payment…" : "I couldn't open this payment. Try again, or ask me about something else."}</p>{newTopic ? <p className="mt-1">Your next message is about something else. This alert hasn&apos;t been changed.</p> : null}<div className="mt-2 flex flex-wrap gap-2">{readProgress.payment?.state !== "loading" ? <button type="button" className="alfred-chat-answer-chip" onClick={refreshThread}>Try again</button> : null}<button type="button" className="alfred-chat-answer-chip" onClick={() => { setNewTopic(!newTopic); inputRef.current?.focus(); }}>{newTopic ? "Back to this payment" : "Ask something else"}</button></div></div> : paymentEntry?.state === "unavailable" ? <p className="mx-6 mt-3 text-sm text-muted" role="status">I couldn&apos;t open that payment alert. Your conversation is still here.</p> : null}
@@ -618,8 +625,7 @@ export function ChatPanel({
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
             <div className="alfred-production-chat-composerRow">
               <button className={buttonClassName({ variant: "ghost", size: "icon" })} type="button" disabled={busy} onClick={() => fileRef.current?.click()} aria-label="Attach a screenshot" title="Attach a screenshot"><ChatIcon><path d="M12 5v14M5 12h14" /></ChatIcon></button>
-              <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={2} placeholder="Tell me what happened…" aria-describedby="alfred-compose-hint" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
-              {!financialsEmpty ? <button type="button" className={buttonClassName({ variant: "ghost", size: "icon", className: "alfred-production-chat-contextToggle" })} aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M14 4v16M6 8h4m-4 4h4" /></ChatIcon><span className="sr-only">Context</span></button> : null}
+              <textarea ref={inputRef} id="alfred-message" value={text} maxLength={2000} rows={1} placeholder="Tell me what happened…" aria-describedby="alfred-compose-hint" enterKeyHint="send" onChange={(event) => setText(event.target.value)} onKeyDown={(event) => { if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) { event.preventDefault(); event.currentTarget.form?.requestSubmit(); } }} />
               <input ref={fileRef} type="file" accept="image/png,image/jpeg,image/webp,image/heic,image/heif" hidden onChange={(event) => { const file = event.target.files?.[0]; event.target.value = ""; if (file) void uploadImage(file); }} />
               <button type="submit" disabled={busy || !sendingAllowed || text.trim().length === 0} aria-label="Send" className={buttonClassName({ variant: "primary", size: "icon", className: "alfred-production-chat-send" })}><span className="sr-only">Send</span><ChatIcon><path d="M12 19V5m-6 6 6-6 6 6" /></ChatIcon></button>
             </div>
@@ -697,7 +703,7 @@ function ContextSheet({ open, onClose, children }: { open: boolean; onClose: () 
     const first = controls[0], last = controls.at(-1);
     if (event.shiftKey && document.activeElement === first && last) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last && first) { event.preventDefault(); first.focus(); }
-  }}><header><div><h2 id="alfred-production-chat-contextTitle">Conversation context</h2><p>Your recorded activity, alongside Chat</p></div><button className={buttonClassName({ variant: "secondary", size: "icon" })} type="button" aria-label="Close context" onClick={onClose} autoFocus><ChatIcon><path d="m6 6 12 12M6 18 18 6" /></ChatIcon></button></header><div className="alfred-production-chat-contextSheetBody">{children}</div><footer><button className={buttonClassName({ variant: "ghost", size: "sm" })} type="button" onClick={onClose}>Back to chat <span aria-hidden="true">↗</span></button></footer></dialog>;
+  }}><span className="alfred-production-chat-contextHandle" aria-hidden="true" /><header><div><h2 id="alfred-production-chat-contextTitle">Conversation context</h2><p>Your recorded activity, alongside Chat</p></div><button className={buttonClassName({ variant: "secondary", size: "icon" })} type="button" aria-label="Close context" onClick={onClose} autoFocus><ChatIcon><path d="m6 6 12 12M6 18 18 6" /></ChatIcon></button></header><div className="alfred-production-chat-contextSheetBody">{children}</div><footer><button className={buttonClassName({ variant: "ghost", size: "sm" })} type="button" onClick={onClose}>Back to chat <span aria-hidden="true">↗</span></button></footer></dialog>;
 }
 
 function TelegramBadge() {

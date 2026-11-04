@@ -11,13 +11,13 @@ import { MonthlyInsights, SummaryMetric as Stat } from "@/app/dashboard/overview
 
 const styles = {
   dashboard: "alfred-ui-dashboard", heading: "alfred-ui-heading", controls: "alfred-ui-controls",
-  ranges: "alfred-ui-ranges", talk: "alfred-ui-talk", summary: "alfred-ui-summary",
+  ranges: "alfred-ui-ranges", summary: "alfred-ui-summary",
   trends: "alfred-ui-trends", legend: "alfred-ui-legend", categories: "alfred-ui-categories",
   transactions: "alfred-ui-transactions",
 } as const;
 import { useMemo, useState } from "react";
 
-import { Card, EmptyState, categoryColor } from "@/app/components/ui";
+import { Card, Dialog, EmptyState, categoryColor } from "@/app/components/ui";
 import { BillsCard } from "@/app/dashboard/bills-card";
 import { CategoryDonut, DailyChart, MonthlyChart, SimpleBars } from "@/app/dashboard/charts";
 import { compactMoney, delta, percent } from "@/app/dashboard/helpers";
@@ -42,6 +42,7 @@ import {
 import { formatDisplayDate } from "@/lib/finance/dates";
 import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
+import "./overview-mobile.css";
 
 const PRESETS = Object.keys(RANGE_LABELS) as RangePreset[];
 
@@ -55,6 +56,7 @@ function lastTwelveMonths(today: string) {
 export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { ledger: Ledger; name: string; timeZone?: string }) {
   const { currency, today } = ledger;
   const [preset, setPreset] = useState<RangePreset>("this_month");
+  const [periodOpen, setPeriodOpen] = useState(false);
   const [selected, setSelected] = useState<string | null>(null);
   const [dailyMode, setDailyMode] = useState<"daily" | "cumulative">("daily");
 
@@ -101,6 +103,12 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
     setSelected((current) => (current === category ? null : category));
   }
 
+  function chooseRange(value: RangePreset) {
+    setPreset(value);
+    setSelected(null);
+    setPeriodOpen(false);
+  }
+
   const setup = getGettingStartedState(ledger);
   if (setup.canShowSetup || setup.showBlockedSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} />;
 
@@ -112,15 +120,17 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
           <h1 className="mt-1 font-display text-2xl font-medium leading-tight tracking-tight">{name ? `${name}'s finances` : "Your finances"}</h1>
         </div>
         <div className={styles.controls}>
+          <button type="button" className={buttonClassName({ variant: "secondary", className: "alfred-ui-rangePicker" })} aria-label={`Date range: ${RANGE_LABELS[preset]}`} aria-haspopup="dialog" aria-expanded={periodOpen} onClick={() => setPeriodOpen(true)}>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M8 3v4m8-4v4M4 10h16" /><rect x="4" y="5" width="16" height="16" rx="3" /></svg>
+            <span>{RANGE_LABELS[preset]}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg>
+          </button>
           <div className={styles.ranges} role="group" aria-label="Date range">
             {PRESETS.map((item) => (
               <button
                 key={item}
                 type="button"
-                onClick={() => {
-                  setPreset(item);
-                  setSelected(null);
-                }}
+                onClick={() => chooseRange(item)}
                 aria-pressed={preset === item}
                 className={buttonClassName({ variant: preset === item ? "primary" : "ghost", size: "sm" })}
               >
@@ -128,14 +138,17 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
               </button>
             ))}
           </div>
-          <Link
-            href="/chat"
-            className={buttonClassName({ variant: "primary", className: styles.talk })}
-          >
-            Talk to Alfred
-          </Link>
         </div>
       </div>
+
+      <Dialog open={periodOpen} onClose={() => setPeriodOpen(false)} title="Choose a period">
+        <div className="alfred-ui-periodOptions" role="radiogroup" aria-label="Date range">
+          {PRESETS.map((item) => <label key={item} className="alfred-ui-periodOption" data-selected={preset === item}>
+            <span>{RANGE_LABELS[item]}</span>
+            <input type="radio" name="overview-period" value={item} checked={preset === item} onChange={() => chooseRange(item)} onClick={() => { if (preset === item) setPeriodOpen(false); }} />
+          </label>)}
+        </div>
+      </Dialog>
 
       {ledger.bank.needsLabel.length > 0 ? <div className="alfred-ui-reviewPrompt"><span>Make your overview more complete.</span><Link href="/accounts?tab=needs-attention" className={buttonClassName({ variant: "ghost", size: "sm" })}>{ledger.bank.needsLabel.length} need{ledger.bank.needsLabel.length === 1 ? "s" : ""} a label <span aria-hidden="true">↗</span></Link></div> : null}
 
@@ -171,8 +184,8 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
       <div className="alfred-ui-overviewGrid">
       <DashboardAccountBalance accounting={ledger.accounting} currency={currency} timeZone={timeZone} />
       <section className={styles.summary} aria-label="Summary">
-        <Stat label="Spent" value={formatMinor(spent, currency)} hint={delta(spent, prevSpent, false).text} tone={delta(spent, prevSpent, false).tone} />
-        <Stat label="Income" value={formatMinor(earned, currency)} hint={delta(earned, prevEarned, true).text} tone={delta(earned, prevEarned, true).tone} />
+        <Stat label="Spent" value={formatMinor(spent, currency)} hint={`${RANGE_LABELS[preset]} · ${delta(spent, prevSpent, false).text}`} tone={delta(spent, prevSpent, false).tone} />
+        <Stat label="Income" value={formatMinor(earned, currency)} hint={`${RANGE_LABELS[preset]} · ${delta(earned, prevEarned, true).text}`} tone={delta(earned, prevEarned, true).tone} />
         <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
       </section>
       </div>
@@ -188,16 +201,17 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
           </p>
         </Card>
         <Card
+          className="alfred-ui-dailyCard"
           title={`Spending by day · ${rangeLabel}`}
           action={
-            <div className="flex rounded-xl border border-line p-1 text-sm" role="group" aria-label="Chart mode">
+            <div className="alfred-ui-chartModes flex rounded-xl border border-line p-1 text-sm" role="group" aria-label="Chart mode">
               {(["daily", "cumulative"] as const).map((mode) => (
                 <button
                   key={mode}
                   type="button"
                   aria-pressed={dailyMode === mode}
                   onClick={() => setDailyMode(mode)}
-                  className={buttonClassName({ variant: dailyMode === mode ? "soft" : "ghost", size: "sm" })}
+                  className={buttonClassName({ variant: dailyMode === mode ? "soft" : "ghost", size: "sm", className: "alfred-button--compact" })}
                 >
                   {mode === "daily" ? "Daily" : "Running total"}
                 </button>

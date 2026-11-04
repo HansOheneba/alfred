@@ -1,0 +1,36 @@
+.alfred-dialog {
+  position:fixed;
+  inset:0;
+  margin:auto;
+  width:min(28rem,calc(100vw - 40px));
+  max-width:none;
+  max-height:calc(100dvh - 40px);
+  overflow:hidden;
+  padding:0;
+  border:1px solid var(--line-strong);
+  border-radius:20px;
+  background:var(--surface);
+  color:var(--ink);
+  box-shadow:0 24px 80px rgb(0 0 0 / .2);
+}
+.alfred-dialog::backdrop { background:var(--scrim,rgb(8 19 21 / .48)); backdrop-filter:blur(4px); }
+.alfred-dialog-surface { display:flex; flex-direction:column; min-height:0; max-height:inherit; }
+.alfred-sheet-handle { display:none; flex-shrink:0; width:40px; height:4px; margin:10px auto 0; border-radius:999px; background:var(--line-strong); }
+.alfred-dialog-header { display:flex; flex-shrink:0; align-items:center; justify-content:space-between; gap:16px; padding:20px; border-bottom:1px solid var(--line); }
+.alfred-dialog-header h2 { min-width:0; font-size:18px; line-height:26px; font-weight:600; overflow-wrap:anywhere; }
+.alfred-dialog-header > button { flex-shrink:0; }
+.alfred-dialog-header > button > span { font-size:24px; line-height:1; }
+.alfred-dialog-body { min-height:0; overflow-x:hidden; overflow-y:auto; overscroll-behavior:contain; padding:20px; }
+.alfred-dialog-body > :first-child { margin-top:0; }
+.alfred-dialog-actions { position:sticky; bottom:-20px; z-index:1; margin-inline:-20px; padding:16px 20px; border-top:1px solid var(--line); background:var(--surface); }
+@media(max-width:720px) {
+  .alfred-dialog { inset:auto 0 0; margin:0; width:100%; max-height:calc(100dvh - max(12px,env(safe-area-inset-top))); border:1px solid var(--line); border-bottom:0; border-radius:24px 24px 0 0; }
+  .alfred-dialog[open] { animation:alfred-sheet-enter 180ms ease-out; }
+  .alfred-dialog .alfred-sheet-handle { display:block; }
+  .alfred-dialog-header { padding:12px 20px 16px; }
+  .alfred-dialog-header > button { width:44px; height:44px; }
+  .alfred-dialog-body { padding:20px 20px max(20px,env(safe-area-inset-bottom)); }
+  .alfred-dialog-actions { padding-bottom:max(16px,env(safe-area-inset-bottom)); }
+}
+@keyframes alfred-sheet-enter { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+@media(prefers-reduced-motion:reduce) { .alfred-dialog[open] { animation:none; } }

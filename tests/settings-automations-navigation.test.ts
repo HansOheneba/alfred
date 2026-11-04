@@ -40,4 +40,20 @@ describe("Automations in Settings navigation", () => {
     expect(html.match(/type="button"/g)).toHaveLength(SETTINGS_SECTIONS.length);
     expect(choose).not.toHaveBeenCalled();
   });
+
+  it("gives every existing destination a decorative icon while preserving its accessible label", () => {
+    const html = renderToStaticMarkup(createElement(SettingsNavigation, { section: "profile", onChoose: vi.fn() }));
+    const icons: string[] = [];
+    for (const section of SETTINGS_SECTIONS) {
+      const button = new RegExp(`<button\\b[^>]*data-section="${section.id}"[^>]*>([\\s\\S]*?)<\\/button>`).exec(html);
+      expect(button).not.toBeNull();
+      expect(button![0]).toContain(`aria-label="${section.label.replaceAll("&", "&amp;").replaceAll("'", "&#x27;")}"`);
+      expect(button![1]).toMatch(/<span class="alfred-settings-navigationIcon" aria-hidden="true">/);
+      const icon = /<svg class="alfred-settings-navigationSymbol"[^>]*focusable="false"[^>]*>([\s\S]*?)<\/svg>/.exec(button![1]);
+      expect(icon).not.toBeNull();
+      expect(icon![1]).toMatch(/<(?:path|circle|rect)\b/);
+      icons.push(icon![1]);
+    }
+    expect(new Set(icons).size).toBe(SETTINGS_SECTIONS.length);
+  });
 });
