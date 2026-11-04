@@ -7,7 +7,7 @@ import { createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/
 import { createSupabasePeopleStore, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
 import { createSupabaseLoanStore, type LoanStore } from "@/lib/finance/loans";
 import { bankAccess, type IngestDeps } from "@/lib/bank/ingest";
-import { chooseLabel, currentQuestion } from "@/lib/bank/reply";
+import { chooseLabel, currentQuestion, proposedLabelApplier } from "@/lib/bank/reply";
 import { parseLabelCallback } from "@/lib/bank/notify";
 import { answerTransferConversation } from "@/lib/bank/transfer-conversation";
 import { createTransferConversationDeps, type TransferConversationDeps } from "@/lib/bank/own-transfers";
@@ -151,6 +151,8 @@ export async function handleProfileTurn(
     bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
     notebook: deps.notebook ?? null,
   };
+  const labelling = ingestFor(deps, now);
+  ctx.labelPayments = labelling ? proposedLabelApplier(labelling, profile) : null;
 
   let result: StudioResult;
   try {

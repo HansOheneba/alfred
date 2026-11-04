@@ -190,7 +190,7 @@ export type LabelReply = { text: string; next: BankMessage | null; buttons?: Inl
 const MAX_SHOWN = 15;
 
 /** One waiting payment as a short line: "GH₵61.50 to Godwin Abaya · Mon 26 Oct". */
-function waitingLine(message: BankMessage, profile: UserProfile): string {
+export function waitingLine(message: BankMessage, profile: UserProfile): string {
   const money = formatAmount(message.amount, message.currency);
   const day = new Intl.DateTimeFormat("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: profile.timezone }).format(new Date(message.occurredAt));
   const named = message.counterparty && !/^gcb/i.test(message.counterparty) ? titleCase(message.counterparty) : null;
@@ -425,8 +425,14 @@ function purposeEvidence(text: string, direction: BankMessage["direction"]) {
       for (const word of ["rental", "income", "earnings"]) semanticWords.add(word);
     }
   }
-  const repayment = /\b(?:repaid|repayment|paying (?:me|them|him|her|you) back|paid (?:me|them|him|her|you) back|pay back|returned (?:the )?money i (?:had )?lent|returned (?:my|the) loan)\b/.test(said);
+  // "He'll pay me back" or "George owes me" is a debt still open, not a repayment happening now.
+  const returned = /\b(?:returned (?:the )?money i (?:had )?lent|returned (?:my|the) loan)\b/.test(said);
+  const owedLater = !returned && /\b(?:owes? me|(?:will|'ll|going to|gonna|to) pay (?:me )?back|pay me back (?:later|soon|tomorrow|next)|i lent (?:it )?(?:to )?(?:him|her|them|a friend|my friend)|lent (?:it )?to (?:him|her|them|a friend|my friend))\b/.test(said);
+  const oweLater = /\b(?:i owe|i'll pay (?:him|her|them) back|i will pay (?:him|her|them) back)\b/.test(said);
+  const repayment = !owedLater && !oweLater && /\b(?:repaid|repayment|paying (?:me|them|him|her|you) back|paid (?:me|them|him|her|you) back|pay back|returned (?:the )?money i (?:had )?lent|returned (?:my|the) loan)\b/.test(said);
   if (repayment) kinds.add(direction === "in" ? "repaid" : "paid_back");
+  else if (owedLater && direction === "out") kinds.add("lent");
+  else if (oweLater && direction === "in") kinds.add("borrowed");
   else if (/\b(?:loan|borrowed|lent me|lent to me)\b/.test(said)) kinds.add(direction === "in" ? "borrowed" : "lent");
   if (/\b(?:my own|own money|between my accounts|between accounts)\b/.test(said)) kinds.add("transfer");
   if (/\b(?:skip|ignore|leave (?:it |this |that )?out|not a payment|same payment)\b/.test(said)) kinds.add("skip");
@@ -478,6 +484,47 @@ export function groundedPaymentLabel(text: string, message: BankMessage, label: 
   if (label.kind === "category" && label.forMonth && !text.includes(label.forMonth)) return false;
   if (label.kind === "category" && label.includedFee && (!/\bfee\b/i.test(text) || !text.includes(label.includedFee))) return false;
   return true;
+}
+
+/**
+ * Whether a model's reading is fit to show the person for confirmation, even
+ * though their words didn't name it outright. The model may choose the type of
+ * money ("he'll pay me back" is lending, a card top-up is their own money), but
+ * it cannot contradict a purpose they named, pick a spending category they
+ * didn't mention, or add details and people that appear nowhere.
+ */
+export function proposableLabel(text: string, message: BankMessage, label: Label, context: string[] = []): boolean {
+  if (label.kind === "skip" || paymentPurposeUnclear(text, message.direction)) return false;
+  const evidence = purposeEvidence(text, message.direction);
+  const category = "category" in label ? normalizeCategory(label.category, label.kind === "category" && message.direction === "in" ? "income" : "expense") : null;
+  if (label.kind === "category" || label.kind === "refund" || label.kind === "chip_in") {
+    if (!category || !(label.kind === "category" ? evidence.categories : evidence.spending).has(category)) return false;
+  } else if (evidence.categories.size > 0 || [...evidence.kinds].some((kind) => kind !== label.kind)) {
+    return false;
+  }
+  const own = new Set([...evidence.words, ...purposeWords(message.counterparty), ...context.flatMap(purposeWords)]);
+  const allowed = (word: string) => PURPOSE_FILLER.has(word) || own.has(word) || evidence.semanticWords.has(word)
+    || Boolean(category && normalizeCategory(word, message.direction === "in" ? "income" : "expense") === category);
+  const details = "description" in label ? label.description : "note" in label ? label.note : "investment" in label ? label.investment : null;
+  if (details && !purposeWords(details).every(allowed)) return false;
+  if ("person" in label && label.person && !purposeWords(label.person).every((word) => own.has(word))) return false;
+  if (label.kind === "category" && (label.forMonth || label.includedFee)) return false;
+  return true;
+}
+
+/** Files labels the person confirmed, keeping one undo for them all. */
+export function proposedLabelApplier(deps: IngestDeps, profile: UserProfile) {
+  return async (items: { bankMessageId: string; label: Label }[]): Promise<string> => {
+    const lines: string[] = [];
+    const changes: LabelChange[] = [];
+    for (const item of items) {
+      const result = await applyLabel(deps, profile, item.bankMessageId, item.label);
+      if (result.ok) changes.push(...result.changes.map((change) => ({ ...change, filedAs: filedAs(item.label) })));
+      lines.push(result.text);
+    }
+    if (changes.length > 0) await deps.bank.saveUndo(profile.profileId, changes);
+    return lines.length === 1 ? lines[0] : lines.map((line) => `• ${line}`).join("\n");
+  };
 }
 
 /**

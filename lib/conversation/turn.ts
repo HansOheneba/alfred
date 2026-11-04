@@ -10,6 +10,7 @@ import {
   LABEL_MODEL,
   isLabelUndo,
   groundedPaymentLabel,
+  proposableLabel,
   explicitExpenseCategory,
   labelShortcut,
   paymentPurposeUnclear,
@@ -24,6 +25,7 @@ import { isPaymentSkipRequest, isUnresolvedPaymentNotice, PAYMENT_NOTICE_STAYS_P
 import { questionFor } from "@/lib/bank/notify";
 import { openThread } from "@/lib/conversation/thread";
 import { welcomeFor } from "@/lib/conversation/welcome";
+import { nearbyPayments, openLabelProposal, proposeLabels, type Proposal } from "@/lib/conversation/proposals";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { attentionLine, interpretWithContext, type ChatCue } from "@/lib/finance/context";
 import type { AttentionSummary } from "@/lib/finance/accounting/types";
@@ -95,6 +97,14 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
       : await answerTypedDecision(text, ctx)
     : null;
   if (settled) return ordinaryReply({ kind: "text", text: settled.text, context: settled.context });
+  // A "yes" to Alfred's reading of this payment confirms that reading only.
+  if (noticeFocus?.requiresPurpose && decision && !options.newTopic) {
+    const proposal = await openLabelProposal(ctx, noticeFocus.bankMessageId);
+    if (proposal) {
+      const decided = await decidePending({ decision, actionId: proposal.actionId, chatId: null }, ctx);
+      return keepNoticeFocus({ kind: "text", text: decided.text, intent: "bank:label" });
+    }
+  }
 
   const ingest: IngestDeps | null = deps.bank
     ? { bank: deps.bank, ledger: ctx.store, now: ctx.now, createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }
@@ -163,8 +173,14 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     open: (history) => {
       open = openThread({ history: noticeFocus === undefined ? history : [], waiting, pending, now: ctx.now });
       if (noticeFocus !== undefined) {
+        const nearby = waiting?.current ? nearbyPayments(waiting.current, waiting.listed, ctx.profile) : [];
         open.push(waiting?.currentNumber
-          ? `Alfred just asked what waiting payment ${waiting.currentNumber} was for. A purpose answer refers to that payment only: use label_payments. If the purpose is unclear, ask; never guess it or log the same payment again.`
+          ? [
+              `Alfred just asked what waiting payment ${waiting.currentNumber} was for. Answer it with label_payments.`,
+              nearby.length ? `Other waiting payments around the same time: ${nearby.join("; ")}. If what the person says also explains one of these (a card top-up and the charge right after it, say), label it in the same answer.` : "",
+              "Alfred shows the person its reading and asks before saving, so choose the label that matches what they mean in their own words: money out that someone will pay back is lent to that person, money moved onto their own card or account is own_transfer.",
+              "If the purpose is unclear, ask; never invent a person or purpose they didn't give, or log the same payment again.",
+            ].filter(Boolean).join(" ")
           : "The last private payment notice did not leave an open purpose question. A bare reply does not answer an older payment question or confirmation. Ask which payment they mean if needed.");
       }
       return open;
@@ -199,10 +215,24 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Nothing was changed. For a separate transaction, choose Ask something else or give its different amount, currency and date.", intent: "chat:other" }, true);
   }
   const focused = waiting?.exactQuestion ? waiting.current : null;
-  if (ingest && focused && actions.some((item) => item.type === "label_payments" && resolvedFrom(item.answers, waiting!.listed).some((answer) => answer.messageIds.includes(focused.id) && !groundedPaymentLabel(text, focused, answer.label)))) {
-    const again = await askAgain(ingest, ctx.profile, focused);
-    const purpose = text.replace(/\s+/g, " ").trim().slice(0, 180);
-    return keepNoticeFocus({ kind: "text", text: purposeQuestionIntro(focused, `I haven't changed this payment. You said “${purpose}”. Was it a gift, a repayment, your own money, or another type? Choose the matching answer below, or tell me the type.`), intent: "bank:label", buttons: again.buttons });
+  if (ingest && focused && actions.some((item) => item.type === "label_payments")) {
+    const proposals = actions.flatMap((item) => item.type === "label_payments" ? resolvedFrom(item.answers, waiting!.listed) : [])
+      .flatMap((answer) => answer.messageIds.map((id) => ({ message: waiting!.listed.find((message) => message.id === id), label: answer.label })))
+      .filter((item): item is Proposal => Boolean(item.message));
+    // Words that clearly name this payment's purpose are filed straight away. Any other reading,
+    // or one that also covers a nearby payment, is shown back to the person before anything is saved.
+    if (proposals.some((item) => item.message.id !== focused.id || !groundedPaymentLabel(text, focused, item.label))) {
+      const said = [text, ...(people ?? [])];
+      const fit = proposals.filter((item) => groundedPaymentLabel(text, item.message, item.label) || proposableLabel(text, item.message, item.label, said));
+      // A reading has to cover the payment being asked about; nearby ones can only come along with it.
+      const proposed = fit.length === proposals.length && fit.some((item) => item.message.id === focused.id) ? await proposeLabels(ctx, fit, ctx.profile) : null;
+      if (proposed) return keepNoticeFocus({ ...proposed, intent: "bank:label" });
+    }
+    if (!proposals.some((item) => item.message.id === focused.id && groundedPaymentLabel(text, focused, item.label))) {
+      const again = await askAgain(ingest, ctx.profile, focused);
+      const purpose = text.replace(/\s+/g, " ").trim().slice(0, 180);
+      return keepNoticeFocus({ kind: "text", text: purposeQuestionIntro(focused, `I haven't changed this payment. You said “${purpose}”, and I couldn't turn that into a label I'm sure of. Was it a gift, a repayment, your own money, or another type? Choose below, or tell me in other words.`), intent: "bank:label", buttons: again.buttons });
+    }
   }
   const purposeDetail = focused ? await earlierFocusedPurpose(deps.messages, ctx.profile.profileId, focused, text, options.excludeClientId) : null;
   const parts: TurnReply[] = [];

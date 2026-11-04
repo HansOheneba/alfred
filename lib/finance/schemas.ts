@@ -291,7 +291,28 @@ export const strictDraftSchema = z.object({
   notes: z.string().max(300),
 });
 
+const optionalText = (max: number) => z.string().max(max).nullable().optional();
+
+/** A label Alfred proposed for a captured payment, saved only after the person confirms it. */
+export const proposedLabelSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("category"), category: z.string().min(1).max(40), description: optionalText(200) }),
+  z.object({ kind: z.literal("transfer") }),
+  z.object({ kind: z.literal("pass_through"), person: optionalText(120), note: optionalText(200) }),
+  z.object({ kind: z.literal("refund"), category: z.string().min(1).max(40), description: optionalText(200) }),
+  z.object({ kind: z.literal("lent"), person: optionalText(120), note: optionalText(200) }),
+  z.object({ kind: z.literal("repaid"), person: optionalText(120) }),
+  z.object({ kind: z.literal("borrowed"), person: optionalText(120), note: optionalText(200) }),
+  z.object({ kind: z.literal("paid_back"), person: optionalText(120) }),
+  z.object({ kind: z.literal("invest"), investment: optionalText(80) }),
+  z.object({ kind: z.literal("chip_in"), category: z.string().min(1).max(40), description: optionalText(200), person: optionalText(120) }),
+]);
+
 export const pendingPayloadSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("label_payments"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    items: z.array(z.object({ bankMessageId: z.string().min(1).max(80), label: proposedLabelSchema })).min(1).max(4),
+  }),
   z.object({
     type: z.literal("create_transaction"),
     originUpdateId: z.string().regex(/^\d+$/),
@@ -357,6 +378,7 @@ export const pendingPayloadSchema = z.discriminatedUnion("type", [
 ]);
 
 export type PendingPayload = z.infer<typeof pendingPayloadSchema>;
+export type ProposedLabel = z.infer<typeof proposedLabelSchema>;
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
