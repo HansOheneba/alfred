@@ -343,8 +343,8 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
     <Card title="Device notifications">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-muted" role="status">{browserStatus}</p>
-        <div className="flex flex-wrap gap-2">
-          {currentLinked ? <><Button onClick={() => void testNotification()} disabled={busy || !deviceReady}>Send test</Button><Button variant="ghost" onClick={() => void removeDevice(currentDevice!)} disabled={busy}>Turn off this device</Button></> : <Button variant="primary" onClick={() => void allowThisBrowser()} disabled={busy || !visibleData || !pushReady || (!preview && (!supported || reconnectNeeded))}>Enable notifications</Button>}
+        <div className={`flex flex-wrap gap-2 ${currentLinked ? "" : "alfred-buttonGroup--mobileStack"}`}>
+          {currentLinked ? <><Button onClick={() => void testNotification()} disabled={busy || !deviceReady}>Send test</Button><Button variant="ghost" onClick={() => void removeDevice(currentDevice!)} disabled={busy}>Turn off this device</Button></> : <Button variant="primary" className="alfred-button--mobileFull" onClick={() => void allowThisBrowser()} disabled={busy || !visibleData || !pushReady || (!preview && (!supported || reconnectNeeded))}>Enable notifications</Button>}
         </div>
       </div>
       <p className="mt-2 text-xs leading-5 text-muted">Tap a payment alert to continue in Chat.</p>

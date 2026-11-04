@@ -38,9 +38,9 @@
 .alfred-button:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 .alfred-button:disabled,.alfred-button[aria-disabled="true"] { opacity: .5; cursor: not-allowed; }
 @media (max-width:720px) {
-  /* Page and form actions fill a phone row; toolbars opt into compact controls. */
-  .alfred-button:not(.alfred-button--icon,.alfred-button--compact) { inline-size:100%; flex:none; }
-  :where(.alfred-app,.auth-screen) :is(div,form,header,footer,section):has(> .alfred-button:not(.alfred-button--icon,.alfred-button--compact)) { inline-size:100%; flex-wrap:wrap; }
-  :where(.alfred-app,.auth-screen) :is(div,form,header,footer,section):has(> :is(div,form,header,footer,section) > .alfred-button:not(.alfred-button--icon,.alfred-button--compact)) { flex-wrap:wrap; }
+  /* Only standalone actions and explicitly stacked footers fill a phone row. */
+  .alfred-button.alfred-button--mobileFull { inline-size:100%; flex:none; }
+  .alfred-buttonGroup--mobileStack { display:flex; flex-direction:column; align-items:stretch; inline-size:100%; }
+  .alfred-buttonGroup--mobileStack > .alfred-button:not(.alfred-button--icon) { inline-size:100%; flex:none; }
 }
 @media(prefers-reduced-motion:reduce) { .alfred-button { transition: none; } }

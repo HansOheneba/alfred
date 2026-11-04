@@ -203,7 +203,7 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
               </Button>
             </>
           ) : (
-            <Button variant="primary" onClick={() => void createKey()} disabled={busy} aria-busy={busy}>
+            <Button variant="primary" className="alfred-button--mobileFull" onClick={() => void createKey()} disabled={busy} aria-busy={busy}>
               {busy ? <Spinner /> : null}
               Create forwarding key
             </Button>
@@ -271,7 +271,7 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
             }}
           />
         </Field>
-        <div className="mt-4 flex items-center justify-end gap-3">
+        <div className="alfred-buttonGroup--mobileStack mt-4 flex items-center justify-end gap-3">
           <p className="mr-auto text-sm" role="status" aria-live="polite">
             {typeof namesState === "object" ? (
               <span className="text-danger">{namesState.error}</span>
@@ -279,7 +279,7 @@ export function BankSection({ bank, currency }: { bank: LedgerBank; currency: st
               <span className="text-success">Saved ✓</span>
             ) : null}
           </p>
-          <Button variant="primary" onClick={() => void saveNames()} disabled={namesState === "saving" || !namesDirty} aria-busy={namesState === "saving"}>
+          <Button variant="primary" className="alfred-button--mobileFull" onClick={() => void saveNames()} disabled={namesState === "saving" || !namesDirty} aria-busy={namesState === "saving"}>
             {namesState === "saving" ? <Spinner /> : null}
             Save names
           </Button>

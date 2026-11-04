@@ -80,7 +80,7 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
           <h1 className="mt-1 text-2xl font-semibold tracking-tight">What you own, at a glance.</h1>
           <p className="mt-1 text-sm text-muted">What it&apos;s worth, what you put in, and what&apos;s coming up.</p>
         </div>
-        {!firstUse ? <Button variant="primary" onClick={() => setAdding(true)}>
+        {!firstUse ? <Button variant="primary" className="alfred-button--mobileFull" onClick={() => setAdding(true)}>
           Add investment
         </Button> : null}
       </header>
@@ -91,7 +91,7 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
         <h2 id="investments-start-title">Your first investment starts the picture</h2>
         <p>Add an investment you already hold, such as a T-bill, fund or stock. This view will grow from the details you record.</p>
         <ol><li><span>1</span><div><h3>Add what you own</h3><p>Choose a name, investment type and currency.</p></div></li><li><span>2</span><div><h3>Record its details</h3><p>Add its latest value or the holding details you have.</p></div></li><li><span>3</span><div><h3>Follow its progress</h3><p>See values, contributions and maturity dates as you build your records.</p></div></li></ol>
-        <div className="alfred-investments-firstUseActions"><Button variant="primary" onClick={() => setAdding(true)}>Add your first investment</Button><Link className={buttonClassName({ variant: "secondary", size: "md" })} href={`/chat?question=${encodeURIComponent("I'd like to add an investment.")}`}>Ask Alfred <span aria-hidden="true">↗</span></Link></div>
+        <div className="alfred-investments-firstUseActions alfred-buttonGroup--mobileStack"><Button variant="primary" onClick={() => setAdding(true)}>Add your first investment</Button><Link className={buttonClassName({ variant: "secondary", size: "md" })} href={`/chat?question=${encodeURIComponent("I'd like to add an investment.")}`}>Ask Alfred <span aria-hidden="true">↗</span></Link></div>
         <p className="alfred-investments-firstUseNote">No investment values are recorded yet.</p>
       </section> : null}
 
@@ -344,18 +344,18 @@ function InvestmentCard({ item, onChange }: { item: InvestmentView; onChange: (p
             value={value}
             onChange={(event) => setValue(event.target.value)}
           />
-          <Button type="submit" variant="primary" size="sm" disabled={state.busy || !value.trim()}>
+          <Button type="submit" variant="primary" size="sm" className="alfred-button--mobileFull" disabled={state.busy || !value.trim()}>
             {state.busy ? <Spinner /> : null}
             Save
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setEditing(false)}>
+          <Button size="sm" variant="ghost" className="alfred-button--mobileFull" onClick={() => setEditing(false)}>
             Cancel
           </Button>
           {state.error ? <p className="w-full text-xs text-danger">{state.error}</p> : null}
         </form>
       ) : (
         <div className="mt-4 flex gap-2">
-          <Button size="sm" onClick={() => setEditing(true)}>
+          <Button size="sm" className="alfred-button--mobileFull" onClick={() => setEditing(true)}>
             Update value
           </Button>
         </div>
@@ -434,7 +434,7 @@ function AddInvestment({ open, onClose, onSaved }: { open: boolean; onClose: () 
           <p className="text-xs leading-5 text-muted">To price it every day, tell Alfred what you hold, like &ldquo;my Risevest has 2 VOO and 0.5 MSFT&rdquo;.</p>
         ) : null}
         {state.error ? <p className="text-sm text-danger">{state.error}</p> : null}
-        <div className="flex justify-end gap-2">
+        <div className="alfred-buttonGroup--mobileStack flex justify-end gap-2">
           <Button onClick={onClose}>Cancel</Button>
           <Button type="submit" variant="primary" disabled={state.busy || !form.name.trim()}>
             {state.busy ? <Spinner /> : null}

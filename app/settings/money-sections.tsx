@@ -265,11 +265,11 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
                 {draftError}
               </p>
             ) : null}
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setDraft(null)}>
+            <div className="alfred-buttonGroup--mobileStack flex justify-end gap-2">
+              <Button variant="ghost" className="alfred-button--mobileFull" onClick={() => setDraft(null)}>
                 Cancel
               </Button>
-              <Button variant="primary" type="submit">
+              <Button variant="primary" className="alfred-button--mobileFull" type="submit">
                 Review
               </Button>
             </div>
@@ -478,11 +478,11 @@ export function GoalsSection({ ledger }: { ledger: Ledger }) {
                 {draftError}
               </p>
             ) : null}
-            <div className="flex justify-end gap-2">
-              <Button variant="ghost" onClick={() => setDraft(null)}>
+            <div className="alfred-buttonGroup--mobileStack flex justify-end gap-2">
+              <Button variant="ghost" className="alfred-button--mobileFull" onClick={() => setDraft(null)}>
                 Cancel
               </Button>
-              <Button variant="primary" type="submit">
+              <Button variant="primary" className="alfred-button--mobileFull" type="submit">
                 Review
               </Button>
             </div>

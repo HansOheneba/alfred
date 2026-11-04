@@ -306,7 +306,7 @@ export function PortabilitySection({ transport = browserTransport, sampleFile, s
         {stage === "choose" ? <>
           <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line pb-5">
             <div><h3 className="font-medium">Download my data</h3><p className="mt-1 text-sm leading-6 text-muted">Your financial records and settings. Keep the download private.</p></div>
-            <Button onClick={() => void exportArchive()} disabled={busy !== null} aria-busy={busy === "export"}>{busy === "export" ? <Spinner /> : null}Download my data</Button>
+            <Button className="alfred-button--mobileFull" onClick={() => void exportArchive()} disabled={busy !== null} aria-busy={busy === "export"}>{busy === "export" ? <Spinner /> : null}Download my data</Button>
           </div>
           <section aria-labelledby="import-data-title" className="space-y-4">
             <h3 id="import-data-title" className="font-medium">Import data</h3>
@@ -314,7 +314,7 @@ export function PortabilitySection({ transport = browserTransport, sampleFile, s
             {sampleFile ? <Button onClick={() => { setFile(sampleFile); setPreview(null); setError(""); setNotice(""); }} disabled={busy !== null}>Use sample file</Button> : null}
             {file ? <p className="break-words text-sm text-muted" role="status">{file.name}</p> : null}
             <p className="text-xs text-faint">ZIP files up to 20 MB.</p>
-            <Button variant="primary" className="w-full sm:w-auto" onClick={() => void previewArchive()} disabled={!file || busy !== null} aria-busy={busy === "preview"}>{busy === "preview" ? <Spinner /> : null}Review import</Button>
+            <Button variant="primary" className="alfred-button--mobileFull" onClick={() => void previewArchive()} disabled={!file || busy !== null} aria-busy={busy === "preview"}>{busy === "preview" ? <Spinner /> : null}Review import</Button>
           </section>
         </> : null}
 
@@ -333,7 +333,7 @@ export function PortabilitySection({ transport = browserTransport, sampleFile, s
           <Notes title="Before you import" items={specificImportWarnings(preview.warnings)} />
           {preview.coverage.some((item) => item.status !== "supported") ? <details className="text-sm"><summary className="cursor-pointer font-medium">What can be imported?</summary><div className="mt-3"><DatasetCoverageList coverage={preview.coverage} /></div></details> : null}
           <p className="text-xs leading-5 text-muted">Existing data won’t be overwritten. Importing does not connect bank messages or turn on reminders.</p>
-          {canConfirm ? <div className="flex flex-wrap gap-3"><Button variant="primary" className="w-full sm:w-auto" onClick={() => void confirmImport()} disabled={busy !== null} aria-busy={busy === "confirm"}>{busy === "confirm" ? <Spinner /> : null}Confirm import</Button><Button variant="ghost" onClick={() => { setPreview(null); setError(""); }} disabled={busy !== null}>Back</Button></div> : <><p className="text-sm text-danger">Nothing has been imported. Resolve the issues above and review the file again.</p><Button onClick={() => setPreview(null)} disabled={busy !== null}>Choose another file</Button></>}
+          {canConfirm ? <div className="alfred-buttonGroup--mobileStack flex flex-wrap gap-3"><Button variant="primary" className="alfred-button--mobileFull" onClick={() => void confirmImport()} disabled={busy !== null} aria-busy={busy === "confirm"}>{busy === "confirm" ? <Spinner /> : null}Confirm import</Button><Button variant="ghost" className="alfred-button--mobileFull" onClick={() => { setPreview(null); setError(""); }} disabled={busy !== null}>Back</Button></div> : <><p className="text-sm text-danger">Nothing has been imported. Resolve the issues above and review the file again.</p><Button onClick={() => setPreview(null)} disabled={busy !== null}>Choose another file</Button></>}
         </section> : null}
 
         {receipt && !preview ? <section aria-labelledby="import-receipt-title" className="space-y-5">
@@ -343,7 +343,7 @@ export function PortabilitySection({ transport = browserTransport, sampleFile, s
           {receipt.browserPreferences ? <BrowserPreferenceReceiptView receipt={receipt.browserPreferences} undone={!!receipt.undoneAt} /> : null}
           {receipt.unsupported.length && !receipt.undoneAt ? <p className="rounded-xl border border-line p-3 text-sm leading-6 text-muted">Some data is saved for later support. You can view or download it below.</p> : null}
           {receipt.investmentNotificationsPaused && !receipt.undoneAt ? <div className="space-y-2 text-sm leading-6"><p className="text-muted">Investment reminders are paused. Resuming them may send future messages and prevents undoing this import.</p><Button size="sm" onClick={() => setConfirmResume(true)} disabled={busy !== null}>Resume investment reminders</Button></div> : null}
-          <div className="flex flex-wrap gap-3">{onViewData && !receipt.undoneAt ? <Button variant="primary" className="w-full sm:w-auto" onClick={onViewData}>View my data</Button> : null}<Button variant={onViewData && !receipt.undoneAt ? "ghost" : "primary"} onClick={startAgain} disabled={busy !== null}>Done</Button></div>
+          <div className="alfred-buttonGroup--mobileStack flex flex-wrap gap-3">{onViewData && !receipt.undoneAt ? <Button variant="primary" className="alfred-button--mobileFull" onClick={onViewData}>View my data</Button> : null}<Button variant={onViewData && !receipt.undoneAt ? "ghost" : "primary"} className="alfred-button--mobileFull" onClick={startAgain} disabled={busy !== null}>Done</Button></div>
           {receipt.undoAvailable && !receipt.browserPreferences?.undoBlocked ? <details className="border-t border-line pt-4 text-sm"><summary className="cursor-pointer text-muted">Undo this import</summary><p className="my-3 text-xs leading-5 text-muted">Undo is available only if your records haven’t changed since the import. Later edits are kept safe.</p><Button size="sm" onClick={() => setConfirmUndo(true)} disabled={busy !== null}>Undo import</Button></details> : null}
         </section> : null}
 

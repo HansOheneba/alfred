@@ -77,6 +77,7 @@ export function SettingsNavigation({ section, onChoose }: {
             onClick={() => onChoose(item.id)}
             aria-current={active ? "page" : undefined}
             aria-label={item.label}
+            aria-controls="alfred-settings-detail"
             className="alfred-settings-navigationItem"
           >
             <SettingsIcon section={item.id} />

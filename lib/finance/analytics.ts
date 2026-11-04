@@ -13,6 +13,24 @@ export type LedgerRow = {
   category: string;
   description: string;
   paymentMethod: string;
+  /** Compact receipt facts from the same accounting snapshot as this report row. No raw alerts or audit history. */
+  receipt?: LedgerReceipt;
+};
+
+export type LedgerReceipt = {
+  kind: "payment" | "fee" | "tax";
+  accountLabel: string | null;
+  occurredAt: string | null;
+  status: "confirmed" | "review" | "hold" | "transfer" | "duplicate" | "excluded";
+  sourceLabel: string;
+  principalMinor: number;
+  feeMinor: number;
+  taxMinor: number;
+  balanceBeforeMinor: number | null;
+  balanceAfterMinor: number | null;
+  links: ("transfer" | "refund" | "loan")[];
+  imported: boolean;
+  sourceMissing: boolean;
 };
 
 export function toLedgerRows(transactions: TransactionRecord[]): LedgerRow[] {

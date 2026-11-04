@@ -69,6 +69,17 @@ describe("mobile Settings section navigation", () => {
     const back = nodes(view.value).find(node => text(node.props.children as ReactNode) === "Back to settings")!; (back.props.onClick as () => void)(); view.render(); expect(location.hash).toBe(""); expect(view.root.props["data-mobile-section-open"]).toBe(false);
     view.choose("automations"); view.choose("profile"); expect(nodes(view.value).find(node => node.type === "input" && node.props.autoComplete === "nickname")?.props.value).toBe("Unsaved fictional name");
   });
+  it("names the shared detail panel for the selected section on desktop and mobile", () => {
+    const view = screen("#profile");
+    const region = () => nodes(view.value).find(node => node.props.id === "alfred-settings-detail")!;
+    expect(region().props.role).toBe("region");
+    expect(region().props["aria-label"]).toBe("Profile");
+    view.choose("goals");
+    expect(region().props["aria-label"]).toBe("Savings goals");
+    expect(location.hash).toBe("#goals");
+    location.hash = "#profile"; for (const callback of listeners.get("popstate") ?? []) callback(); view.render();
+    expect(region().props["aria-label"]).toBe("Profile");
+  });
 });
 
 describe("Accounts section destinations", () => {

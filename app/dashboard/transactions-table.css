@@ -1,42 +1,46 @@
-.alfred-transactions .alfred-transaction-filters {
-  display: grid;
-  grid-template-columns: minmax(180px, 1.8fr) repeat(3, minmax(130px, 1fr));
-  gap: 12px;
-  align-items: end;
-}
-.alfred-transaction-field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
-.alfred-transaction-field > span:first-child { color: var(--ink); font-size: 14px; font-weight: 500; line-height: 20px; }
-.alfred-transactions .alfred-transaction-field :is(input, select) { min-width: 0; width: 100%; }
 .alfred-transaction-date { display: block; line-height: 20px; }
 .alfred-transaction-time { display: block; color: var(--muted); font-size: 12px; line-height: 16px; margin-top: 4px; font-variant-numeric: tabular-nums; }
 .alfred-transactions :is(button,a) { min-height: 44px; }
-.alfred-transactions .alfred-transaction-filterToggle { display: none; }
+.alfred-transactions .alfred-transaction-filterToggle { display: inline-flex; flex: none; }
 .alfred-transaction-filterToggle > svg { width: 16px; height: 16px; flex: none; }
 .alfred-transaction-filterCount { display: inline-grid; place-items: center; min-width: 20px; height: 20px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
 .alfred-transaction-mobileList, .alfred-transaction-mobileCount { display: none; }
 .alfred-transaction-desktopPagination { display: flex; }
 .alfred-transaction-footer { display: flex; justify-content: flex-end; align-items: center; gap: 12px; margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--line); }
 .alfred-transaction-footer .alfred-transaction-viewAll { min-width: 0; gap: 8px; }
-.alfred-transaction-filterSheet, .alfred-transaction-options { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.alfred-transaction-filterSheet { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
 .alfred-transaction-filterSheetActions { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 8px; }
-.alfred-transaction-options > p { overflow-wrap: anywhere; }
-@media (max-width: 1099px) {
-  .alfred-transactions .alfred-transaction-filters { grid-template-columns: repeat(2, minmax(0, 1fr)); }
-}
+.alfred-transaction-desktopDescription { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 0; background: transparent; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
+.alfred-transaction-desktopDescription > span:last-child { overflow-wrap: anywhere; }
+.alfred-transaction-desktopDescription:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
+.alfred-transaction-direction { width: 30px; height: 30px; flex: 0 0 30px; display: grid; place-items: center; border-radius: 50%; background: var(--bg); color: var(--muted); }
+.alfred-transaction-direction.is-in { background: color-mix(in srgb,var(--income) 10%,var(--surface)); color: var(--income); }
+.alfred-transaction-direction.is-out { background: color-mix(in srgb,var(--outgoing) 10%,var(--surface)); color: var(--outgoing); }
+.alfred-transaction-direction > svg { width: 17px; height: 17px; }
+.alfred-transaction-desktopAmount.is-in { color: var(--income); }
+.alfred-transaction-desktopAmount.is-out { color: var(--outgoing); }
+.alfred-transaction-receipt { display: flex; flex-direction: column; gap: 24px; min-width: 0; }
+.alfred-transaction-receiptHero { display: flex; flex-direction: column; align-items: center; gap: 8px; text-align: center; min-width: 0; padding: 12px 0 20px; border-bottom: 1px solid var(--line); }
+.alfred-transaction-receiptHero > span { font-size: 14px; line-height: 20px; font-weight: 500; }
+.alfred-transaction-receiptHero > strong { max-width: 100%; font-size: clamp(28px, 7vw, 36px); line-height: 1.25; font-weight: 600; letter-spacing: -.035em; overflow-wrap: anywhere; }
+.alfred-transaction-receiptHero.is-in > :is(span,strong) { color: var(--income); }
+.alfred-transaction-receiptHero.is-out > :is(span,strong) { color: var(--outgoing); }
+.alfred-transaction-receiptHero > h3 { font-size: 16px; line-height: 24px; font-weight: 500; overflow-wrap: anywhere; }
+.alfred-transaction-receiptHero > p, .alfred-transaction-receiptNote { color: var(--muted); font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+.alfred-transaction-receiptFacts { display: flex; flex-direction: column; gap: 16px; min-width: 0; }
+.alfred-transaction-receiptFacts > div { display: flex; align-items: baseline; justify-content: space-between; gap: 20px; min-width: 0; }
+.alfred-transaction-receiptFacts dt { color: var(--muted); font-size: 14px; line-height: 20px; }
+.alfred-transaction-receiptFacts dd { min-width: 0; max-width: 65%; text-align: right; font-size: 14px; line-height: 20px; overflow-wrap: anywhere; }
+.alfred-transaction-receiptActions { display: flex; flex-wrap: wrap; gap: 12px; padding-top: 20px; border-top: 1px solid var(--line); }
 @media (max-width: 767px) {
   .alfred-transactions { min-width: 0; }
   .alfred-transactions > div:first-child { gap: 8px; }
   .alfred-transactions > div:first-child > h2 { min-width: 0; flex: 1; }
-  .alfred-transactions .alfred-transaction-desktopFilters, .alfred-transaction-desktopPagination { display: none; }
-  .alfred-transactions .alfred-transaction-filterToggle { display: inline-flex; flex: none; }
+  .alfred-transaction-desktopPagination { display: none; }
   .alfred-transaction-mobileList { display: flex; flex-direction: column; list-style: none; margin: 0; padding: 0; min-width: 0; }
   .alfred-transaction-mobileList > li + li { border-top: 1px solid var(--line); }
   .alfred-transaction-row { display: grid; grid-template-columns: 30px minmax(0,1fr) minmax(0,auto) 12px; width: 100%; gap: 10px; align-items: center; min-height: 76px; padding: 14px 0; border: 0; background: transparent; color: inherit; text-align: left; text-decoration: none; font: inherit; cursor: pointer; }
   .alfred-transaction-row:focus-visible { outline: 2px solid var(--accent); outline-offset: 3px; border-radius: 8px; }
-  .alfred-transaction-direction { width: 30px; height: 30px; display: grid; place-items: center; border-radius: 50%; background: var(--bg); color: var(--muted); }
-  .alfred-transaction-direction.is-in { background: color-mix(in srgb,var(--income) 10%,var(--surface)); color: var(--income); }
-  .alfred-transaction-direction.is-out { background: color-mix(in srgb,var(--outgoing) 10%,var(--surface)); color: var(--outgoing); }
-  .alfred-transaction-direction > svg { width: 17px; height: 17px; }
   .alfred-transaction-description { display: flex; flex-direction: column; gap: 5px; min-width: 0; }
   .alfred-transaction-name { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; overflow-wrap: anywhere; font-size: 14px; font-weight: 500; line-height: 20px; }
   .alfred-transaction-meta { display: flex; flex-wrap: wrap; gap: 2px 7px; color: var(--muted); font-size: 11px; line-height: 16px; }
@@ -50,9 +54,4 @@
   .alfred-transaction-rowChevron { width: 12px; height: 12px; color: var(--muted); }
   .alfred-transaction-footer { justify-content: space-between; margin-top: 0; padding-top: 8px; }
   .alfred-transaction-mobileCount { display: block; color: var(--muted); font-size: 11px; line-height: 16px; }
-  .alfred-transaction-filterSheetActions { flex-wrap: wrap; }
-  .alfred-transaction-filterSheetActions > button { flex: none; }
-}
-@media (max-width: 600px) {
-  .alfred-transaction-field:first-child, .alfred-transaction-field:last-child { grid-column: 1 / -1; }
 }
