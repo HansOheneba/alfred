@@ -1,6 +1,7 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { automationPreviewBypassesAuth } from "@/lib/preview/access";
+import { HOME_COOKIE, HOME_PATHS, readHome } from "@/lib/web/home";
 
 export async function proxy(request: NextRequest) {
   // These three read-only fictional pages need no account session. Keep their
@@ -25,7 +26,18 @@ export async function proxy(request: NextRequest) {
       },
     },
   });
-  await supabase.auth.getUser();
+  // getClaims verifies the asymmetric session JWT locally (keys are cached per
+  // instance) and refreshes it when expired, so most requests skip an Auth round trip.
+  const { data } = await supabase.auth.getClaims();
+  if (data?.claims && request.nextUrl.pathname === "/" && request.method === "GET") {
+    // The installed app starts at "/". Send signed-in people straight to their home
+    // screen instead of rendering a sign-in gate that then redirects in the browser.
+    const home = request.nextUrl.clone();
+    home.pathname = HOME_PATHS[readHome(request.cookies.get(HOME_COOKIE)?.value)];
+    const redirect = NextResponse.redirect(home);
+    for (const cookie of response.cookies.getAll()) redirect.cookies.set(cookie);
+    return redirect;
+  }
   return response;
 }
 

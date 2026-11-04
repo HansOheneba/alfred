@@ -31,6 +31,10 @@ export async function getAuthUser() {
   await io();
   const supabase = await createSupabaseServerClient();
   if (!supabase) return null;
-  const { data } = await supabase.auth.getUser();
-  return data.user;
+  // The project signs sessions with an asymmetric key, so getClaims verifies the
+  // JWT locally instead of asking Supabase Auth on every render (an extra round trip).
+  const { data } = await supabase.auth.getClaims();
+  const claims = data?.claims;
+  if (!claims?.sub) return null;
+  return { id: claims.sub, email: typeof claims.email === "string" ? claims.email : null };
 }
