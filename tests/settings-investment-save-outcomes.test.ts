@@ -63,7 +63,7 @@ describe("Settings mutation outcomes", () => {
     mutations.request.mockResolvedValueOnce({ ok: false, text: "Check the name." }); await screen.saveSettings();
     expect(screen.saveBar.props.state).toEqual({ kind: "error", text: "Check the name." }); expect(screen.saveBar.props.dirty).toBe(true); expect(mutations.recover).not.toHaveBeenCalled();
     mutations.request.mockResolvedValueOnce({ ok: true, settings: { ...initial, preferredName: "Confirmed" } }); await screen.saveSettings();
-    expect(screen.saveBar.props.state).toEqual({ kind: "saved" }); expect(screen.saveBar.props.dirty).toBe(false); expect(screen.field("Preferred name").props.value).toBe("Confirmed"); expect(mutations.refresh).toHaveBeenCalledOnce();
+    expect(screen.saveBar.props.state).toEqual({ kind: "saved" }); expect(screen.saveBar.props.dirty).toBe(false); expect(screen.field("Preferred name").props.value).toBe("Confirmed"); expect(mutations.refresh).toHaveBeenCalledTimes(3);
   });
 });
 

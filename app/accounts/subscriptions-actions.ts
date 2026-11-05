@@ -19,3 +19,16 @@ export async function loadAccountSubscriptions(): Promise<SubscriptionsResult> {
     return { ok: false, text: "Your subscriptions could not be loaded. Try again shortly." };
   }
 }
+
+/** The paged Accounts display never downloads complete accounting sources to derive renewals. */
+export async function loadAccountSubscriptionsView(): Promise<{ ok: true; ownerId: string; data: SubscriptionsData } | { ok: false; text: string }> {
+  try {
+    const owner = await requireOwner();
+    if (owner instanceof Response) return { ok: false, text: "Sign in again to load subscriptions." };
+    const [{ loadAccountingReadModel }, { subscriptionsData }] = await Promise.all([import("@/lib/finance/accounting/persisted-store"), import("./subscriptions-data")]);
+    const [accounting, bills] = await Promise.all([loadAccountingReadModel(owner.settings.supabase, owner.profile.profileId), createSupabaseBillStore(owner.settings.supabase).list(owner.profile.profileId)]);
+    if (accounting.state.ownerId !== owner.profile.profileId) return { ok: false, text: "Your signed-in account changed. Reload Accounts." };
+    const today = zonedYmd(new Date(), owner.profile.timezone);
+    return { ok: true, ownerId: owner.profile.profileId, data: subscriptionsData({ bills, currency: owner.profile.currency, today }, accounting.state) };
+  } catch { return { ok: false, text: "Your subscriptions could not be loaded. Try again shortly." }; }
+}

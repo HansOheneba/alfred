@@ -22,4 +22,5 @@ for (const key of [
 // Schema readiness is cached per process; each test controls its own database mock.
 import { beforeEach } from "vitest";
 import { resetSchemaReadyCache } from "@/lib/supabase/finance-capabilities";
-beforeEach(() => resetSchemaReadyCache());
+import { resetAccountingDisplayCache } from "@/lib/finance/accounting/display-cache";
+beforeEach(() => { resetSchemaReadyCache(); resetAccountingDisplayCache(); });

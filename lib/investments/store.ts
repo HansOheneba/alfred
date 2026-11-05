@@ -55,7 +55,11 @@ export type NewContribution = Omit<Contribution, "id">;
 /** `asOf` is the day the price is for; `fetchedAt` is when Alfred got it, set by the store. */
 export type Price = { market: Market; symbol: string; price: number; currency: string; asOf: string; fetchedAt?: string };
 
+export type PortfolioInputs = { investments: Investment[]; holdings: Holding[]; values: ReportedValue[]; contributions: Contribution[] };
+
 export interface InvestmentStore {
+  /** One owner-scoped statement snapshot for display/valuation reads when supported. */
+  portfolioInputs?(ownerId: string): Promise<PortfolioInputs>;
   list(ownerId: string): Promise<Investment[]>;
   create(ownerId: string, input: NewInvestment): Promise<Investment>;
   update(ownerId: string, id: string, patch: InvestmentPatch): Promise<void>;
@@ -103,7 +107,7 @@ type InvestmentRow = {
   rate: string | null;
   started_on: string | null;
   matures_on: string | null;
-  reminded_at: Date | null;
+  reminded_at: Date | string | null;
   payee_key: string | null;
   status: Investment["status"];
 };
@@ -112,6 +116,13 @@ const investmentColumns = `id::text, owner_id::text, name, kind, provider, curre
   to_char(started_on, 'YYYY-MM-DD') as started_on, to_char(matures_on, 'YYYY-MM-DD') as matures_on, reminded_at, payee_key, status`;
 
 const money = (value: string | number) => Number(value).toFixed(2);
+const iso = (value: Date | string) => value instanceof Date ? value.toISOString() : new Date(value).toISOString();
+type HoldingRow = { investment_id: string; symbol: string; quantity: string; cost: string | null };
+type ValueRow = { investment_id: string; value: string; as_of: Date | string; source: ReportedValue["source"] };
+type ContributionRow = { id: string; investment_id: string; amount: string; currency: string; occurred_on: string; bank_message_id: string | null; note: string };
+const holdingFrom = (row: HoldingRow): Holding => ({ investmentId: row.investment_id, symbol: row.symbol, quantity: Number(row.quantity), cost: row.cost == null ? null : money(row.cost) });
+const valueFrom = (row: ValueRow): ReportedValue => ({ investmentId: row.investment_id, value: money(row.value), asOf: iso(row.as_of), source: row.source });
+const contributionFrom = (row: ContributionRow): Contribution => ({ id: row.id, investmentId: row.investment_id, amount: money(row.amount), currency: row.currency, occurredOn: row.occurred_on, bankMessageId: row.bank_message_id, note: row.note });
 
 function fromRow(row: InvestmentRow): Investment {
   return {
@@ -128,7 +139,7 @@ function fromRow(row: InvestmentRow): Investment {
     rate: row.rate == null ? null : Number(row.rate),
     startedOn: row.started_on,
     maturesOn: row.matures_on,
-    remindedAt: row.reminded_at ? row.reminded_at.toISOString() : null,
+    remindedAt: row.reminded_at ? iso(row.reminded_at) : null,
     payeeKey: row.payee_key,
     status: row.status,
   };
@@ -151,6 +162,29 @@ const PATCH_COLUMNS: Record<keyof InvestmentPatch, string> = {
 
 export function createSupabaseInvestmentStore(settings: SupabaseSettings): InvestmentStore {
   return {
+    async portfolioInputs(ownerId) {
+      // Each aggregate keeps its existing ordering and owner filter. One statement
+      // avoids four pool round trips and keeps contribution history aligned with valuation.
+      const rows = await query<{ investments: InvestmentRow[]; holdings: HoldingRow[]; values: ValueRow[]; contributions: ContributionRow[] }>(settings,
+        `select
+          (select coalesce(jsonb_agg(to_jsonb(i) order by i.created_at),'[]'::jsonb) from (
+            select ${investmentColumns},created_at from public.investments where owner_id=$1::uuid and status='active'
+          ) i) as investments,
+          (select coalesce(jsonb_agg(to_jsonb(h) order by h.symbol),'[]'::jsonb) from (
+            select investment_id::text,symbol,quantity::text,cost::text from public.investment_holdings where owner_id=$1::uuid
+          ) h) as holdings,
+          (select coalesce(jsonb_agg(to_jsonb(v) order by v.investment_id),'[]'::jsonb) from (
+            select distinct on (investment_id) investment_id::text,value::text,as_of,source from public.investment_values
+            where owner_id=$1::uuid order by investment_id,as_of desc,created_at desc
+          ) v) as values,
+          (select coalesce(jsonb_agg(to_jsonb(c) order by c.occurred_on,c.created_at),'[]'::jsonb) from (
+            select id::text,investment_id::text,amount::text,currency,to_char(occurred_on,'YYYY-MM-DD') as occurred_on,bank_message_id::text,note,created_at
+            from public.investment_contributions where owner_id=$1::uuid
+          ) c) as contributions`, [ownerId]);
+      const row = rows[0];
+      if (!row) throw new Error("Investment records could not be loaded.");
+      return { investments: row.investments.map(fromRow), holdings: row.holdings.map(holdingFrom), values: row.values.map(valueFrom), contributions: row.contributions.map(contributionFrom) };
+    },
     async list(ownerId) {
       const rows = await query<InvestmentRow>(settings, `select ${investmentColumns} from public.investments where owner_id = $1::uuid and status = 'active' order by created_at`, [ownerId]);
       return rows.map(fromRow);
@@ -180,12 +214,12 @@ export function createSupabaseInvestmentStore(settings: SupabaseSettings): Inves
       await query(settings, `update public.investments set ${sets.join(", ")}, updated_at = now() where owner_id = $1::uuid and id = $2::uuid`, values);
     },
     async holdings(ownerId) {
-      const rows = await query<{ investment_id: string; symbol: string; quantity: string; cost: string | null }>(
+      const rows = await query<HoldingRow>(
         settings,
         "select investment_id::text, symbol, quantity::text, cost::text from public.investment_holdings where owner_id = $1::uuid order by symbol",
         [ownerId],
       );
-      return rows.map((row) => ({ investmentId: row.investment_id, symbol: row.symbol, quantity: Number(row.quantity), cost: row.cost == null ? null : money(row.cost) }));
+      return rows.map(holdingFrom);
     },
     async setHoldings(ownerId, investmentId, holdings) {
       for (const holding of holdings) {
@@ -203,14 +237,14 @@ export function createSupabaseInvestmentStore(settings: SupabaseSettings): Inves
       }
     },
     async latestValues(ownerId) {
-      const rows = await query<{ investment_id: string; value: string; as_of: Date; source: ReportedValue["source"] }>(
+      const rows = await query<ValueRow>(
         settings,
         `select distinct on (investment_id) investment_id::text, value::text, as_of, source
          from public.investment_values where owner_id = $1::uuid
          order by investment_id, as_of desc, created_at desc`,
         [ownerId],
       );
-      return rows.map((row) => ({ investmentId: row.investment_id, value: money(row.value), asOf: row.as_of.toISOString(), source: row.source }));
+      return rows.map(valueFrom);
     },
     async addValue(ownerId, investmentId, value, asOf, source) {
       await query(settings, "insert into public.investment_values (investment_id, owner_id, value, as_of, source) values ($1::uuid, $2::uuid, $3, $4, $5)", [
@@ -218,21 +252,13 @@ export function createSupabaseInvestmentStore(settings: SupabaseSettings): Inves
       ]);
     },
     async contributions(ownerId) {
-      const rows = await query<{ id: string; investment_id: string; amount: string; currency: string; occurred_on: string; bank_message_id: string | null; note: string }>(
+      const rows = await query<ContributionRow>(
         settings,
         `select id::text, investment_id::text, amount::text, currency, to_char(occurred_on, 'YYYY-MM-DD') as occurred_on, bank_message_id::text, note
          from public.investment_contributions where owner_id = $1::uuid order by occurred_on, created_at`,
         [ownerId],
       );
-      return rows.map((row) => ({
-        id: row.id,
-        investmentId: row.investment_id,
-        amount: money(row.amount),
-        currency: row.currency,
-        occurredOn: row.occurred_on,
-        bankMessageId: row.bank_message_id,
-        note: row.note,
-      }));
+      return rows.map(contributionFrom);
     },
     async addContribution(ownerId, input) {
       const rows = await query<{ id: string }>(

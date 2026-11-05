@@ -107,10 +107,10 @@ function Item({ item, compact }: { item: LedgerBankItem; compact: boolean }) {
 }
 
 /** Payments read from bank messages that Alfred couldn't place yet. Renders nothing when empty. */
-export function NeedsLabel({ items, compact = false, limit }: { items: LedgerBankItem[]; compact?: boolean; limit?: number }) {
+export function NeedsLabel({ items, compact = false, limit, totalCount = items.length }: { items: LedgerBankItem[]; compact?: boolean; limit?: number; totalCount?: number }) {
   if (items.length === 0) return null;
   const shown = limit ? items.slice(0, limit) : items;
-  const hidden = items.length - shown.length;
+  const hidden = totalCount - shown.length;
   return (
     <div>
       <ul className="flex flex-col gap-2">
@@ -120,7 +120,7 @@ export function NeedsLabel({ items, compact = false, limit }: { items: LedgerBan
       </ul>
       {hidden > 0 ? (
         <Link href="/review" className="mt-2 inline-block text-xs text-accent underline-offset-4 hover:underline">
-          Review all {items.length} →
+          Review all {totalCount} →
         </Link>
       ) : null}
     </div>

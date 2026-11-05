@@ -9,6 +9,7 @@ import type { TransactionRecord } from "../types";
 import { actionFingerprint, applyAccountingAction } from "./reducer";
 import { hydrateAccountingSources, sourceMovements } from "./sources";
 import { AccountingError, emptyAccountingState, type AccountingAction, type AccountingState, type CashMovement } from "./types";
+import { readAccountingDisplayCached } from "./display-cache";
 
 export type AccountingResult={state:AccountingState;availability:"ready"|"migration-required";sourceVersion:string|null;rawTransactions:TransactionRecord[];bankMessages?:BankMessage[];transferWindow?:BankTransferWindow;transferProviders?:ImportedTransferProviders};
 const FULL_STATE_SQL="select state from public.accounting_states where owner_id=$1::uuid";
@@ -31,7 +32,7 @@ export async function loadAccountingState(settings:SupabaseSettings,ownerId:stri
 
 /** Display/reporting reads only. Mutations, Undo and exports must load the complete audit before-state. */
 export async function loadAccountingReadModel(settings:SupabaseSettings,ownerId:string):Promise<AccountingResult> {
-  return loadAccounting(settings,ownerId,undefined,undefined,true,READ_MODEL_SQL);
+  return readAccountingDisplayCached(settings,ownerId,() => loadAccounting(settings,ownerId,undefined,undefined,true,READ_MODEL_SQL));
 }
 
 async function loadAccounting(settings:SupabaseSettings,ownerId:string,providedRaw:TransactionRecord[]|undefined,transferPivotIds:string[]|undefined,includeImportedProviderFacts:boolean,stateSql:string):Promise<AccountingResult> {

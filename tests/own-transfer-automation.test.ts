@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER, type SupabaseSettings, type UserProfile } from "@/lib/config";
@@ -35,7 +36,7 @@ beforeAll(async () => {
   transport.connect.mockImplementation(async () => {
     const previous = available; let release!: () => void;
     available = new Promise<void>((resolve) => { release = resolve; }); await previous;
-    return { query: async (text: string, values: unknown[] = []) => {
+    return Object.assign(new EventEmitter(), { query: async (text: string, values: unknown[] = []) => {
       statementTrace.push(text);
       if (injectedFailure === "provider-edit" && text === "savepoint alfred_automatic_transfer_pair") {
         injectedFailure = null;
@@ -51,7 +52,7 @@ beforeAll(async () => {
         if (versionReadCount === 2) await db.query("update bank_messages set raw=raw||' Synthetic corrected source' where id=(select id from bank_messages order by occurred_at,id limit 1)");
       }
       return db.query(text, values);
-    }, release };
+    }, release });
   });
   transport.outside.mockImplementation((text: string, values: unknown[] = []) => { statementTrace.push(text); return db.query(text, values); });
 }, 30_000);

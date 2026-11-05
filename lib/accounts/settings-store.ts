@@ -78,6 +78,10 @@ export async function openAccount(
     if (!row.telegram_ready || !row.conversation_ready || !row.reminders_ready) await ensureAccount(settings, user.id);
     return "ready";
   }
+  return provisionInvitedAccount(settings, user);
+}
+
+async function provisionInvitedAccount(settings: SupabaseSettings, user: { id: string; email?: string | null }): Promise<"ready" | "not_invited"> {
   const invite = findInvite(user.email);
   if (!invite) return "not_invited";
   await ensureAccount(settings, user.id);
@@ -86,18 +90,20 @@ export async function openAccount(
 }
 
 /**
- * Opens the account and loads its profile for one signed-in request. Both reads
- * start together so a page waits for one database round trip, not two; only a
- * brand-new account, created by openAccount, needs the profile read again.
+ * Opens an authenticated owner's account with one joined read. Keeping the
+ * normal path to one query leaves room in the small pool for page data and
+ * concurrent owner-scoped API reads. Only missing rows need provisioning.
  */
 export async function openOwnerProfile(
   settings: SupabaseSettings,
   user: { id: string; email?: string | null },
 ): Promise<UserProfile | "not_invited" | null> {
   const directory = createSupabaseAccountDirectory(settings);
-  const [opened, profile] = await Promise.all([openAccount(settings, user), directory.loadOwner(user.id)]);
-  if (opened === "not_invited") return "not_invited";
-  return profile ?? directory.loadOwner(user.id);
+  const existing = await directory.loadOwnerWithReadiness(user.id);
+  if (existing?.ready) return existing.profile;
+  if (existing) await ensureAccount(settings, user.id);
+  else if (await provisionInvitedAccount(settings, user) === "not_invited") return "not_invited";
+  return directory.loadOwner(user.id);
 }
 
 export async function ensureAccount(settings: SupabaseSettings, ownerId: string): Promise<void> {

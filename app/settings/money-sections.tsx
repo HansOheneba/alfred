@@ -9,7 +9,8 @@ import { Select } from "@/app/components/select";
 import { categoryList } from "@/lib/finance/categories";
 import { useCustomCategories } from "@/app/components/category-catalog";
 import { canonicalizeAmount, formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
-import type { Ledger, LedgerBudget, LedgerGoal } from "@/lib/web/ledger";
+import type { LedgerBudget, LedgerGoal } from "@/lib/web/ledger";
+import type { SettingsBudgets, SettingsGoals } from "@/lib/web/secondary-read-models";
 
 type Pending = { title: string; body: ReactNode; confirmLabel: string; danger?: boolean; run: () => Promise<unknown> };
 
@@ -89,7 +90,7 @@ function Progress({ value, over = false }: { value: number; over?: boolean }) {
 
 type BudgetDraft = { category: string; amount: string; period: string; existing?: LedgerBudget };
 
-export function BudgetsSection({ ledger }: { ledger: Ledger }) {
+export function BudgetsSection({ ledger }: { ledger: SettingsBudgets }) {
   const categories = categoryList("expense", useCustomCategories());
   const thisMonth = ledger.today.slice(0, 7);
   const [showPast, setShowPast] = useState(false);
@@ -288,7 +289,7 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
 
 type GoalDraft = { name: string; targetAmount: string; currentAmount: string; targetDate: string; completed: boolean; existing?: LedgerGoal };
 
-export function GoalsSection({ ledger }: { ledger: Ledger }) {
+export function GoalsSection({ ledger }: { ledger: SettingsGoals }) {
   const [draft, setDraft] = useState<GoalDraft | null>(null);
   const [draftError, setDraftError] = useState("");
   const change = useConfirmedChange();

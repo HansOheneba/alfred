@@ -24,6 +24,7 @@ import { mergeThread, paymentReplyContext, threadKey, toThreadMessage, type Thre
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
 import { CHAT_REFRESH_EVENT, chatIsReadable, publishChatRead } from "@/app/chat/message-alerts";
 import type { Ledger } from "@/lib/web/ledger";
+import { buildChatContext, type ChatContext } from "@/lib/web/chat-context";
 
 import "./chat.css";
 
@@ -114,13 +115,13 @@ export function ChatPanel({
     payment: { part: "payment", state: initialPaymentEntry?.state === "unavailable" ? "error" : initialPaymentTarget && initialPaymentEntry?.state !== "ready" ? "loading" : "ready" },
   });
   const checkedInitialEmpty = useRef(initialFinancialsEmpty !== null);
-  const [contextLedger, setContextLedger] = useState<Ledger | null>(ledger ?? null);
+  const [contextLedger, setContextLedger] = useState<ChatContext | null>(() => ledger ? buildChatContext(ledger) : null);
   const [contextError, setContextError] = useState("");
   const [contextVersion, setContextVersion] = useState(0);
   // Keep the last confirmed answer during rechecks. null means status is unavailable
   // or the owner changed; it never proves a fresh account.
   const [knownEmpty, setKnownEmpty] = useState<boolean | null>(ledger ? getGettingStartedState(ledger).isEmpty : initialFinancialsEmpty);
-  const financialsEmpty = contextLedger ? getGettingStartedState(contextLedger).isEmpty : knownEmpty === true;
+  const financialsEmpty = contextLedger ? contextLedger.setup.isEmpty : knownEmpty === true;
   const [statsOpen, setStatsOpen] = useChatContextController(!financialsEmpty && !sessionChanged);
   const emptyStatus = useMemo(() => createChatEmptyStatusRefresh(ownerId, setKnownEmpty, requestData), [ownerId, requestData]);
   const contextDirty = useRef(!ledger);
@@ -162,7 +163,7 @@ export function ChatPanel({
       const next = await loadOwnedChatContext(requestedOwner, request.signal, requestData);
       if (request.signal.aborted || contextOwner.current !== requestedOwner) return;
       setContextLedger(next);
-      setKnownEmpty(getGettingStartedState(next).isEmpty);
+      setKnownEmpty(next.setup.isEmpty);
       contextDirty.current = false;
     } catch (error) {
       if (!request.signal.aborted) setContextError(error instanceof Error && error.message === CHAT_SESSION_CHANGED ? CHAT_SESSION_CHANGED : CHAT_CONTEXT_ERROR);
@@ -656,7 +657,7 @@ export function ChatPanel({
       </section>
 
       <ContextSheet open={statsOpen} onClose={() => setStatsOpen(false)}>
-        {contextLedger ? <StatsPanel ledger={contextLedger} /> : contextError ? <div role="alert"><p>{contextError}</p><button type="button" className={buttonClassName({ variant: "secondary", size: "sm" })} onClick={() => void loadContext()}>Try again</button></div> : <ChatContextSkeleton />}
+        {contextLedger ? <StatsPanel context={contextLedger} /> : contextError ? <div role="alert"><p>{contextError}</p><button type="button" className={buttonClassName({ variant: "secondary", size: "sm" })} onClick={() => void loadContext()}>Try again</button></div> : <ChatContextSkeleton />}
       </ContextSheet>
     </div>
   );
@@ -800,6 +801,8 @@ export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload:
       const target = paymentLinkId(paymentTarget);
       const valid = () => active && !controller.signal.aborted && sequence === version;
       let sourceVersion: string | undefined;
+      // Older responses omit this hint, so they retain the independent choices read.
+      let choicesNeeded = true;
       const read = async (part: ChatReadProgress["part"]): Promise<boolean> => {
         const child = new AbortController(), abort = () => child.abort();
         controller.signal.addEventListener("abort", abort, { once: true });
@@ -811,7 +814,7 @@ export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload:
           const url = `/api/chat${parameters.size ? `?${parameters}` : ""}`;
           const result = await chatReadDeadline((async () => {
             const response = await request(url, { cache: "no-store", credentials: "same-origin", signal: child.signal });
-            return { response, payload: await response.json() as { ok?: boolean; ownerId?: string; messages?: ServerMessage[]; choices?: ChatChoice[][]; paymentEntry?: PaymentChatEntry | null; choiceTarget?: string | null; sourceVersion?: string | null; choicesUnavailable?: boolean } };
+            return { response, payload: await response.json() as { ok?: boolean; ownerId?: string; messages?: ServerMessage[]; choices?: ChatChoice[][]; paymentEntry?: PaymentChatEntry | null; choiceTarget?: string | null; sourceVersion?: string | null; choicesUnavailable?: boolean; choicesNeeded?: boolean } };
           })(), options.timeoutMs ?? 10_000, controller.signal, () => child.abort());
           if (!valid()) return false;
           const { response, payload } = result;
@@ -830,7 +833,9 @@ export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload:
             sourceVersion = payload.paymentEntry.sourceVersion;
           }
           if (part === "choices" && (payload.choicesUnavailable || target && (payload.choiceTarget !== target || sourceVersion !== undefined && payload.sourceVersion !== sourceVersion))) throw new Error("The payment choices changed.");
-          publish({ messages: payload.messages, ...(part === "thread" ? { choices: payload.choices ?? [] } : payload.choices !== undefined ? { choices: payload.choices } : {}), ...(payload.paymentEntry !== undefined ? { paymentEntry: payload.paymentEntry } : {}), ...(options.progressive ? { part } : {}) });
+          const clearChoices = part === "history" && !target && payload.choicesNeeded === false;
+          if (clearChoices) choicesNeeded = false;
+          publish({ messages: payload.messages, ...(part === "thread" ? { choices: payload.choices ?? [] } : payload.choices !== undefined ? { choices: payload.choices } : {}), ...(clearChoices ? { choices: [] } : {}), ...(payload.paymentEntry !== undefined ? { paymentEntry: payload.paymentEntry } : {}), ...(options.progressive ? { part } : {}) });
           options.onProgress?.({ part, state: "ready" });
           return true;
         } catch {
@@ -843,7 +848,12 @@ export function createOwnedChatThreadRefresh(ownerId: string, publish: (payload:
         else {
           const history = read("history");
           const first = target ? read("payment") : history;
-          await Promise.all([history, first.then(ready => ready && valid() ? read("choices") : false)]);
+          await Promise.all([history, first.then(ready => {
+            if (!ready || !valid()) return false;
+            if (choicesNeeded) return read("choices");
+            options.onProgress?.({ part: "choices", state: "ready" });
+            return true;
+          })]);
         }
       } finally { if (current === controller) current = null; }
     },

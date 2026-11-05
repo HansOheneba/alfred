@@ -5,7 +5,7 @@ import { AppShell } from "@/app/components/app-shell";
 import { DashboardSkeleton } from "@/app/components/page-skeletons";
 import { DashboardClient } from "@/app/dashboard/dashboard-client";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
-import { loadLedger, type Ledger } from "@/lib/web/ledger";
+import { loadOverview } from "@/lib/web/overview";
 import { parseOverviewTransactionFilters } from "@/lib/web/activity-handoff";
 import { overviewViewFromParams } from "./overview-view";
 
@@ -44,9 +44,10 @@ async function DashboardScreen({ searchParams }: { searchParams?: DashboardSearc
   }
 
   const name = account.profile.preferredName.trim();
-  let ledger: Ledger;
+  let overview: Awaited<ReturnType<typeof loadOverview>>;
   try {
-    ledger = await loadLedger(account.profile, account.settings);
+    const view = overviewViewFromParams(params);
+    overview = await loadOverview(account.profile, account.settings, { preset: view.preset, category: view.category, filters: parseOverviewTransactionFilters(params.toString()) });
   } catch (error) {
     return (
       <AppShell current="dashboard" ownerId={account.userId} name={name}>
@@ -59,7 +60,7 @@ async function DashboardScreen({ searchParams }: { searchParams?: DashboardSearc
 
   return (
     <AppShell current="dashboard" ownerId={account.userId} name={name}>
-      <DashboardClient ledger={ledger} name={name} timeZone={account.profile.timezone} initialView={overviewViewFromParams(params)} initialTransactionFilters={parseOverviewTransactionFilters(params.toString())} />
+      <DashboardClient ledger={overview.ledger} overview={overview.summary} transactions={{ ownerId: account.profile.profileId, initialPage: overview.firstPage }} name={name} timeZone={account.profile.timezone} initialView={overviewViewFromParams(params)} initialTransactionFilters={parseOverviewTransactionFilters(params.toString())} />
     </AppShell>
   );
 }
