@@ -586,10 +586,20 @@ export function ChatPanel({
                 <article key={threadKey(message)} ref={isSelectedPaymentMessage(message, paymentEntry) ? selectedPaymentArticle : undefined} tabIndex={isSelectedPaymentMessage(message, paymentEntry) ? -1 : undefined} data-payment-selected={isSelectedPaymentMessage(message, paymentEntry) || undefined} className="alfred-production-chat-assistant">
                   <div className="alfred-production-chat-messageIdentity"><AlfredMark size="size-6" /><span>Alfred</span>{message.channel === "telegram" ? <TelegramBadge /> : null}</div>
                   <div className="alfred-production-chat-assistantContent">
-                    <p>{message.text}</p>
+                    {message.actionId && !message.settled ? (
+                      // Alfred is waiting for a yes or no: the question and its two answers sit together, and the
+                      // payment's answer chips stay hidden so there's only one thing to do.
+                      <section className="alfred-production-chat-decisionCard" aria-label="Alfred is waiting for your answer">
+                        <MessageText text={message.text} />
+                        <div className="alfred-production-chat-decisions">
+                          <button type="button" disabled={busy} className={buttonClassName({ variant: "primary", size: "sm", className: "is-primary" })} onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}>Yes</button>
+                          <button className={buttonClassName({ variant: "secondary", size: "sm" })} type="button" disabled={busy} onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}>No</button>
+                        </div>
+                        <p className="alfred-production-chat-decisionHint">Or tell me what&apos;s different.</p>
+                      </section>
+                    ) : <MessageText text={message.text} />}
                     {message.chart ? <ReplyChart chart={message.chart} /> : null}
-                    {(paymentEntry?.state === "ready" ? isSelectedPaymentMessage(message, paymentEntry) : message === last) && !newTopic && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
-                    {message.actionId && !message.settled ? <div className="alfred-production-chat-decisions"><button type="button" disabled={busy} className={buttonClassName({ variant: "primary", size: "sm", className: "is-primary" })} onClick={() => void send({ decision: "confirm", actionId: message.actionId, clientId: `confirm-${message.actionId}` })}>Confirm</button><button className={buttonClassName({ variant: "secondary", size: "sm" })} type="button" disabled={busy} onClick={() => void send({ decision: "cancel", actionId: message.actionId, clientId: `cancel-${message.actionId}` })}>Cancel</button></div> : null}
+                    {!(message.actionId && !message.settled) && (paymentEntry?.state === "ready" ? isSelectedPaymentMessage(message, paymentEntry) : message === last) && !newTopic && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
                   </div>
                 </article>
               ) : (
@@ -656,6 +666,20 @@ function isSelectedPaymentMessage(message: ThreadMessage, entry: PaymentChatEntr
 
 function suggestedChoice(item: ChatChoice): boolean {
   return item.choice !== undefined && (/:[rp]$/.test(item.choice) || item.label.startsWith("Yes") || item.label.startsWith("My own"));
+}
+
+/** Alfred's words, with "• " lines shown as a real list so each item reads on its own. */
+function MessageText({ text }: { text: string }) {
+  const blocks: { list: boolean; lines: string[] }[] = [];
+  for (const line of text.split("\n")) {
+    const list = line.startsWith("• ");
+    const last = blocks.at(-1);
+    if (last && last.list === list) last.lines.push(list ? line.slice(2) : line);
+    else blocks.push({ list, lines: [list ? line.slice(2) : line] });
+  }
+  return <>{blocks.map((block, index) => block.list
+    ? <ul key={index} className="alfred-production-chat-list">{block.lines.map((line, item) => <li key={item}>{line}</li>)}</ul>
+    : block.lines.join("\n").trim() ? <p key={index}>{block.lines.join("\n").trim()}</p> : null)}</>;
 }
 
 /** Tap-to-answer chips under Alfred's question about a bank payment. */

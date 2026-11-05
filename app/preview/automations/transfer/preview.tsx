@@ -13,12 +13,12 @@ import type { PaymentQuestionSample } from "./fixtures";
 
 const ownerId = "fictional-transfer-preview";
 const bankId = "11111111-1111-4111-8111-111111111111";
-type SampleState = "paired" | "candidate" | "incoming" | "outgoing" | "slow-history" | "retry-payment";
+type SampleState = "paired" | "candidate" | "incoming" | "outgoing" | "slow-history" | "retry-payment" | "proposal";
 
 /** Closed sample transport. No branch delegates to fetch, a real account, a
  * notification provider, classification storage or the Messages collector. */
 export function createTransferChatSample(state: SampleState, ordinary?: PaymentQuestionSample) {
-  const questionState = state === "slow-history" || state === "retry-payment" ? "incoming" : state;
+  const questionState = state === "slow-history" || state === "retry-payment" || state === "proposal" ? "incoming" : state;
   const transferState = state === "paired" ? "paired" : "candidate";
   const transfer: OwnTransferNotice = {
     state: transferState, ownerId, pairId: "sample-pair", outgoingBankMessageId: bankId,
@@ -52,8 +52,14 @@ export function createTransferChatSample(state: SampleState, ordinary?: PaymentQ
       return Response.json({ ok: true, ownerId, messages: messages.map(present), choices: selected || messages.length === 1 ? choices : [], ...(selected ? { paymentEntry: entry } : {}) });
     }
     if (path === "/api/chat" && options?.method === "POST") {
-      let body: { text?: string; choice?: string; clientId?: string };
+      let body: { text?: string; choice?: string; clientId?: string; decision?: "confirm" | "cancel" };
       try { body = JSON.parse(String(options.body)); } catch { return Response.json({ ok: false, text: "Try a short sample reply." }, { status: 400 }); }
+      if (body.decision) {
+        sequence += 1;
+        const reply: ChatMessageRecord = { id: `sample-decision-${sequence}`, role: "assistant", channel: "web", body: body.decision === "confirm" ? "Sample only: on your account this would save both. Nothing was saved here." : "Cancelled. Nothing was changed.", clientId: body.clientId ?? `sample-decision-${sequence}`, createdAt: new Date(Date.parse("2026-11-04T11:10:00.000Z") + sequence * 1000).toISOString(), ledgerChanged: false };
+        messages.push(reply);
+        return Response.json({ ok: true, messages: [present(reply)], choices: body.decision === "cancel" ? choices : [], ledgerChanged: false });
+      }
       const answer = body.choice ? choices.flat().find(item => item.choice === body.choice)?.label : body.text?.trim();
       if (!answer) return Response.json({ ok: false, text: "Try a short sample reply." }, { status: 400 });
       sequence += 1;
@@ -63,6 +69,13 @@ export function createTransferChatSample(state: SampleState, ordinary?: PaymentQ
         { id: `sample-user-${sequence}`, role: "user", channel: "web", body: answer, clientId, createdAt },
         { id: `sample-answer-${sequence}`, role: "assistant", channel: "web", body: "This is a sample conversation only. On your account, I'd check both alerts before linking or changing anything. Nothing was saved here.", clientId, createdAt, ledgerChanged: false },
       ];
+      if (state === "proposal") {
+        // Alfred's reading of a top-up that paid for a subscription, waiting for a yes. The payment's
+        // answer chips are still sent, as the real thread does, so the preview shows they stay hidden.
+        incoming[1] = { ...incoming[1], body: "Here's how I read those:\n• GH₵1,300.00 onto your GCB card · Tue 3 Nov: your own money moving between your accounts, not income or spending\n• GH₵1,307.48 on your GCB card · Tue 3 Nov: Subscriptions (Claude subscription)\n\nSave this? Nothing changes until you confirm." };
+        messages.push(...incoming);
+        return Response.json({ ok: true, messages: incoming.map(present), actionId: "sample-proposal", choices, ledgerChanged: false });
+      }
       messages.push(...incoming);
       return Response.json({ ok: true, messages: incoming.map(present), choices: [], ledgerChanged: false });
     }
@@ -74,7 +87,7 @@ export function createTransferChatSample(state: SampleState, ordinary?: PaymentQ
 
 export function TransferChatPreview({ ordinarySamples = [] }: { ordinarySamples?: PaymentQuestionSample[] }) {
   const [state, setState] = useState<SampleState>("paired");
-  const sample = useMemo(() => createTransferChatSample(state, ordinarySamples.find(item => item.state === (state === "slow-history" || state === "retry-payment" ? "incoming" : state))), [state, ordinarySamples]);
+  const sample = useMemo(() => createTransferChatSample(state, ordinarySamples.find(item => item.state === (state === "slow-history" || state === "retry-payment" || state === "proposal" ? "incoming" : state))), [state, ordinarySamples]);
   return <main className="flex h-dvh min-h-0 flex-col bg-bg">
     <header className="shrink-0 border-b border-line bg-surface px-4 py-3">
       <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3">
@@ -85,7 +98,7 @@ export function TransferChatPreview({ ordinarySamples = [] }: { ordinarySamples?
         <button type="button" aria-pressed={state === "paired"} className={buttonClassName({ variant: state === "paired" ? "primary" : "secondary", size: "sm" })} onClick={() => setState("paired")}>Recognised transfer</button>
         <button type="button" aria-pressed={state === "candidate"} className={buttonClassName({ variant: state === "candidate" ? "primary" : "secondary", size: "sm" })} onClick={() => setState("candidate")}>Needs a quick answer</button>
         {ordinarySamples.map(item => <button key={item.state} type="button" aria-pressed={state === item.state} className={buttonClassName({ variant: state === item.state ? "primary" : "secondary", size: "sm" })} onClick={() => setState(item.state)}>{item.state === "incoming" ? "Incoming payment" : "Outgoing payment"}</button>)}
-        {ordinarySamples.length ? <><button type="button" aria-pressed={state === "slow-history"} className={buttonClassName({ variant: state === "slow-history" ? "primary" : "secondary", size: "sm" })} onClick={() => setState("slow-history")}>Payment first</button><button type="button" aria-pressed={state === "retry-payment"} className={buttonClassName({ variant: state === "retry-payment" ? "primary" : "secondary", size: "sm" })} onClick={() => setState("retry-payment")}>Retry a payment</button></> : null}
+        {ordinarySamples.length ? <><button type="button" aria-pressed={state === "slow-history"} className={buttonClassName({ variant: state === "slow-history" ? "primary" : "secondary", size: "sm" })} onClick={() => setState("slow-history")}>Payment first</button><button type="button" aria-pressed={state === "retry-payment"} className={buttonClassName({ variant: state === "retry-payment" ? "primary" : "secondary", size: "sm" })} onClick={() => setState("retry-payment")}>Retry a payment</button><button type="button" aria-pressed={state === "proposal"} className={buttonClassName({ variant: state === "proposal" ? "primary" : "secondary", size: "sm" })} onClick={() => setState("proposal")}>Alfred proposes</button></> : null}
       </div>
       <p className="mx-auto mt-2 max-w-5xl text-xs text-muted">Try a sample reply. This preview never changes accounts or sends notifications.</p>
     </header>
