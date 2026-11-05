@@ -255,6 +255,8 @@ export const financeActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("clarify"),
     question: z.string().min(1).max(500),
+    /** When the question asks whether to do something specific, exactly what Alfred would do on a yes. */
+    offer: z.array(z.record(z.string(), z.unknown())).max(3).nullable().optional(),
   }),
   z.object({
     type: z.literal("chat"),
@@ -307,7 +309,26 @@ export const proposedLabelSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("chip_in"), category: z.string().min(1).max(40), description: optionalText(200), person: optionalText(120) }),
 ]);
 
+/** Actions a question may offer: ones that write, with their own checks, never another question. */
+export const OFFERABLE = new Set<FinanceAction["type"]>([
+  "create_transaction", "record_loan", "invest_money", "set_budget", "create_savings_goal", "update_savings_goal",
+  "correct_transaction", "remember_about_me", "remember_person", "add_investment", "update_investment",
+]);
+
+/** The actions a clarifying question offered, valid and safe to do on a yes, or none. */
+export function offeredActions(offer: unknown[] | null | undefined): FinanceAction[] {
+  if (!offer?.length) return [];
+  const parsed = offer.map((item) => financeActionSchema.safeParse(item));
+  if (!parsed.every((item) => item.success && OFFERABLE.has(item.data.type))) return [];
+  return parsed.map((item) => item.data!);
+}
+
 export const pendingPayloadSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("offer"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    actions: z.array(z.record(z.string(), z.unknown())).min(1).max(3),
+  }),
   z.object({
     type: z.literal("label_payments"),
     originUpdateId: z.string().regex(/^\d+$/),
@@ -439,6 +460,7 @@ export function normalizeModelValue(value: unknown, today?: string): unknown {
   if (typeof next.type === "string") next.type = next.type.trim();
   liftChanges(next);
   if (next.type === "clarify" && next.question == null && typeof next.message === "string") next.question = next.message;
+  if (next.type === "clarify" && Array.isArray(next.offer)) next.offer = next.offer.map((item) => normalizeModelValue(item, today));
   if (next.type === "chat" && next.message == null && typeof next.question === "string") next.message = next.question;
   if (next.type === "set_budget" || next.type === "get_budget_status") next.period = budgetPeriod(next.period, today);
   if (typeof next.currency === "string") next.currency = next.currency.trim().toUpperCase();

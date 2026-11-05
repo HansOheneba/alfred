@@ -1,0 +1,32 @@
+{
+  "id": "offer-then-yes",
+  "title": "A question that offers to record, answered with Yes",
+  "source": "PR 2: questions carry a real offer",
+  "tags": [
+    "conversation",
+    "offers"
+  ],
+  "now": "2026-11-05T13:00:00.000Z",
+  "name": "Mitch",
+  "steps": [
+    {
+      "say": "I think I should log my rent, it was 1,500, is that right?"
+    },
+    {
+      "say": "Yes."
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "1500.00",
+        "category": "Rent & home"
+      }
+    ]
+  }
+}
