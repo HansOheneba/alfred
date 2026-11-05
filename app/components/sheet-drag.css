@@ -1,0 +1,4 @@
+/* The grey handle and title bar pull a phone sheet down to close it (sheet-drag.ts). */
+[data-sheet-drag] { touch-action:none; user-select:none; -webkit-user-select:none; }
+[data-sheet-handle] { position:relative; cursor:grab; }
+[data-sheet-handle]::after { content:""; position:absolute; inset:-12px -48px; }

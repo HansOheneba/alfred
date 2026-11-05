@@ -8,6 +8,7 @@ import { Select } from "./select";
 import { requestMutationJson } from "./mutation-request";
 import { TemporalInput } from "./temporal-input";
 import "./dialog.css";
+import { sheetDragProps } from "./sheet-drag";
 
 // Category hues from the My Money palette: distinct, but muted enough to sit beside the teal.
 export const CATEGORY_COLORS = ["#7254ca", "#137d70", "#c77493", "#c9a15f", "#6194dd", "#b94e5b", "#67a69b", "#9b91b3", "#e08a5c", "#8d8994"];
@@ -114,8 +115,8 @@ export function Dialog({ open, onClose, title, children, dismissible = true }: {
       className="alfred-dialog"
     >
       <div className="alfred-dialog-surface">
-        <span className="alfred-sheet-handle" aria-hidden="true" />
-        <header className="alfred-dialog-header">
+        <span className="alfred-sheet-handle" data-sheet-handle aria-hidden="true" {...sheetDragProps(dismiss, dismissible)} />
+        <header className="alfred-dialog-header" {...sheetDragProps(dismiss, dismissible)}>
           <h2 id={titleId}>{title}</h2>
           <Button variant="secondary" size="icon" onClick={dismiss} disabled={!dismissible} aria-label="Close dialog"><span aria-hidden="true">×</span></Button>
         </header>
