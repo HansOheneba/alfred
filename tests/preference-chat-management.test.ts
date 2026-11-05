@@ -239,9 +239,12 @@ describe("owner-scoped partial settings SQL", () => {
       ALFRED_NOTIFICATION_RECOVERY_SCHEDULE_ID: "synthetic-preferences", ALFRED_NOTIFICATION_RECOVERY_INTERVAL_SECONDS: "60",
     })) vi.stubEnv(name, value);
     let policyReady = true, recoveryReady = true, writes = 0;
+    // Readiness captures its clock before querying. A query-time heartbeat can
+    // otherwise appear to come from the future when the millisecond changes.
+    const completedAt = new Date(Date.now() - 1000);
     const execute: PreferenceExecute = async <T extends Record<string, unknown>>(_settings: SupabaseSettings, sql: string) => {
       if (sql.includes("to_regprocedure")) return [{ ready: policyReady }] as unknown as T[];
-      if (sql.includes("from public.notification_recovery_health")) return [{ configuration_fingerprint: recoveryConfiguration().fingerprint, last_completed_at: recoveryReady ? new Date() : null, last_failed_at: null }] as unknown as T[];
+      if (sql.includes("from public.notification_recovery_health")) return [{ configuration_fingerprint: recoveryConfiguration().fingerprint, last_completed_at: recoveryReady ? completedAt : null, last_failed_at: null }] as unknown as T[];
       writes++; return [{ owner_id: OWNER }] as unknown as T[];
     };
     const store = createSupabasePreferenceManagementStore({} as SupabaseSettings, { execute });
