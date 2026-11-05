@@ -1,5 +1,5 @@
 import type { AccountingState, CashMovement } from "@/lib/finance/accounting/types";
-import { normalizeRuleText, type AccountRuleState } from "./types";
+import { normalizeRuleText, transferProvider, type AccountRuleState } from "./types";
 
 export type RuleMatch = { category: string | null; ruleId: string | null; conflict: boolean };
 
@@ -21,7 +21,9 @@ export function matchAccountRule(movement: CashMovement, state: AccountRuleState
 
 /** Bind only using a user-confirmed provider + explicit account suffix + currency tuple. */
 export function bindMovementAccount(movement: CashMovement, accounting: AccountingState, rules: AccountRuleState): string | null {
-  if (movement.ownerId !== rules.ownerId || movement.accountId || movement.sourceMissing || !movement.sourceText || !movement.sourceLabel) return movement.accountId;
+  if (movement.ownerId !== rules.ownerId || movement.accountId || movement.sourceMissing) return movement.accountId;
+  if (movement.sourceKind === "transaction") return namedAccount(movement, accounting);
+  if (!movement.sourceText || !movement.sourceLabel) return movement.accountId;
   const suffixes = new Set([...movement.sourceText.matchAll(/\b(?:A\/C|Acct|Account)(?:\s*(?:No\.?|Number|ending(?: in)?))?\s*[:.#]?\s*[X*x•.\s-]*(\d{3,})\b/gi)].map((match) => match[1].slice(-4)));
   // Texts naming multiple different accounts cannot establish a unique source identity.
   if (suffixes.size !== 1) return null;
@@ -29,6 +31,20 @@ export function bindMovementAccount(movement: CashMovement, accounting: Accounti
   const accountIds = new Set(rules.bindings.filter((binding) => binding.active && binding.accountSuffix === suffix && binding.currency === movement.currency &&
     normalizeRuleText(binding.provider) === normalizeRuleText(movement.sourceLabel!) && accounting.accounts.some((account) => account.id === binding.accountId && account.currency === movement.currency)).map((binding) => binding.accountId));
   return accountIds.size === 1 ? [...accountIds][0] : null;
+}
+
+/**
+ * A chat or manual entry that says which account paid ("from my Hubtel wallet")
+ * belongs to that account, when exactly one of the person's accounts in that
+ * currency answers to the name. An account picked in Accounts always wins.
+ */
+export function namedAccount(movement: Pick<CashMovement, "sourceLabel" | "currency">, accounting: Pick<AccountingState, "accounts">): string | null {
+  const said = movement.sourceLabel?.trim() ?? "";
+  if (!said || /^manual\s*\/\s*cash$/i.test(said)) return null;
+  const name = normalizeRuleText(said), provider = transferProvider(said);
+  const matches = accounting.accounts.filter((account) => account.currency === movement.currency && (
+    normalizeRuleText(account.label) === name || transferProvider(account.label) === provider || (account.provider !== "Imported Money Tracker" && transferProvider(account.provider) === provider)));
+  return matches.length === 1 ? matches[0].id : null;
 }
 
 /** Categories are derived at read time. Rules never confirm, exclude, transfer, or otherwise change status. */

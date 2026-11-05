@@ -272,7 +272,25 @@ export function applyAccountAction(state: AccountingState, action: AccountingAct
 }
 
 export type AccountReconciliation = { status: "unavailable" | "incomplete" | "matched" | "mismatch"; expectedMinor: number | null; differenceMinor: number | null; reason: string };
-export type AccountBalanceRow = { account: FinancialAccount; snapshot: BalanceSnapshot | null; reconciliation: AccountReconciliation };
+/**
+ * `snapshot` is the balance to show: the latest reported one, moved by chat or manual
+ * entries for this account logged since (`loggedSinceMinor`). `reported` is the bank's own figure.
+ */
+export type AccountBalanceRow = { account: FinancialAccount; snapshot: BalanceSnapshot | null; reconciliation: AccountReconciliation; reported?: BalanceSnapshot | null; loggedSinceMinor?: number };
+
+/** Net of confirmed chat or manual entries for this account, logged after the report and not dated before it. */
+export function loggedSince(state: Pick<AccountingState, "movements">, account: Pick<FinancialAccount, "id" | "currency">, reported: Pick<BalanceSnapshot, "occurredAt">): number {
+  const after = Date.parse(reported.occurredAt), day = reported.occurredAt.slice(0, 10);
+  let net = 0;
+  for (const movement of state.movements) {
+    if (movement.sourceKind !== "transaction" || movement.accountId !== account.id || movement.currency !== account.currency || movement.status !== "confirmed") continue;
+    if (!movement.loggedAt || !(Date.parse(movement.loggedAt) > after) || movement.date < day) continue;
+    if (movement.direction === "in") net += movement.amountMinor;
+    else if (movement.direction === "out") net -= movement.amountMinor;
+  }
+  if (!Number.isSafeInteger(net)) throw new AccountingError("Logged movements exceed safe integer precision.");
+  return net;
+}
 
 function sourceSnapshotCurrent(movements: Map<string, CashMovement>, snapshot: BalanceSnapshot) {
   if (snapshot.sourceMovementId === null) return true;
@@ -338,7 +356,10 @@ export function accountBalanceFacts(state: AccountingState): AccountBalanceRow[]
   const accounts = state.accounts.map((account) => {
     // Stable sort preserves append order for multiple actual observations at the same instant.
     const snapshots = (snapshotsByAccount.get(account.id) ?? []).sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
-    return { account, snapshot: snapshots.at(-1) ?? null, reconciliation: reconcile(state, account, snapshots) };
+    const reported = snapshots.at(-1) ?? null;
+    const logged = reported ? loggedSince(state, account, reported) : 0;
+    const snapshot = reported && logged ? { ...reported, balanceMinor: reported.balanceMinor + logged } : reported;
+    return { account, snapshot, reported, loggedSinceMinor: logged, reconciliation: reconcile(state, account, snapshots) };
   });
   return accounts;
 }

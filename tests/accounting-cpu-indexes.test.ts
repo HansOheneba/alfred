@@ -15,6 +15,7 @@ describe("per-call accounting indexes", () => {
     const before = structuredClone({ state, fresh, raw, messages });
     const rows = accountingReportRows(state);
     // Captured from the unchanged source graph before editing the accounting functions.
+    // Re-baselined when balance rows gained `reported`/`loggedSinceMinor`; with those stripped the old digests still match.
     expect({
       source: digest(sourceMovements(CPU_OWNER, raw, messages)),
       hydrate: digest(hydrateAccountingSources(state, fresh)),
@@ -25,8 +26,8 @@ describe("per-call accounting indexes", () => {
     }).toEqual({
       source: "0c1d9f0dc20aa76232f5f32d5d81b9f96b1d290ec8ab17c7b42dca6a535c884a",
       hydrate: "ae97b6daff2c49cb52b9471b08e2057f1a5061b6448dce15ae824d5c20e3ef79",
-      balances: "faad156a155ddcb9a2e1dd275ed4c2e57f7374882219db18d0c0dad74d4af250",
-      view: "07f1779da663ec103844ad0ca6263361c2681db25cc2ee0b62930175fe65cb7f",
+      balances: "276baef4bae582d9d6128f28ca1c59acfb8a49ef56315baa8f376394c7917093",
+      view: "632895aa08e41a7cd40f1141fa6a12bae130963ba47aef5a7e83fd9fa1a5b9f5",
       project: "09803a7eee9c39906b60de90f749edca8c49475cb814484b7af42666028035d1",
       receipts: "242eb3cc78d07c3b6707edb8efabf3832207e5855d47625cbd370ebe0afa9b11",
     });
@@ -44,7 +45,7 @@ describe("per-call accounting indexes", () => {
       });
     });
     // Also compared directly against the detached, unchanged modules before recording this baseline.
-    expect(digest(matrix)).toBe("6ae1970fc3e7f1640c66b4b0ff0450e55ff39cf111e56624e513be6347416c5a");
+    expect(digest(matrix)).toBe("dddfccec0342b54773464cfc0fdd4d3734914c57c5c9b63a847b1cadc75cd39d");
   });
 
   it("preserves account binding and explicit choices only for compatible accounts/current fingerprints", () => {

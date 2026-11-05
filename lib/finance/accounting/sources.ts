@@ -56,7 +56,7 @@ export function sourceMovements(ownerId:string,transactions:TransactionRecord[],
     rows.push({id:`transaction:${transaction.transactionId}`,ownerId,accountId:null,direction,status,sourceStatus:status,
       amountMinor:Math.abs(minor),feeMinor:0,currency:transaction.currency,date:transaction.transactionDate,occurredAt:null,
       description:sourceDescription(direction,transaction.description),category:transaction.category,sourceCategory:transaction.category,
-      sourceId:transaction.transactionId,sourceKind:"transaction",sourceFingerprint:hash(transaction),legacyTransactionId:transaction.transactionId,feeTransactionId:null,legacyClassification:minor<0 ? "refund" : null,sourceLabel:transaction.paymentMethod || "Manual / cash"});
+      sourceId:transaction.transactionId,sourceKind:"transaction",sourceFingerprint:hash(transaction),...(transaction.createdAt ? {loggedAt:transaction.createdAt} : {}),legacyTransactionId:transaction.transactionId,feeTransactionId:null,legacyClassification:minor<0 ? "refund" : null,sourceLabel:transaction.paymentMethod || "Manual / cash"});
   }
   return rows;
 }
