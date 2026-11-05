@@ -1,6 +1,7 @@
 import { z } from "zod";
 
 import type { SupabaseSettings } from "@/lib/config";
+import { DatabaseError } from "@/lib/errors";
 import { RELATIVE_PERIODS } from "@/lib/finance/dates";
 import type { ChartQuery } from "@/lib/finance/charts";
 import { query } from "@/lib/supabase/connection";
@@ -63,8 +64,14 @@ export function createSupabasePinStore(settings: SupabaseSettings): PinStore {
   const ready = async () => (await query<{ ready: boolean }>(settings, "select to_regclass('public.pinned_charts') is not null as ready"))[0]?.ready === true;
   return {
     async list(ownerId) {
-      if (!await ready()) return [];
-      return (await query<PinRow>(settings, "select id::text, owner_id::text, title, query, created_at from public.pinned_charts where owner_id=$1::uuid order by created_at, id", [ownerId])).map(fromRow);
+      // One query on the Overview's critical path: a missing table means no kept charts yet, not an error.
+      try {
+        return (await query<PinRow>(settings, "select id::text, owner_id::text, title, query, created_at from public.pinned_charts where owner_id=$1::uuid order by created_at, id", [ownerId])).map(fromRow);
+      } catch (error) {
+        const state = error instanceof DatabaseError ? error.sqlState : (error as { code?: unknown } | null)?.code;
+        if (state === "42P01") return [];
+        throw error;
+      }
     },
     async add(ownerId, title, chart) {
       if (!await ready()) throw new Error("Pinned charts aren't available yet.");
