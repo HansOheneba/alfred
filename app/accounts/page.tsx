@@ -2,9 +2,9 @@ import { Suspense } from "react";
 import { redirect } from "next/navigation";
 import { AppShell } from "@/app/components/app-shell";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
-import { AccountsClient, type AccountsPayload } from "./accounts-client";
+import { AccountsClient } from "./accounts-client";
 import { AccountsErrorState, AccountsLoading } from "./accounts-status";
-import { browserAccountingState } from "@/lib/finance/accounting/browser-state";
+import { projectAccountsReadView, type AccountsReadView } from "@/lib/finance/accounting/read-view";
 import { loadAccountingReadModel } from "@/lib/finance/accounting/persisted-store";
 import { ownedPaymentMovement, paymentTargetRequest } from '@/lib/notifications/payment-target';
 
@@ -21,12 +21,13 @@ async function AccountsScreen({ searchParams }: PageProps = {}) {
   const account = await signedInAccount();
   if (account.kind === "signed-out") redirect("/");
   if (account.kind === "error") return <AppShell current="accounts" name=""><AccountsErrorState message={account.message} /></AppShell>;
-  let initialPayload: AccountsPayload | null = null;
+  let initialView: AccountsReadView | null = null;
   let paymentRequest = requestedPayment;
   let version = "unavailable";
   try {
     const result = await loadAccountingReadModel(account.settings.supabase, account.profile.profileId);
-    initialPayload = { ok: true, state: browserAccountingState(result.state), availability: result.availability };
+    if (result.state.ownerId !== account.profile.profileId) throw new Error("Account ownership changed.");
+    initialView = projectAccountsReadView(result, { currency: account.profile.currency, section: "activity", page: 0 });
     if (paymentRequest.requested && !ownedPaymentMovement(result.state, account.profile.profileId, paymentRequest.id)) {
       paymentRequest = { requested: true, id: null };
     }
@@ -34,5 +35,5 @@ async function AccountsScreen({ searchParams }: PageProps = {}) {
     // that have no accounting source version yet. Nothing is cached between owners.
     version = crypto.randomUUID();
   } catch { /* A failed read is an error, never an empty financial state. */ }
-  return <AppShell current="accounts" ownerId={account.userId} name={account.profile.preferredName.trim()}><AccountsClient key={`${account.profile.profileId}:${version}`} defaultCurrency={account.profile.currency} initialPayload={initialPayload} initialError={initialPayload ? "" : "Your account records could not be loaded. Try again shortly."} paymentRequest={paymentRequest} expectedOwnerId={account.profile.profileId} /></AppShell>;
+  return <AppShell current="accounts" ownerId={account.userId} name={account.profile.preferredName.trim()}><AccountsClient key={`${account.profile.profileId}:${version}`} defaultCurrency={account.profile.currency} initialView={initialView} initialError={initialView ? "" : "Your account records could not be loaded. Try again shortly."} paymentRequest={paymentRequest} expectedOwnerId={account.profile.profileId} /></AppShell>;
 }

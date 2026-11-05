@@ -5,12 +5,14 @@ import type { SupabaseSettings, UserProfile } from "@/lib/config";
 const mocks = vi.hoisted(() => ({
   query: vi.fn(),
   loadOwner: vi.fn(),
+  loadOwnerWithReadiness: vi.fn(),
+  updateTelegramId: vi.fn(),
   getClaims: vi.fn(),
   cookies: vi.fn(),
 }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/accounts/supabase-directory", () => ({
-  createSupabaseAccountDirectory: () => ({ loadOwner: mocks.loadOwner, updateTelegramId: vi.fn() }),
+  createSupabaseAccountDirectory: () => ({ loadOwner: mocks.loadOwner, loadOwnerWithReadiness: mocks.loadOwnerWithReadiness, updateTelegramId: mocks.updateTelegramId }),
 }));
 vi.mock("@supabase/ssr", () => ({ createServerClient: () => ({ auth: { getClaims: mocks.getClaims } }) }));
 vi.mock("next/cache", () => ({ io: async () => undefined }));
@@ -25,7 +27,6 @@ const settings = {} as SupabaseSettings;
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const user = { id: OWNER, email: "fictional@example.invalid" };
 const profile = { id: OWNER, preferredName: "Fictional reviewer" } as unknown as UserProfile;
-const completeAccount = { id: OWNER, telegram_ready: true, conversation_ready: true, reminders_ready: true };
 
 beforeEach(() => {
   vi.stubEnv("NEXT_PUBLIC_SUPABASE_URL", "https://fixture.example.invalid");
@@ -70,32 +71,49 @@ describe("signed-in reads", () => {
     expect(await getAuthUser()).toBeNull();
   });
 
-  it("starts the account check and profile read together for an existing account", async () => {
-    let releaseAccount: (rows: unknown[]) => void = () => undefined;
-    mocks.query.mockReturnValueOnce(new Promise((resolve) => { releaseAccount = resolve; }));
-    mocks.loadOwner.mockResolvedValue(profile);
-
-    const opening = openOwnerProfile(settings, user);
-    await Promise.resolve();
-    expect(mocks.loadOwner).toHaveBeenCalledTimes(1);
-    releaseAccount([completeAccount]);
-
-    expect(await opening).toBe(profile);
-    expect(mocks.loadOwner).toHaveBeenCalledTimes(1);
+  it("loads an established owner's profile and readiness together without provisioning", async () => {
+    mocks.loadOwnerWithReadiness.mockResolvedValue({ profile, ready: true });
+    expect(await openOwnerProfile(settings, user)).toBe(profile);
+    expect(mocks.loadOwnerWithReadiness).toHaveBeenCalledExactlyOnceWith(user.id);
+    expect(mocks.loadOwner).not.toHaveBeenCalled();
+    expect(mocks.query).not.toHaveBeenCalled();
   });
 
   it("reads the profile again after a new invited account is created", async () => {
     vi.stubEnv("ALFRED_INVITES", user.email);
     mocks.query.mockResolvedValue([]);
-    mocks.loadOwner.mockResolvedValueOnce(null).mockResolvedValueOnce(profile);
+    mocks.loadOwnerWithReadiness.mockResolvedValue(null);
+    mocks.loadOwner.mockResolvedValue(profile);
 
     expect(await openOwnerProfile(settings, user)).toBe(profile);
-    expect(mocks.loadOwner).toHaveBeenCalledTimes(2);
+    expect(mocks.loadOwner).toHaveBeenCalledExactlyOnceWith(user.id);
   });
 
   it("keeps uninvited people out", async () => {
     mocks.query.mockResolvedValue([]);
-    mocks.loadOwner.mockResolvedValue(null);
+    mocks.loadOwnerWithReadiness.mockResolvedValue(null);
     expect(await openOwnerProfile(settings, user)).toBe("not_invited");
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.loadOwner).not.toHaveBeenCalled();
+  });
+
+  it.each(["updated", "locked", "taken"])("preserves invited Telegram linking when the binding result is %s", async (outcome) => {
+    vi.stubEnv("ALFRED_INVITES", `${user.email}:123456789`);
+    mocks.loadOwnerWithReadiness.mockResolvedValue(null);
+    mocks.loadOwner.mockResolvedValue(profile);
+    mocks.query.mockResolvedValue([]);
+    mocks.updateTelegramId.mockResolvedValue(outcome);
+    expect(await openOwnerProfile(settings, user)).toBe(profile);
+    expect(mocks.updateTelegramId).toHaveBeenCalledExactlyOnceWith(OWNER, 123456789);
+    expect(mocks.query).toHaveBeenCalledTimes(4);
+    expect(mocks.query.mock.calls.every(([, , values]) => values[0] === OWNER)).toBe(true);
+  });
+
+  it("does not mistake a failed owner read for a new account", async () => {
+    const failure = new Error("Synthetic owner read failure");
+    mocks.loadOwnerWithReadiness.mockRejectedValue(failure);
+    await expect(openOwnerProfile(settings, user)).rejects.toBe(failure);
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(mocks.loadOwner).not.toHaveBeenCalled();
   });
 });

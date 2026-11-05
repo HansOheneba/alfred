@@ -20,6 +20,9 @@ import { toMinor } from "@/lib/finance/money";
 import type { TransactionRecord } from "@/lib/finance/types";
 import { activityHref, overviewTransactionSearch, parseOverviewTransactionFilters, type OverviewTransactionFilters } from "@/lib/web/activity-handoff";
 import { prepareTransactionEdit, type TransactionEditReview } from "./transaction-edit-review";
+import { filterOverviewTransactions } from "@/lib/web/overview-transactions";
+import { useOverviewTransactionPage, type RemoteOverviewTransactions } from "./overview-transaction-data";
+export { filterOverviewTransactions } from "@/lib/web/overview-transactions";
 
 import "./transactions-table.css";
 
@@ -30,21 +33,6 @@ type Sort = "date-desc" | "date-asc" | "amount-desc" | "amount-asc";
 type TransactionFilters = OverviewTransactionFilters;
 const clearFilters: TransactionFilters = { search: "", type: "all", category: "all", sort: "date-desc" };
 
-export function filterOverviewTransactions(rows: LedgerRow[], filters: TransactionFilters): LedgerRow[] {
-  const needle = filters.search.trim().toLowerCase();
-  const list = rows.filter((row) =>
-    (filters.type === "all" || row.type === filters.type) &&
-    (filters.category === "all" || row.category === filters.category) &&
-    (!needle || row.description.toLowerCase().includes(needle) || row.category.toLowerCase().includes(needle)),
-  );
-  return [...list].sort((left, right) => {
-    if (filters.sort === "amount-desc") return right.minor - left.minor;
-    if (filters.sort === "amount-asc") return left.minor - right.minor;
-    const byDate = left.date.localeCompare(right.date);
-    return filters.sort === "date-asc" ? byDate : -byDate;
-  });
-}
-
 export function TransactionsTable({
   rows,
   category,
@@ -54,6 +42,8 @@ export function TransactionsTable({
   range,
   currency,
   initialFilters = clearFilters,
+  remote,
+  preset = "this_month",
 }: {
   rows: LedgerRow[];
   category: string | null;
@@ -63,6 +53,8 @@ export function TransactionsTable({
   range?: DateRange;
   currency?: string;
   initialFilters?: OverviewTransactionFilters;
+  remote?: RemoteOverviewTransactions;
+  preset?: import("@/lib/finance/analytics").RangePreset;
 }) {
   const router = useRouter();
   const [search, setSearch] = useState(initialFilters.search);
@@ -92,9 +84,11 @@ export function TransactionsTable({
   }, []);
 
   const activeCategory = category ?? (categoryFilter === "all" ? null : categoryFilter);
-  const categories = useMemo(() => [...new Set(rows.map((row) => row.category))].sort(), [rows]);
+  const paged = useOverviewTransactionPage(remote, { preset, category, filters: { search, type, category: categoryFilter, sort } });
+  const categories = useMemo(() => paged?.page?.categories ?? [...new Set(rows.map((row) => row.category))].sort(), [paged?.page?.categories, rows]);
 
-  const filtered = useMemo(() => filterOverviewTransactions(rows, { search, type, category: activeCategory ?? "all", sort }), [rows, type, activeCategory, search, sort]);
+  const filtered = useMemo(() => paged ? paged.page?.rows ?? [] : filterOverviewTransactions(rows, { search, type, category: activeCategory ?? "all", sort }), [paged, rows, type, activeCategory, search, sort]);
+  const total = paged?.page?.total ?? filtered.length;
   const activeFilterCount = Number(Boolean(search.trim())) + Number(type !== "all") + Number(Boolean(activeCategory)) + Number(sort !== "date-desc");
 
   function openFilters() {
@@ -158,9 +152,11 @@ export function TransactionsTable({
           {error}
         </p>
       ) : null}
+      {paged?.error ? <div className="mt-3 text-sm text-danger" role="alert"><p>{paged.error}</p><Button size="sm" onClick={() => paged.stale ? router.refresh() : paged.retry()}>{paged.stale ? "Refresh Overview" : "Retry transactions"}</Button></div> : null}
+      {paged?.loading ? <p className="mt-3 text-xs text-muted" role="status"><Spinner /> Loading transactions…</p> : null}
 
       <div className="mt-4">
-        {filtered.length === 0 ? (
+        {filtered.length === 0 && !paged?.loading && !paged?.error ? (
           <EmptyState>No transactions match.</EmptyState>
         ) : (
           <>
@@ -177,7 +173,7 @@ export function TransactionsTable({
                 </tr>
               </thead>
               <tbody>
-                {filtered.slice(0, shown).map((row) => (
+                {(paged ? filtered : filtered.slice(0, shown)).map((row) => (
                   <tr key={row.id} className="border-b border-line last:border-0">
                     <td className="whitespace-nowrap py-3 pr-3 text-muted">
                       <time dateTime={row.receipt?.occurredAt ?? row.date}>
@@ -199,17 +195,17 @@ export function TransactionsTable({
             </table>
 
             <ul className="alfred-transaction-mobileList" aria-label="Recent transactions">
-              {filtered.slice(0, MOBILE_RECENT).map((row) => <li key={row.id}>
+              {(paged ? filtered : filtered.slice(0, MOBILE_RECENT)).map((row) => <li key={row.id}>
                 <button type="button" className="alfred-transaction-row" onClick={() => setDetails(row)} aria-label={`View details for ${row.description}`} aria-haspopup="dialog"><TransactionRowContent row={row} /></button>
               </li>)}
             </ul>
 
-            <div className="alfred-transaction-desktopPagination mt-4 items-center justify-between text-xs text-muted">
+            <div className={`${paged ? "flex" : "alfred-transaction-desktopPagination"} mt-4 items-center justify-between text-xs text-muted`}>
               <span>
-                Showing {Math.min(shown, filtered.length)} of {filtered.length}
+                Showing {paged ? filtered.length : Math.min(shown, filtered.length)} of {total}
               </span>
-              {shown < filtered.length ? (
-                <Button size="sm" onClick={() => setShown((count) => count + PAGE)}>
+              {(paged ? Boolean(paged.page?.nextCursor) : shown < filtered.length) ? (
+                <Button size="sm" disabled={paged?.loading || paged?.stale} onClick={() => paged ? void paged.loadMore() : setShown((count) => count + PAGE)}>
                   Show more
                 </Button>
               ) : null}
@@ -218,9 +214,9 @@ export function TransactionsTable({
         )}
       </div>
 
-      <div className="alfred-transaction-footer">
+      {!paged ? <div className="alfred-transaction-footer">
         <span className="alfred-transaction-mobileCount">{filtered.length > MOBILE_RECENT ? `${MOBILE_RECENT} of ${filtered.length}` : `${filtered.length} ${filtered.length === 1 ? "transaction" : "transactions"}`}</span>
-      </div>
+      </div> : null}
 
       <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filter transactions">
         <form className="alfred-transaction-filterSheet" onSubmit={(event) => { event.preventDefault(); applyFilters(); }}>

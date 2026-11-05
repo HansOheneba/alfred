@@ -10,10 +10,8 @@ import { categoryList } from "@/lib/finance/categories";
 import { useCustomCategories } from "@/app/components/category-catalog";
 import { normalizeRuleText, type AccountBinding, type AccountRule, type AccountRuleCommand, type AccountRuleResult } from "@/lib/account-rules/types";
 import { accountRuleCommandSchema } from "@/lib/account-rules/schema";
-
-export type RuleAccount = { id: string; label: string; provider: string; currency: string };
-export type AccountRulesData = AccountRuleResult & { accounts: RuleAccount[] };
-export type AccountRulesTransport = { load: () => Promise<AccountRulesData>; save: (command: AccountRuleCommand) => Promise<AccountRuleResult> };
+import { loadAccountRulesInputs, type AccountRulesData, type AccountRulesTransport, type RuleAccount } from "./account-rules-data";
+export type { AccountRulesData, AccountRulesTransport, RuleAccount } from "./account-rules-data";
 
 class RuleRequestError extends Error {
   constructor(message: string, readonly code?: string) { super(message); }
@@ -24,13 +22,7 @@ async function json<T>(response: Response): Promise<T> {
   return payload as T;
 }
 const browserTransport: AccountRulesTransport = {
-  async load() {
-    const [rules, accounting] = await Promise.all([
-      fetch("/api/account-rules", { cache: "no-store" }).then(json<AccountRuleResult>),
-      fetch("/api/accounting", { cache: "no-store" }).then(json<{ state: { accounts: RuleAccount[] }; availability: string }>),
-    ]);
-    return { ...rules, accounts: accounting.state.accounts, availability: rules.availability === "ready" && accounting.availability === "ready" ? "ready" : "migration-required" };
-  },
+  load: loadAccountRulesInputs,
   async save(command) {
     const response = await fetch("/api/account-rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(command) });
     return json<AccountRuleResult>(response);
@@ -48,9 +40,10 @@ export function RuleScopeDetails({ rule, accounts }: { rule: NonNullable<Change[
   return <dl className="space-y-2 text-sm leading-6"><div><dt className="text-xs text-muted">Only this account</dt><dd className="font-medium">{account?.label || "Unavailable account"}</dd></div><div><dt className="text-xs text-muted">Match</dt><dd>{rule.matchMode === "all" ? "Every merchant/text on this account" : `Exactly: “${rule.merchantExact}”`}</dd></div><div><dt className="text-xs text-muted">Direction</dt><dd>{directionLabel(rule.direction)}</dd></div><div><dt className="text-xs text-muted">Category</dt><dd className="break-words font-medium">{rule.category}</dd></div><div><dt className="text-xs text-muted">State</dt><dd>{rule.active === false ? "Disabled" : "Enabled"}</dd></div>{rule.effectiveFrom ? <div><dt className="text-xs text-muted">Applies from</dt><dd className="break-words">{new Date(rule.effectiveFrom).toLocaleDateString()}</dd></div> : null}</dl>;
 }
 
-export function AccountRulesSection({ transport = browserTransport }: { transport?: AccountRulesTransport }) {
+export function AccountRulesSection({ transport = browserTransport, ownerId }: { transport?: AccountRulesTransport; ownerId?: string }) {
   const custom = useCustomCategories();
-  const [data, setData] = useState<AccountRulesData | null>(null);
+  const [loaded, setData] = useState<AccountRulesData | null>(null);
+  const data = !ownerId || loaded?.state.ownerId === ownerId ? loaded : null;
   const [form, setForm] = useState<Form>(emptyForm);
   const [binding, setBinding] = useState({ accountId: "", provider: "", suffix: "" });
   const [refresh, setRefresh] = useState(0);
@@ -63,9 +56,9 @@ export function AccountRulesSection({ transport = browserTransport }: { transpor
 
   useEffect(() => {
     let active = true;
-    void transport.load().then((next) => { if (active) { setData(next); setError(""); } }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Account rules could not be loaded."); });
+    void transport.load(ownerId).then((next) => { if (active) { setData(next); setError(""); } }).catch((cause) => { if (active) setError(cause instanceof Error ? cause.message : "Account rules could not be loaded."); });
     return () => { active = false; };
-  }, [transport, refresh]);
+  }, [transport, refresh, ownerId]);
 
   function stage(next: Change) { setChange(next); setAllScopeAcknowledged(false); setError(""); setNotice(""); }
 

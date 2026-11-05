@@ -7,15 +7,15 @@ import { buildInsights } from "@/lib/finance/insights";
 import { labelQuestion } from "@/lib/bank/ingest";
 import { createSupabaseLoanStore, loanBalances, type LoanBalance } from "@/lib/finance/loans";
 import { createSupabaseBankStore } from "@/lib/bank/store";
-import { query } from "@/lib/supabase/connection";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
-import { sourceName, type BankSource } from "@/lib/bank/parse";
-import { loadAccountingReadModel } from "@/lib/finance/accounting/persisted-store";
+import type { BankSource } from "@/lib/bank/parse";
+import { loadAccountingReadModel, type AccountingResult } from "@/lib/finance/accounting/persisted-store";
 import { buildAccountingView, projectAccountingTransactions } from "@/lib/finance/accounting/view";
 import { withLedgerReceipts } from "@/lib/finance/accounting/receipts";
 import { drawChart, type DrawnChart } from "@/lib/finance/charts";
 import { createSupabasePinStore } from "@/lib/finance/pins";
 import { logError } from "@/lib/log";
+import { loadLedgerBankMetadata } from "./ledger-bank-metadata";
 
 export type LedgerBudget = {
   budgetId: string;
@@ -88,6 +88,11 @@ export type Ledger = {
 };
 
 export async function loadLedger(profile: UserProfile, settings: StudioSettings): Promise<Ledger> {
+  return (await loadLedgerSnapshot(profile, settings)).ledger;
+}
+
+/** Server-only snapshot for summary/list projections; never send the accounting state to Overview. */
+export async function loadLedgerSnapshot(profile: UserProfile, settings: StudioSettings, options: { receipts?: boolean } = {}): Promise<{ ledger: Ledger; accounting: AccountingResult }> {
   const store = createSupabaseFinanceStore(settings.supabase);
   const userId = profile.profileId;
   const [accounting, budgets, goals, bank, loans, bills, pins] = await Promise.all([
@@ -108,10 +113,10 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
   const monthStart = `${today.slice(0, 7)}-01`;
   const [year, month] = today.split("-").map(Number);
   const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-  return {
+  return { accounting, ledger: {
     today,
     currency: profile.currency,
-    rows: withLedgerReceipts(toLedgerRows(transactions), accounting.state, userId),
+    rows: options.receipts === false ? toLedgerRows(transactions) : withLedgerReceipts(toLedgerRows(transactions), accounting.state, userId),
     budgets: budgets
       .map((budget) => ({
         budgetId: budget.budgetId,
@@ -154,29 +159,17 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
       return drawn.ok ? [{ id: pin.id, chart: drawn.chart }] : [];
     }),
     accounting:{availability:accounting.availability,revision:accounting.state.revision,balances:accountingView.balances,loans:accountingView.loans,issues:accountingView.settlementIssues.map((issue) => issue.reason)},
-  };
+  } };
 }
 
 async function loadBank(settings: StudioSettings, profile: UserProfile): Promise<LedgerBank> {
   const bank = createSupabaseBankStore(settings.supabase);
-  const [held, token, names, balances] = await Promise.all([
+  const [held, metadata] = await Promise.all([
     bank.listMessages(profile.profileId, "needs_label"),
-    query<{ last_used_at: Date | null; last_empty_at: Date | null }>(settings.supabase, "select last_used_at, last_empty_at from public.ingest_tokens where owner_id = $1::uuid", [profile.profileId]),
-    bank.accountNames(profile.profileId),
-    query<{ source: LedgerBalance["source"]; balance: string; occurred_at: Date }>(
-      settings.supabase,
-      `select distinct on (source) source, balance::text, occurred_at
-       from public.bank_messages
-       where owner_id = $1::uuid and balance is not null
-       order by source, occurred_at desc, created_at desc`,
-      [profile.profileId],
-    ),
+    loadLedgerBankMetadata(settings.supabase, profile.profileId),
   ]);
   return {
-    connected: token.length > 0,
-    lastUsedAt: token[0]?.last_used_at ? token[0].last_used_at.toISOString() : null,
-    lastEmptyAt: token[0]?.last_empty_at ? token[0].last_empty_at.toISOString() : null,
-    accountNames: names,
+    ...metadata,
     needsLabel: held.slice(0, 20).map((message) => ({
       id: message.id,
       direction: message.direction,
@@ -185,12 +178,6 @@ async function loadBank(settings: StudioSettings, profile: UserProfile): Promise
       counterparty: message.counterparty,
       occurredAt: message.occurredAt,
       question: labelQuestion(message, profile.timezone, profile.preferredName),
-    })),
-    balances: balances.map((row) => ({
-      source: row.source,
-      label: sourceName(row.source),
-      balance: Number(row.balance).toFixed(2),
-      at: row.occurred_at.toISOString(),
     })),
   };
 }

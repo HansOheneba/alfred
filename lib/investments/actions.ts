@@ -4,7 +4,7 @@ import { formatDisplayDate, zonedYmd } from "@/lib/finance/dates";
 import { formatMinor } from "@/lib/finance/money";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import { massiveKey, refreshPrices } from "@/lib/investments/prices";
-import { FIXED_INCOME, findInvestment, KIND_LABELS, marketFor, type Investment, type InvestmentPatch, type InvestmentStore } from "@/lib/investments/store";
+import { FIXED_INCOME, findInvestment, KIND_LABELS, marketFor, type Contribution, type Investment, type InvestmentPatch, type InvestmentStore } from "@/lib/investments/store";
 import { valuePortfolio, type InvestmentView, type Portfolio } from "@/lib/investments/value";
 
 type Action<T extends FinanceAction["type"]> = Extract<FinanceAction, { type: T }>;
@@ -19,8 +19,18 @@ const percent = (part: number, whole: number) => `${part >= 0 ? "+" : ""}${((par
  * that have never been priced are fetched first, so a just-added holding
  * shows a value straight away; everything else waits for the daily refresh.
  */
-export async function loadPortfolio(store: InvestmentStore, ownerId: string, today: string, options: { fetchMissing?: boolean; fetchImpl?: typeof fetch } = {}): Promise<Portfolio> {
-  const [investments, holdings, values, contributions] = await Promise.all([store.list(ownerId), store.holdings(ownerId), store.latestValues(ownerId), store.contributions(ownerId)]);
+type PortfolioLoadOptions = { fetchMissing?: boolean; fetchImpl?: typeof fetch; missingPriceBudgetMs?: number };
+
+export async function loadPortfolio(store: InvestmentStore, ownerId: string, today: string, options: PortfolioLoadOptions = {}): Promise<Portfolio> {
+  return (await loadPortfolioDetails(store, ownerId, today, options)).portfolio;
+}
+
+/** Reuse the same contribution rows for the valuation and the page's recent history. */
+export async function loadPortfolioDetails(store: InvestmentStore, ownerId: string, today: string, options: PortfolioLoadOptions = {}): Promise<{ portfolio: Portfolio; contributions: Contribution[] }> {
+  const { investments, holdings, values, contributions } = store.portfolioInputs ? await store.portfolioInputs(ownerId) : await (async () => {
+    const [investments, holdings, values, contributions] = await Promise.all([store.list(ownerId), store.holdings(ownerId), store.latestValues(ownerId), store.contributions(ownerId)]);
+    return { investments, holdings, values, contributions };
+  })();
   const kinds = new Map(investments.map((item) => [item.id, item.kind]));
   const keys = holdings.flatMap((holding) => {
     const market = marketFor(kinds.get(holding.investmentId) ?? "other");
@@ -30,10 +40,14 @@ export async function loadPortfolio(store: InvestmentStore, ownerId: string, tod
   const missing = keys.filter((key) => !prices.some((price) => price.market === key.market && price.symbol === key.symbol));
   const needsFx = !prices.some((price) => price.market === "fx") && investments.some((item) => item.currency === "USD");
   if (options.fetchMissing && (missing.length > 0 || needsFx)) {
-    await refreshPrices(store, { key: massiveKey(), today, only: missing, fetchImpl: options.fetchImpl });
+    const controller = options.missingPriceBudgetMs === undefined ? null : new AbortController();
+    const timer = controller ? setTimeout(() => controller.abort(new Error("The page quote wait expired.")), options.missingPriceBudgetMs) : null;
+    try {
+      await refreshPrices(store, { key: massiveKey(), today, only: missing, fetchImpl: options.fetchImpl, signal: controller?.signal });
+    } finally { if (timer !== null) clearTimeout(timer); }
     prices = await store.prices([...keys, { market: "fx", symbol: "USDGHS" }]);
   }
-  return valuePortfolio({ investments, holdings, values, contributions, prices, today });
+  return { portfolio: valuePortfolio({ investments, holdings, values, contributions, prices, today }), contributions };
 }
 
 /** Where a value came from, in a few words: "Fri 30 Oct close", "you told me on 15 Sep", "at 24% a year". */

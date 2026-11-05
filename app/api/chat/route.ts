@@ -3,7 +3,7 @@ import { after, connection } from "next/server";
 import { chatChoiceSchema, chatDecisionSchema, chatTextSchema } from "@/lib/accounts/chat-request";
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
-import type { ChatMessageRecord } from "@/lib/accounts/messages";
+import { isPaymentNoticeIntent, type ChatMessageRecord } from "@/lib/accounts/messages";
 import { openAccount } from "@/lib/accounts/settings-store";
 import { NOT_INVITED } from "@/lib/auth/invites";
 import { LIMITS } from "@/lib/config";
@@ -44,6 +44,13 @@ async function openAction(settings: Parameters<typeof createSupabaseFinanceStore
   return chatReadDeadline(openConfirmationFor(createSupabaseFinanceStore(settings), ownerId, last, new Date()), 2500).catch((error) => (logError("web_chat_open_action", error), null));
 }
 
+/** Match openChoices' message gate before asking the browser for another authenticated read. */
+function needsAnswerChoices(last: ChatMessageRecord | undefined): boolean {
+  if (last?.role !== "assistant") return false;
+  if (last.paymentNotice || isPaymentNoticeIntent(last.intent)) return last.paymentNotice?.requiresPurpose === true;
+  return last.intent?.startsWith("bank:") === true;
+}
+
 export async function GET(request?: Request): Promise<Response> {
   await connection();
   const headers = { "cache-control": "private, no-store" };
@@ -69,7 +76,7 @@ export async function GET(request?: Request): Promise<Response> {
     if (part === "history") {
       const history = await chatReadDeadline(createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80), 8000);
       const actionId = await openAction(settings.supabase, user.id, history.at(-1));
-      return Response.json({ ok: true, ownerId: user.id, messages: history.map((message, index) => present(message, index === history.length - 1 ? actionId : null)), part }, { headers });
+      return Response.json({ ok: true, ownerId: user.id, messages: history.map((message, index) => present(message, index === history.length - 1 ? actionId : null)), choicesNeeded: needsAnswerChoices(history.at(-1)), part }, { headers });
     }
     if (part === "choices") {
       // No 80-message history or accounting hydration is needed to offer the

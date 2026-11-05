@@ -4,12 +4,15 @@ import { GET as ledgerGet } from "@/app/api/settings/ledger/route";
 import { GET as telegramGet } from "@/app/api/settings/telegram/route";
 import { loadOwnedSettingsData } from "@/app/settings/lazy-settings-data";
 
-const mocks = vi.hoisted(() => ({ requireOwner: vi.fn(), loadLedger: vi.fn(), username: vi.fn() }));
+const mocks = vi.hoisted(() => ({ requireOwner: vi.fn(), loadLedger: vi.fn(), loadBudgets: vi.fn(), loadGoals: vi.fn(), loadBank: vi.fn(), username: vi.fn() }));
 vi.mock("@/lib/web/api", () => ({ requireOwner: mocks.requireOwner }));
 vi.mock("@/lib/web/ledger", () => ({ loadLedger: mocks.loadLedger }));
+vi.mock("@/lib/web/secondary-read-models", () => ({ loadSettingsBudgets: mocks.loadBudgets, loadSettingsGoals: mocks.loadGoals, loadSettingsBank: mocks.loadBank }));
 vi.mock("@/lib/telegram/bot-info", () => ({ telegramBotUsername: mocks.username }));
 vi.mock("next/server", () => ({ connection: vi.fn(async () => undefined) }));
 const ledger: Ledger = { today: "2003-06-04", currency: "GHS", rows: [], budgets: [], goals: [], insights: [], owed: [], owe: [], bank: { connected: false, lastUsedAt: null, lastEmptyAt: null, accountNames: [], needsLabel: [], balances: [] } };
+const budgets = { today: ledger.today, currency: ledger.currency, budgets: ledger.budgets };
+const resourceRequest = (section: string) => new Request(`https://fictional.invalid/api/settings/ledger?section=${section}`);
 const owner = (id: string) => ({ profile: { profileId: id }, settings: { fixture: id } });
 
 describe("deferred Settings reads", () => {
@@ -26,23 +29,49 @@ describe("deferred Settings reads", () => {
   });
 
   it("keeps successive owners isolated with a fresh session-derived read", async () => {
-    mocks.loadLedger.mockResolvedValue(ledger);
+    mocks.loadBudgets.mockResolvedValue(budgets);
     for (const id of ["owner-a", "owner-b"]) {
       const current = owner(id); mocks.requireOwner.mockResolvedValue(current);
-      const response = await ledgerGet();
-      expect(await response.json()).toEqual({ ok: true, ownerId: id, ledger });
-      expect(mocks.loadLedger).toHaveBeenLastCalledWith(current.profile, current.settings);
+      const response = await ledgerGet(resourceRequest("budgets"));
+      expect(await response.json()).toEqual({ ok: true, ownerId: id, budgets });
+      expect(mocks.loadBudgets).toHaveBeenLastCalledWith(current.profile, current.settings);
       expect(response.headers.get("cache-control")).toBe("private, no-store");
     }
-    expect(mocks.loadLedger).toHaveBeenCalledTimes(2);
+    expect(mocks.loadBudgets).toHaveBeenCalledTimes(2);
+    expect(mocks.loadLedger).not.toHaveBeenCalled();
   });
 
   it("does not replace a failed coherent financial read with an empty or older ledger", async () => {
     mocks.requireOwner.mockResolvedValue(owner("owner-a"));
-    mocks.loadLedger.mockRejectedValue(new Error("source version changed; private details"));
-    const response = await ledgerGet(), body = await response.json();
+    mocks.loadBudgets.mockRejectedValue(new Error("source version changed; private details"));
+    const response = await ledgerGet(resourceRequest("budgets")), body = await response.json();
     expect(response.status).toBe(500); expect(body.ok).toBe(false); expect(body.ledger).toBeUndefined();
     expect(JSON.stringify(body)).not.toContain("private details");
+  });
+
+  it.each(["goals", "bank"])("loads only the selected %s resource", async section => {
+    mocks.requireOwner.mockResolvedValue(owner("owner-a"));
+    const data = section === "goals" ? { currency: ledger.currency, goals: [] } : { currency: ledger.currency, bank: ledger.bank };
+    const selected = section === "goals" ? mocks.loadGoals : mocks.loadBank;
+    selected.mockResolvedValue(data);
+    const response = await ledgerGet(resourceRequest(section));
+    expect(await response.json()).toEqual({ ok: true, ownerId: "owner-a", [section]: data });
+    expect(selected).toHaveBeenCalledOnce(); expect(mocks.loadLedger).not.toHaveBeenCalled(); expect(mocks.loadBudgets).not.toHaveBeenCalled();
+  });
+
+  it.each(["", "transactions", "all"])("rejects an unsupported section without a finance read (%s)", async section => {
+    mocks.requireOwner.mockResolvedValue(owner("owner-a"));
+    expect((await ledgerGet(resourceRequest(section))).status).toBe(400);
+    expect(mocks.loadLedger).not.toHaveBeenCalled(); expect(mocks.loadBudgets).not.toHaveBeenCalled(); expect(mocks.loadGoals).not.toHaveBeenCalled(); expect(mocks.loadBank).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ["budgets", { today: ledger.today, currency: ledger.currency, budgets: [] }],
+    ["goals", { currency: ledger.currency, goals: [] }],
+    ["bank", { currency: ledger.currency, bank: ledger.bank }],
+  ] as const)("validates the compact %s resource with owner/session guards", async (section, data) => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(Response.json({ ok: true, ownerId: "owner-a", [section]: data })));
+    expect(await loadOwnedSettingsData(`/api/settings/ledger?section=${section}`, section, "owner-a", new AbortController().signal)).toEqual(data);
   });
 
   it("reads only public bot details for the authenticated owner", async () => {
