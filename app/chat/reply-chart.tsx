@@ -2,12 +2,14 @@
 
 import { Bar, BarChart, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 
+import { DrawnChartView } from "@/app/chat/drawn-chart";
 import { categoryColor } from "@/app/components/ui";
 import type { ChatChart } from "@/lib/accounts/messages";
 import { formatMinor } from "@/lib/finance/money";
 
-/** The small interactive chart Alfred attaches to spending and insight replies. */
-export function ReplyChart({ chart }: { chart: ChatChart }) {
+/** The chart beside a reply: one Alfred drew on request, or the small one attached to spending and insight replies. */
+export function ReplyChart({ chart, onAsk, footer }: { chart: ChatChart; onAsk?: (text: string) => void; footer?: React.ReactNode }) {
+  if (chart.kind === "chart") return <DrawnChartView chart={chart} onAsk={onAsk} footer={footer} />;
   const items = chart.items.slice(0, 6).map((item) => ({ ...item, value: item.minor / 100 }));
   const total = chart.items.reduce((sum, item) => sum + item.minor, 0);
   const summary = items.map((item) => `${item.label} ${formatMinor(item.minor, chart.currency)}`).join(", ");

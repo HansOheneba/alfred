@@ -1,0 +1,27 @@
+{
+  "id": "chart-compare-categories",
+  "title": "Where the money went this month against last month, as a chart",
+  "source": "2026-11-05: charts in chat, comparing with the period before",
+  "tags": ["charts"],
+  "now": "2026-11-20T12:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "transactions": [
+      { "date": "2026-11-03", "type": "expense", "amount": "50.00", "category": "Food", "description": "Waakye" },
+      { "date": "2026-11-12", "type": "expense", "amount": "40.00", "category": "Transport", "description": "Uber to work" },
+      { "date": "2026-11-15", "type": "expense", "amount": "300.00", "category": "Rent & home", "description": "Rent share" },
+      { "date": "2026-10-10", "type": "expense", "amount": "100.00", "category": "Food", "description": "Shoprite" },
+      { "date": "2026-10-11", "type": "expense", "amount": "300.00", "category": "Rent & home", "description": "Rent share" }
+    ]
+  },
+  "steps": [
+    {
+      "say": "show me a chart of where my money went this month vs last month",
+      "expect": { "chart": { "by": "category", "measure": "spending", "compare": true, "total": "390.00" }, "savesNothing": true }
+    },
+    {
+      "say": "make that a pie chart",
+      "expect": { "chart": { "by": "category", "style": "donut" }, "savesNothing": true }
+    }
+  ]
+}
