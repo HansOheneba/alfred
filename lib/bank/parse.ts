@@ -322,6 +322,17 @@ function parseOne(body: string, hint: BankSource | null, generic: boolean): Pars
     return { source: "hubtel", externalId, direction: "out", amount, fee: feeOf(text), counterparty: "Hubtel wallet", reference, balance, raw: text };
   }
 
+  // Hubtel telling the receiver someone sent them money through the Hubtel app:
+  // "KOFI MENSAH 233200000000 has sent you GHS 80.00 via https://hbtl.co/app with a Note: rent".
+  // The money itself lands in the receiver's MoMo, which texts it as from "Credit.Inv"; ingest links the two.
+  const hubtelSent = text.match(new RegExp(`^\\s*([A-Za-z][A-Za-z .'-]{1,80}?)\\s+(?:\\+?\\d{9,15}\\s+)?has sent you GHS\\s*${MONEY}`, "i"));
+  if (hubtelSent) {
+    const amount = amountOf(hubtelSent[2]);
+    if (!amount) return null;
+    const note = clean(text.match(/with a Note:\s*(.+)$/i)?.[1] ?? "").replace(/[.\s]+$/, "");
+    return { source: "hubtel", externalId, direction: "in", amount, fee: "0.00", counterparty: clean(hubtelSent[1]).slice(0, 120), reference: /^other$/i.test(note) ? "" : note.slice(0, 160), balance: null, raw: text };
+  }
+
   // Other mobile money wordings: an amount plus a clear direction word.
   // Look only before the balance clause so a foreign-currency card charge with "Available balance: GHS …" isn't read as a GHS payment.
   if (!generic) return null;
@@ -330,8 +341,9 @@ function parseOne(body: string, hint: BankSource | null, generic: boolean): Pars
   if (!loose) return null;
   const amount = amountOf(loose[1]);
   if (!amount) return null;
-  const out = /\b(sent|paid|payment made|payment of|debited|cash out|purchase|bought|withdraw|transferred)/i.test(movement);
-  const inbound = /\b(received|credited|cash in|deposit)/i.test(movement);
+  // "has sent you" is money arriving, not leaving.
+  const out = /\b(sent(?! you)|paid(?! you)|payment made|payment of|debited|cash out|purchase|bought|withdraw|transferred)/i.test(movement);
+  const inbound = /\b(received|credited|cash in|deposit|sent you|paid you)/i.test(movement);
   if (out === inbound) return null;
   const party = movement.match(out ? /\bto\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/ : /\bfrom\s+([A-Z][A-Z0-9 .&'-]{2,60}?)(?=\s+(?:on|at|Current|Your|Ref|\.|,)|$)/);
   const fee = feeOf(text);

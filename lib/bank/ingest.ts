@@ -2,7 +2,7 @@ import { accountOf, isOwnName, parseBankText, payeeKey, purposeOf, sourceName, w
 import { classifyPayee } from "@/lib/bank/payees";
 import { looksLikeMoney, type UnknownTextReader } from "@/lib/bank/read-unknown";
 import { findInvestment, type Investment, type InvestmentStore } from "@/lib/investments/store";
-import { bareTwin, feeDescription, feeFor, feesAround, holdFor, isBare, namedTwin, nearby } from "@/lib/bank/related";
+import { bareTwin, feeDescription, feeFor, feesAround, holdFor, hubtelSendTwin, isBare, isHubtelSendNotice, namedTwin, nearby } from "@/lib/bank/related";
 import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import type { BankAccess } from "@/lib/finance/action-router";
@@ -340,6 +340,16 @@ async function invest(deps: IngestDeps, profile: UserProfile, message: BankMessa
  * `hold_settle` so it's asked about.
  */
 async function linkRelated(deps: IngestDeps, profile: UserProfile, stored: BankMessage): Promise<Omit<IngestOutcome, "feeRecorded"> | null> {
+  // A Hubtel app payment texts twice: Hubtel names the sender, MoMo holds the money under "Credit.Inv".
+  // The MoMo credit is the one that counts (it's in the MoMo account and balance); it takes the sender's name.
+  const hubtelTwin = await hubtelSendTwin(deps.bank, stored);
+  if (hubtelTwin) {
+    const [notice, credit] = isHubtelSendNotice(stored) ? [stored, hubtelTwin] : [hubtelTwin, stored];
+    await deps.bank.updateMessage(profile.profileId, notice.id, { status: "skipped" });
+    if (credit.status === "needs_label") await deps.bank.updateMessage(profile.profileId, credit.id, { counterparty: notice.counterparty });
+    if (stored === notice) return { message: { ...stored, status: "skipped" }, outcome: "skipped" };
+    if (credit.status === "needs_label") stored.counterparty = notice.counterparty;
+  }
   const around = await nearby(deps.bank, stored);
   if (isBare(stored)) {
     // The named text for the same payment already counts it; this one only adds the balance.
