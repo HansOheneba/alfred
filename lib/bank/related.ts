@@ -31,6 +31,30 @@ export async function nearby(bank: BankStore, message: BankMessage): Promise<Ban
   return around.filter((item) => item.id !== message.id && item.source === message.source && item.direction === message.direction);
 }
 
+/** Hubtel's "NAME has sent you GHS N" alert to the person receiving money through the Hubtel app. */
+export function isHubtelSendNotice(message: Pick<BankMessage, "source" | "direction" | "raw">): boolean {
+  return message.source === "hubtel" && message.direction === "in" && /has sent you GHS/i.test(message.raw);
+}
+
+/** A MoMo credit under the payment rail's name, which is how a Hubtel app payment reaches MoMo. */
+export function isCreditInv(message: Pick<BankMessage, "source" | "direction" | "counterparty">): boolean {
+  return message.source === "momo" && message.direction === "in" && /^credit[.\s_-]*inv\.?$/i.test(message.counterparty.trim());
+}
+
+/**
+ * The other text about one Hubtel app payment: for a Hubtel "has sent you"
+ * alert, the MoMo Credit.Inv credit of the same amount minutes apart, and the
+ * other way round. Only an unambiguous single match counts.
+ */
+export async function hubtelSendTwin(bank: BankStore, message: BankMessage): Promise<BankMessage | null> {
+  const notice = isHubtelSendNotice(message);
+  if (!notice && !isCreditInv(message)) return null;
+  const at = Date.parse(message.occurredAt);
+  const around = await bank.listBetween(message.ownerId, new Date(at - SAME_PAYMENT_MS).toISOString(), new Date(at + SAME_PAYMENT_MS).toISOString());
+  const twins = around.filter((item) => item.id !== message.id && item.status !== "skipped" && minor(item.amount) === minor(message.amount) && (notice ? isCreditInv(item) : isHubtelSendNotice(item)));
+  return twins.length === 1 ? twins[0] : null;
+}
+
 /** The named text a bare one duplicates: same bank, same amount, minutes apart. */
 export function namedTwin(message: BankMessage, around: BankMessage[]): BankMessage | null {
   return around.find((item) => item.counterparty && minor(item.amount) === minor(message.amount) && item.kind !== "hold_settle") ?? null;

@@ -63,7 +63,7 @@ export interface BankStore {
   insertMessage(row: NewBankMessage): Promise<BankMessage | null>;
   /** Durable evidence for an insertion rejected by the existing dedupe indexes. */
   findMessageByIdentity(ownerId: string, identity: Pick<NewBankMessage, "source" | "externalId" | "textHash">): Promise<BankMessage | null>;
-  updateMessage(ownerId: string, id: string, patch: Partial<Pick<BankMessage, "status" | "transactionId" | "feeTransactionId" | "askedAt" | "kind" | "balance">>): Promise<void>;
+  updateMessage(ownerId: string, id: string, patch: Partial<Pick<BankMessage, "status" | "transactionId" | "feeTransactionId" | "askedAt" | "kind" | "balance" | "counterparty">>): Promise<void>;
   getMessage(ownerId: string, id: string): Promise<BankMessage | null>;
   /** Corrects the date of a stored message that still needs a label, when a later copy shows when it really happened. */
   correctDate(ownerId: string, textHash: string, occurredAt: string): Promise<void>;
@@ -201,6 +201,7 @@ export function createSupabaseBankStore(settings: SupabaseSettings): BankStore {
       if (patch.feeTransactionId !== undefined) add("fee_transaction_id", patch.feeTransactionId);
       if (patch.askedAt !== undefined) add("asked_at", patch.askedAt);
       if (patch.balance !== undefined) add("balance", patch.balance);
+      if (patch.counterparty !== undefined) add("counterparty", patch.counterparty);
       if (sets.length === 0) return;
       await query(settings, `update public.bank_messages set ${sets.join(", ")} where owner_id = $1::uuid and id = $2::uuid`, values);
     },
