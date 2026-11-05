@@ -47,6 +47,10 @@ export type InterpretRequest = {
   investments?: string[];
   /** What's open in the conversation: what Alfred just asked, offered, or promised. */
   open?: string[];
+  /** What the model looked up earlier in this turn, with the results. */
+  lookups?: { query: string; lines: string[] }[];
+  /** How many more lookup rounds the model may ask for; 0 means answer now. */
+  lookupsLeft?: number;
   /** A model to use instead of the configured one, for turns that need more care. */
   model?: string;
 };
@@ -75,6 +79,8 @@ export async function interpretMessage(
     about: request.about,
     investments: request.investments,
     open: request.open,
+    lookups: request.lookups,
+    lookupsLeft: request.lookupsLeft,
   });
   const turnSettings = request.model ? { ...settings, model: request.model } : settings;
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);
