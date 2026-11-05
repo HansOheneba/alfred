@@ -3,6 +3,7 @@ import { waitingLine } from "@/lib/bank/reply";
 import type { BankMessage } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { saveConfirmation, type ActionContext, type Delivery } from "@/lib/finance/action-router";
+import { normalizeCategory } from "@/lib/finance/categories";
 import { proposedLabelSchema } from "@/lib/finance/schemas";
 import { remember } from "@/lib/learning/log";
 
@@ -30,9 +31,10 @@ function timeOf(message: BankMessage, profile: UserProfile): string {
 }
 
 /** Labels that can't apply to a payment going this way, like lending money that came in. */
-function fitsDirection(message: BankMessage, label: Label): boolean {
+export function fitsDirection(message: BankMessage, label: Label): boolean {
   if (label.kind === "lent" || label.kind === "paid_back") return message.direction === "out";
   if (label.kind === "repaid" || label.kind === "borrowed" || label.kind === "refund") return message.direction === "in";
+  if (label.kind === "category") return Boolean(normalizeCategory(label.category, message.direction === "in" ? "income" : "expense"));
   return label.kind !== "skip";
 }
 

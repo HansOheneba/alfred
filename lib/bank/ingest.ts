@@ -586,7 +586,11 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
 
   const type = message.direction === "out" ? "expense" : "income";
   const category = normalizeCategory(label.category, type);
-  if (!category) return { ok: false, text: "That category doesn't fit. Pick one from the list." };
+  if (!category) {
+    return { ok: false, text: message.direction === "in"
+      ? `${money} came in, so it can't be ${label.category} spending. If it was money onto your own card or account to pay for something, choose My own money, and tell me which payment it paid for.`
+      : `${label.category} isn't one of the categories I use for spending. Pick one below or tell me in other words.` };
+  }
   const splitFee = label.includedFee ? canonicalizeAmount(label.includedFee) : null;
   if (label.includedFee && (!splitFee || type !== "expense" || toMinor(splitFee) <= 0 || toMinor(splitFee) >= toMinor(message.amount))) {
     return { ok: false, text: `The included fee must be less than ${money}.` };
