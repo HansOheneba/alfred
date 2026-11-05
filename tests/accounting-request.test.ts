@@ -65,16 +65,24 @@ describe("bounded accounting requests", () => {
     const request = vi.fn().mockResolvedValueOnce(Response.json({ ok: false, text: "Records changed" }, { status: 409 })).mockImplementationOnce(pending);
     const publish = vi.fn(), recover = vi.fn();
     const result = dispatchAccounting(action, { ownerId, request, publish, recover, timeoutMs: 50 });
-    const failure = expect(result).rejects.toThrow(/records changed/);
+    const failure = expect(result).rejects.toThrow(/Records changed/);
     await vi.advanceTimersByTimeAsync(50); await failure;
     expect(request.mock.calls.map(([, options]) => options.method)).toEqual(["POST", "GET"]);
     expect(publish).not.toHaveBeenCalled(); expect(recover).toHaveBeenCalledOnce();
   });
   it("publishes a fresh conflict response without retrying the action", async () => {
-    const request = vi.fn().mockResolvedValueOnce(Response.json({ ok: false }, { status: 409 })).mockResolvedValueOnce(Response.json(payload()));
+    const request = vi.fn().mockResolvedValueOnce(Response.json({ ok: false, text: "Source evidence changed." }, { status: 409 })).mockResolvedValueOnce(Response.json(payload()));
     const publish = vi.fn(), recover = vi.fn();
-    await expect(dispatchAccounting(action, { ownerId, request, publish, recover })).rejects.toThrow(/records changed/);
+    await expect(dispatchAccounting(action, { ownerId, request, publish, recover })).rejects.toThrow("Source evidence changed. The latest records are loaded.");
     expect(publish).toHaveBeenCalledExactlyOnceWith(payload()); expect(recover).not.toHaveBeenCalled(); expect(request).toHaveBeenCalledTimes(2);
+  });
+  it("preserves a protected-record conflict instead of blaming another session", async () => {
+    const reason = "Legacy refund or loan classification must be resolved before reclassifying this movement.";
+    const request = vi.fn().mockResolvedValueOnce(Response.json({ ok: false, text: reason }, { status: 409 })).mockResolvedValueOnce(Response.json(payload()));
+    const publish = vi.fn(), recover = vi.fn();
+    const result = dispatchAccounting(action, { ownerId, request, publish, recover });
+    await expect(result).rejects.toThrow(reason);
+    expect(publish).toHaveBeenCalledOnce(); expect(recover).not.toHaveBeenCalled(); expect(request).toHaveBeenCalledTimes(2);
   });
   it.each([
     ["rejected connection", () => Promise.reject(new TypeError("Sample disconnected network"))],

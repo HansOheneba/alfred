@@ -84,3 +84,8 @@
  .alfred-loading-settingsSection { padding:0; }
 }
 @media(max-width:600px) { .alfred-loading-form,.alfred-loading-plans { grid-template-columns:minmax(0,1fr); } }
+.alfred-loading-notice { width:calc(100% - 32px); max-width:560px; box-sizing:border-box; margin:32px auto; padding:24px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.alfred-loading-notice h2 { margin:0; font-size:20px; line-height:28px; letter-spacing:-.02em; }
+.alfred-loading-notice p { margin:12px 0 24px; color:var(--muted); font-size:14px; line-height:22px; }
+.alfred-loading-notice button { max-width:100%; min-height:44px; white-space:normal; }
+@media(max-width:760px) { .alfred-loading-notice button { width:100%; } }

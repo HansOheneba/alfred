@@ -12,6 +12,25 @@ function transport(initial: AccountingState) {
   return { get state() { return state; }, createId: () => `sample:${++sequence}`, dispatch: vi.fn(async (action: AccountingAction) => { state = applyAccountingAction(state, action, NOW); return state; }) };
 }
 describe("reviewed account changes", () => {
+  it("protects an existing loan or refund from category changes while allowing account assignment", () => {
+    for (const legacyClassification of ["loan", "refund"] as const) {
+      const state = sample();
+      state.movements[0] = row("one", { status: "confirmed", category: "Uncategorized", legacyClassification });
+      expect(() => prepareMovementReview(state, "one", { accountId: "cash", category: "Subscriptions", status: "confirmed" })).toThrow(/existing loan or refund/);
+      expect(() => prepareSimilarReview(state, ["one"], "Subscriptions")).toThrow(/protected classification/);
+      const review = prepareMovementReview(state, "one", { accountId: "cash", category: "Uncategorized", status: "confirmed" });
+      expect(review.commands.map(command => command.type)).toEqual(["assign_movement"]);
+      const next = applyAccountingAction(state, { ...review.commands[0], expectedRevision: 0, requestId: `assign:${legacyClassification}` } as AccountingAction, NOW);
+      expect(next.movements[0]).toMatchObject({ accountId: "cash", category: "Uncategorized", legacyClassification, amountMinor: 150000 });
+    }
+  });
+  it("preserves an unchanged historical category during protected account assignment", () => {
+    const state = sample(), category = "Historical category whose original name exceeds forty characters";
+    state.movements[0] = row("one", { category, status: "confirmed", legacyClassification: "loan" });
+    const review = prepareMovementReview(state, "one", { accountId: "cash", category, status: "confirmed" });
+    expect(review.commands).toEqual([{ type: "assign_movement", movement: { movementId: "one", sourceFingerprint: "fp:one" }, accountId: "cash" }]);
+    expect(review.movements[0].after.category).toBe(category);
+  });
   it("advances only to another editable payment needing attention and finishes the queue", () => {
     const state = sample();
     state.movements.push(row("done", { accountId: "cash", status: "confirmed" }));

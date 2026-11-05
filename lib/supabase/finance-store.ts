@@ -99,10 +99,10 @@ export async function listRawTransactions(settings:SupabaseSettings,userId:strin
 
 export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceStore {
   async function readReporting(userId:string) {
-    const { loadAccountingState }=await import("@/lib/finance/accounting/persisted-store");
+    const { loadAccountingReadModel }=await import("@/lib/finance/accounting/persisted-store");
     // The accounting read fetches raw rows inside its source-version boundary,
     // and supplies the same raw fallback when the accounting schema is absent.
-    const accounting=await loadAccountingState(settings,userId);
+    const accounting=await loadAccountingReadModel(settings,userId);
     if (accounting.availability !== "ready") return { transactions:accounting.rawTransactions, attention:null };
     const { projectAccountingTransactions }=await import("@/lib/finance/accounting/view");
     return { transactions:projectAccountingTransactions(accounting.rawTransactions,accounting.state), attention:attentionSummary(accounting.state.movements) };

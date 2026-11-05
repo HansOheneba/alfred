@@ -1,6 +1,6 @@
 import { accountingActionSchema, MAX_ACCOUNTING_COMMAND_BYTES } from "@/lib/finance/accounting/schema";
 import { browserAccountingState } from "@/lib/finance/accounting/browser-state";
-import { loadAccountingState, saveAccountingAction, type AccountingResult } from "@/lib/finance/accounting/persisted-store";
+import { loadAccountingReadModel, saveAccountingAction, type AccountingResult } from "@/lib/finance/accounting/persisted-store";
 import { AccountingError } from "@/lib/finance/accounting/types";
 import { fail, requireOwner } from "@/lib/web/api";
 
@@ -13,7 +13,7 @@ function failure(error:unknown):Response {
 export async function GET() {
   const owner=await requireOwner();
   if (owner instanceof Response) return owner;
-  try { return Response.json({ok:true,...publicResult(await loadAccountingState(owner.settings.supabase,owner.profile.profileId))},{headers:{"Cache-Control":"no-store"}}); }
+  try { return Response.json({ok:true,...publicResult(await loadAccountingReadModel(owner.settings.supabase,owner.profile.profileId))},{headers:{"Cache-Control":"no-store"}}); }
   catch(error) { return failure(error); }
 }
 export async function POST(request:Request) {

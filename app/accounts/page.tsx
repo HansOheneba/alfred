@@ -5,7 +5,7 @@ import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/
 import { AccountsClient, type AccountsPayload } from "./accounts-client";
 import { AccountsErrorState, AccountsLoading } from "./accounts-status";
 import { browserAccountingState } from "@/lib/finance/accounting/browser-state";
-import { loadAccountingState } from "@/lib/finance/accounting/persisted-store";
+import { loadAccountingReadModel } from "@/lib/finance/accounting/persisted-store";
 import { ownedPaymentMovement, paymentTargetRequest } from '@/lib/notifications/payment-target';
 
 type PageProps = { searchParams?: Promise<{ payment?: string | string[] }> };
@@ -25,7 +25,7 @@ async function AccountsScreen({ searchParams }: PageProps = {}) {
   let paymentRequest = requestedPayment;
   let version = "unavailable";
   try {
-    const result = await loadAccountingState(account.settings.supabase, account.profile.profileId);
+    const result = await loadAccountingReadModel(account.settings.supabase, account.profile.profileId);
     initialPayload = { ok: true, state: browserAccountingState(result.state), availability: result.availability };
     if (paymentRequest.requested && !ownedPaymentMovement(result.state, account.profile.profileId, paymentRequest.id)) {
       paymentRequest = { requested: true, id: null };
