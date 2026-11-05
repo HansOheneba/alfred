@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 
 import { useChatViewport } from "./chat-viewport";
+import { CategoryCatalogProvider } from "./category-catalog";
 import { buttonClassName } from "./button-styles";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 import { ChatContextButton } from "@/app/chat/chat-context-control";
@@ -206,7 +207,7 @@ export function AppShell({ current, fill = false, headerAction, children, ownerI
           </div>
         </div>
       </header>
-      <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{recoveryRequired ? <MutationRecoveryScreen /> : children}</main>
+      <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{recoveryRequired ? <MutationRecoveryScreen /> : <CategoryCatalogProvider ownerId={ownerId} refreshKey={current}>{children}</CategoryCatalogProvider>}</main>
       {messages.announced && !recoveryRequired ? <ChatMessageAlert count={messages.count} dismiss={messages.dismiss} /> : null}
       <nav className="alfred-ui-dock" aria-label="Main (mobile)">
         {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}>{navIcon(item, "size-5")}<span>{item.label}</span></Link>)}

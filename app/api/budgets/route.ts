@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { normalizeCategory } from "@/lib/finance/categories";
+import { resolveCategory } from "@/lib/finance/categories";
 import { newTransactionId } from "@/lib/finance/ids";
 import { canonicalizeAmount } from "@/lib/finance/money";
 import { amountSchema, yearMonthSchema } from "@/lib/finance/schemas";
@@ -21,12 +21,12 @@ export async function POST(request: Request): Promise<Response> {
   const body = await readBody(request, saveBody);
   if (body instanceof Response) return body;
 
-  const category = normalizeCategory(body.category, "expense");
-  if (!category) return fail("Pick one of the expense categories.", 400);
   const amount = canonicalizeAmount(body.amount);
   if (!amount || !amountSchema.safeParse(amount).success) return fail("Enter a positive amount with up to two decimals.", 400);
 
   try {
+    const category = await resolveCategory(owner.store, owner.profile.profileId, body.category, "expense");
+    if (!category) return fail("Pick one of your expense categories.", 400);
     const timestamp = new Date().toISOString();
     const budget = await owner.store.saveBudget({
       budgetId: newTransactionId(),

@@ -31,14 +31,16 @@ describe("owner-scoped lazy Chat context", () => {
 
 describe("Chat context invalidation policy", () => {
   it("keeps plain read-only chat from invalidating context", () => {
-    const invalidate = vi.fn();
-    invalidateAfterChatOutcome(false, invalidate);
+    const invalidate = vi.fn(), refreshCategories = vi.fn();
+    invalidateAfterChatOutcome(false, invalidate, refreshCategories);
     expect(invalidate).not.toHaveBeenCalled();
+    expect(refreshCategories).not.toHaveBeenCalled();
   });
 
   it.each([true, undefined])("invalidates context exactly once after a write or unknown outcome (%s)", changed => {
-    const invalidate = vi.fn();
-    invalidateAfterChatOutcome(changed, invalidate);
+    const invalidate = vi.fn(), refreshCategories = vi.fn();
+    invalidateAfterChatOutcome(changed, invalidate, refreshCategories);
     expect(invalidate).toHaveBeenCalledTimes(1);
+    expect(refreshCategories).toHaveBeenCalledTimes(1);
   });
 });

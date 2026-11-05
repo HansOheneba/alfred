@@ -15,7 +15,8 @@ export async function loadOwnedChatContext(ownerId: string, signal: AbortSignal,
 }
 
 /** Drop the loaded summary after a write or an uncertain legacy outcome. The page itself holds no financial data to refresh. */
-export function invalidateAfterChatOutcome(ledgerChanged: boolean | undefined, invalidate: () => void) {
+export function invalidateAfterChatOutcome(ledgerChanged: boolean | undefined, invalidate: () => void, refreshCategories?: () => void) {
   if (ledgerChanged === false) return;
   invalidate();
+  refreshCategories?.();
 }

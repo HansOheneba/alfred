@@ -1,7 +1,7 @@
-import { EXPENSE_CATEGORIES } from "@/lib/finance/categories";
+import { categoryList } from "@/lib/finance/categories";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
-import type { ProcessedUpdateRecord } from "@/lib/finance/types";
+import type { CategoryRecord, ProcessedUpdateRecord } from "@/lib/finance/types";
 
 const SUMMARY_KINDS = ["spending", "income", "budget", "history", "overview", "record", "correction"] as const;
 const DETAILS = ["total", "by_category", "largest", "comparison"] as const;
@@ -87,9 +87,11 @@ function isBreakdownRequest(text: string): boolean {
   return /\b(what|where)\b/.test(value) && /\b(spent|spend|spending)\b/.test(value) && /\b(on|categor(?:y|ies))\b/.test(value);
 }
 
-function categoryMentioned(text: string): string | null {
-  const value = text.toLowerCase();
-  return EXPENSE_CATEGORIES.find((category) => new RegExp(`\\b${category.toLowerCase()}\\b`).test(value)) ?? null;
+function categoryMentioned(text: string, custom: readonly CategoryRecord[]): string | null {
+  return [...categoryList("expense", custom)].sort((a, b) => b.length - a.length).find((category) => {
+    const escaped = category.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    return new RegExp(`(?:^|[^\\p{L}\\p{N}])${escaped}(?=$|[^\\p{L}\\p{N}])`, "iu").test(text);
+  }) ?? null;
 }
 
 function hasExplicitRange(action: {
@@ -105,9 +107,10 @@ export function applyFollowUp(
   text: string,
   action: FinanceAction,
   context: ConversationContext | null,
+  custom: readonly CategoryRecord[] = [],
 ): FinanceAction {
   if (isBreakdownRequest(text)) {
-    const named = categoryMentioned(text);
+    const named = categoryMentioned(text, custom);
     if (!mentionsNewPeriod(text) && context) {
       return {
         type: "get_spending_summary",

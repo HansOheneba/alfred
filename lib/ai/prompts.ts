@@ -1,5 +1,6 @@
 import { personaLines, type Channel } from "@/lib/ai/persona";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
+import { categoryList } from "@/lib/finance/categories";
+import type { CategoryRecord } from "@/lib/finance/types";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { addDays, formatDisplayDate } from "@/lib/finance/dates";
 
@@ -16,6 +17,18 @@ export type RecentTransaction = {
 const RANGE = '"period":null,"month":null,"year":null,"start_date":null,"end_date":null,"category":null,"continue_previous":false';
 
 const ACTION_SHAPES = [
+  '{"type":"get_bills","name":null,"include_inactive":true}',
+  '{"type":"create_bill","name":"Internet","next_date":null,"amount":"100.00","currency":null,"cadence":null}',
+  '{"type":"update_bill","bill_id":null,"name":"Internet","changes":{"amount":"120.00"}}',
+  '{"type":"set_bill_active","bill_id":null,"name":"Internet","active":false}',
+  '{"type":"delete_bill","bill_id":null,"name":"Internet"}',
+  '{"type":"get_accounts"}',
+  '{"type":"create_account","label":"Cash wallet","provider":"Cash","currency":null,"include_in_cash":null}',
+  '{"type":"update_account","account_id":null,"name":"Cash wallet","changes":{"label":"Daily cash"}}',
+  '{"type":"read_settings","section":"all"}',
+  '{"type":"update_profile_settings","changes":{"preferredName":"Alex"}}',
+  '{"type":"update_reminder_settings","changes":{"morningEnabled":true,"morningTime":"8 am"}}',
+  '{"type":"update_notification_settings","changes":{"billReminders":false}}',
   '{"type":"chat","message":"...","topic":"money or other"}',
   '{"type":"look_up","queries":[{"tool":"transactions","text":"shoprite","category":null,"type":"expense","from":"YYYY-MM-DD","to":"YYYY-MM-DD","person":null}]}',
   '{"type":"clarify","question":"...","offer":null}',
@@ -43,6 +56,10 @@ const ACTION_SHAPES = [
   '{"type":"several","actions":[{"type":"invest_money","name":"Risevest","amount":"1500.00","currency":"GHS","direction":"out","date":null},{"type":"create_transaction","explicit":false,"transactions":[{"transaction_type":"expense","amount":"1500.00","currency":"GHS","category":"Rent & home","description":"Rent paid from Risevest","date":null,"payment_method":null,"notes":null}]}]}',
   '{"type":"set_budget","category":"Food","amount":"800.00","currency":"GHS","period":"YYYY-MM or null"}',
   '{"type":"get_budget_status","category":null,"period":null}',
+  '{"type":"get_categories","transaction_type":null}',
+  '{"type":"create_category","name":"Shopping","transaction_type":"expense","budget":null}',
+  '{"type":"create_category","name":"Shopping","transaction_type":"expense","budget":{"amount":"2000.00","currency":null,"period":null}}',
+  '{"type":"delete_budget","budget_id":null,"category":"Shopping","period":"YYYY-MM or null","currency":null}',
   '{"type":"create_savings_goal","name":"Laptop","target_amount":"3000.00","currency":"GHS","target_date":null,"current_amount":null}',
   '{"type":"update_savings_goal","goal_id":null,"name":"Laptop","contribution":"100.00","set_current_amount":null,"target_amount":null,"target_date":null,"status":null}',
   '{"type":"correct_transaction","transaction_id":"id from the recent list","description_query":null,"changes":{"amount":"60.00"}} — put only the fields that change inside changes.',
@@ -61,6 +78,7 @@ function recentDayGuide(today: string): string {
 }
 
 export function buildSystemPrompt(input: {
+  services?: string[];
   today: string;
   timezone: string;
   currency: string;
@@ -72,6 +90,7 @@ export function buildSystemPrompt(input: {
   telegramUserId?: number | null;
   channel?: Channel;
   budgets?: { period: string; category: string; amount: string; currency: string }[];
+  categories?: CategoryRecord[];
   goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
   history?: { role: "user" | "assistant"; body: string }[];
   /** Bank payments waiting for a label, numbered, and the one just asked about (0 for none). */
@@ -151,14 +170,27 @@ export function buildSystemPrompt(input: {
     "get_spending_summary for how much was spent. Use detail total for a total, by_category for a breakdown, largest for the biggest expenses, and comparison to compare with the previous period.",
     "get_income_summary for money received.",
     "get_budget_status for how much of a budget remains. get_financial_overview for an overall picture. get_transaction_history to list transactions.",
+    "get_categories lists the categories the user can use. create_category creates a named expense or income category; Alfred can create custom categories. Use the user's exact intended name, never invent one or silently substitute Misc or Personal.",
+    "set_budget creates or updates one monthly expense budget. For budget writes, currency and month must be stated by the user in this message or their recent conversation; use null when missing, even though a default currency is shown below. The server asks for missing details. Do not guess the month from today or choose the default currency for a budget write.",
+    "When a requested budget names a category that is not available, ask whether to create that category. If the user then says create a category and put it under that, use create_category with the name and amount from their earlier request and budget with its amount, currency and period. Missing currency or month stays null. This is one combined change with one confirmation; do not split it into several actions. A follow-up giving missing details completes this same combined create_category request.",
+    "delete_budget removes one saved budget after confirmation. Include its exact category, month and currency, or its saved budget_id when known. Never remove budgets in bulk or treat deleting a budget as deleting transactions.",
+    `Connected management services: ${input.services === undefined ? "the server checks each requested service" : input.services.join(", ") || "none"}. Never claim that an unavailable management service was changed.`,
+    "get_bills lists saved bills/subscriptions, including paused ones when include_inactive true. create_bill saves expected bill tracking, not a payment. Require the user's next date, currency, cadence (once/weekly/monthly/yearly), and fixed amount or explicit variable amount; omit amount when unknown and use null only when they said it varies. Never infer a bill from a purchase or merchant without being asked to track it.",
+    "update_bill edits only fields the user asked to change; use the exact saved name or bill_id, never invent an ID. set_bill_active pauses/resumes tracking and reminders inside Alfred. delete_bill removes tracking inside Alfred. These actions do not cancel a subscription, cancel a bank payment, pay a bill, or contact a provider. Say that if the user asks to cancel the actual service.",
+    "get_accounts lists Alfred's financial accounts. create_account requires label, provider, currency and whether to include it in cash totals; missing currency or include_in_cash remains null. This configures tracking, not a real bank account or bank connection. update_account changes only label/provider/include_in_cash. Account currency changes, account deletion, balance snapshots and moving money are not implemented by these configuration actions.",
+    "read_settings reads saved profile, daily check-in or notification preferences. update_profile_settings changes only requested preferredName, default currency, timezone, communicationPreference (concise/detailed), or financialGoals. A default-currency change applies to future defaults and does not convert recorded money. Authentication, Telegram IDs, credentials and connections require Settings and cannot be changed by these actions.",
+    "update_reminder_settings changes only existing morning/commute/evening check-ins with morningEnabled/commuteEnabled/eveningEnabled and morningTime/commuteTime/eveningTime. Preserve the user's raw time such as '8' or '8:00' when AM/PM is missing; do not invent 08:00. Explicit '8 am' or '20:00' can be used. These times follow their saved timezone. Do not offer arbitrary one-off reminders or new schedules; those are unsupported.",
+    "update_notification_settings changes only requested paymentMentions, outgoingMentions, paymentPush, paymentPreview, billReminders or weeklyOverview booleans. The server checks delivery readiness before enabling push/bill/weekly flags. Saving preferences does not grant browser permission, register a device or guarantee delivery. No action here sends a notification now.",
+    "For service-management writes, request one change at a time. Once the details are known return its action directly so the server shows the exact confirmation; do not combine multiple write actions or promise a multi-service atomic change. Read actions may accompany a single change. Never claim a write completed in chat.",
+    "Category archiving and unarchiving are deliberately unavailable. Once a category is created it remains available; the user can choose to use it or stop using it. Never offer to archive, hide, deactivate, unarchive or restore a category. Do not suggest changing rules or budgets as a way to archive a category. Category renaming is separately unsupported until the user decides how names should affect historical records; do not infer that decision.",
     "correct_transaction to change a record. delete_transaction to remove or undo one. clarify when more than one record could match.",
     "A follow-up such as what else they spent, or what they spent it on, refers to the previous query. Use get_spending_summary with detail by_category and continue_previous true. Do not answer that follow-up with the total again.",
     "If they name a new day or month, set that period and leave continue_previous false.",
     `Today is ${input.today} (${formatDisplayDate(input.today)}). Yesterday was ${yesterday}.`,
     `Timezone: ${input.timezone}. Weeks start on Monday and end on Sunday.`,
     `Default currency: ${input.currency}. Use another ISO currency only when the user states one.`,
-    `Expense categories: ${EXPENSE_CATEGORIES.join(", ")}.`,
-    `Income categories: ${INCOME_CATEGORIES.join(", ")}.`,
+    `Expense categories: ${categoryList("expense", input.categories).join(", ")}.`,
+    `Income categories: ${categoryList("income", input.categories).join(", ")}.`,
     "Amounts are positive numbers. Income and expense are different types, never negative amounts.",
     "Money put into savings, such as 50 into Achieve, is an expense in Savings. Changing the savings goal itself is update_savings_goal.",
     "Moving money into savings is not income.",

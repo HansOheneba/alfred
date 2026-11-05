@@ -6,7 +6,8 @@ import { useState, type FormEvent, type ReactNode } from "react";
 import { Button, Card, ConfirmDialog, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import { TemporalInput } from "@/app/components/temporal-input";
 import { Select } from "@/app/components/select";
-import { EXPENSE_CATEGORIES } from "@/lib/finance/categories";
+import { categoryList } from "@/lib/finance/categories";
+import { useCustomCategories } from "@/app/components/category-catalog";
 import { canonicalizeAmount, formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import type { Ledger, LedgerBudget, LedgerGoal } from "@/lib/web/ledger";
 
@@ -89,6 +90,7 @@ function Progress({ value, over = false }: { value: number; over?: boolean }) {
 type BudgetDraft = { category: string; amount: string; period: string; existing?: LedgerBudget };
 
 export function BudgetsSection({ ledger }: { ledger: Ledger }) {
+  const categories = categoryList("expense", useCustomCategories());
   const thisMonth = ledger.today.slice(0, 7);
   const [showPast, setShowPast] = useState(false);
   const [draft, setDraft] = useState<BudgetDraft | null>(null);
@@ -158,7 +160,7 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
           size="sm"
           onClick={() => {
             setDraftError("");
-            setDraft({ category: EXPENSE_CATEGORIES[0], amount: "", period: thisMonth });
+            setDraft({ category: categories[0], amount: "", period: thisMonth });
           }}
         >
           Add budget
@@ -235,7 +237,8 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
                 onChange={(event) => setDraft({ ...draft, category: event.target.value })}
                 className={`${inputClass} disabled:opacity-60`}
               >
-                {EXPENSE_CATEGORIES.map((category) => (
+                {categories.includes(draft.category) ? null : <option value={draft.category}>{draft.category}</option>}
+                {categories.map((category) => (
                   <option key={category} value={category}>
                     {category}
                   </option>

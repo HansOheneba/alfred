@@ -6,7 +6,8 @@ import { Button, Card, Dialog, DialogActions, Field, inputClass } from "@/app/co
 import { Select } from "@/app/components/select";
 import { CategoryCombobox } from "@/app/components/category-combobox";
 import { Spinner } from "@/app/components/status";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
+import { categoryList } from "@/lib/finance/categories";
+import { useCustomCategories } from "@/app/components/category-catalog";
 import { normalizeRuleText, type AccountBinding, type AccountRule, type AccountRuleCommand, type AccountRuleResult } from "@/lib/account-rules/types";
 import { accountRuleCommandSchema } from "@/lib/account-rules/schema";
 
@@ -48,6 +49,7 @@ export function RuleScopeDetails({ rule, accounts }: { rule: NonNullable<Change[
 }
 
 export function AccountRulesSection({ transport = browserTransport }: { transport?: AccountRulesTransport }) {
+  const custom = useCustomCategories();
   const [data, setData] = useState<AccountRulesData | null>(null);
   const [form, setForm] = useState<Form>(emptyForm);
   const [binding, setBinding] = useState({ accountId: "", provider: "", suffix: "" });
@@ -120,7 +122,7 @@ export function AccountRulesSection({ transport = browserTransport }: { transpor
         <Field label="Account"><Select className={inputClass} required disabled={!ready || busy} value={form.accountId} onChange={(event) => setForm({ ...form, accountId: event.target.value })}><option value="">Choose one account</option>{data?.accounts.map((account) => <option key={account.id} value={account.id}>{account.label} · {account.currency}</option>)}</Select></Field>
         <Field label="Direction"><Select className={inputClass} disabled={!ready || busy} value={form.direction} onChange={(event) => setForm({ ...form, direction: event.target.value as Form["direction"] })}><option value="out">Outgoing</option><option value="in">Incoming</option><option value="any">Incoming or outgoing</option></Select></Field>
         <Field label="Exact merchant or text" hint="Match the whole name or text. Capitalisation and extra spaces do not matter."><input className={inputClass} required={!form.all} maxLength={2000} disabled={!ready || busy || form.all} value={form.merchant} onChange={(event) => setForm({ ...form, merchant: event.target.value })} /></Field>
-        <Field label="Category"><CategoryCombobox aria-label="Category" required maxLength={120} options={[...EXPENSE_CATEGORIES, ...INCOME_CATEGORIES]} disabled={!ready || busy} value={form.category} onValueChange={(category) => setForm({ ...form, category })} /></Field>
+        <Field label="Category"><CategoryCombobox aria-label="Category" required maxLength={120} options={[...categoryList("expense", custom), ...categoryList("income", custom)]} disabled={!ready || busy} value={form.category} onValueChange={(category) => setForm({ ...form, category })} /></Field>
         <label className="flex items-start gap-2 text-xs leading-5 text-muted sm:col-span-2"><input type="checkbox" checked={form.all} disabled={!ready || busy} onChange={(event) => setForm({ ...form, all: event.target.checked })} className="mt-1 accent-[var(--accent)]" /><span>Apply to every merchant/text on this one account. This broad scope needs an extra confirmation.</span></label>
         <div className="alfred-buttonGroup--mobileStack flex flex-wrap gap-2 sm:col-span-2"><Button className="alfred-button--mobileFull" type="submit" disabled={!ready || busy}>{form.id ? "Review changes" : "Review rule"}</Button>{form.id ? <Button variant="ghost" className="alfred-button--mobileFull" onClick={() => setForm(emptyForm())} disabled={busy}>Cancel edit</Button> : null}</div>
       </form>

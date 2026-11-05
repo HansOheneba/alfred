@@ -1,6 +1,6 @@
 import type { BankMessage, BankStore } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
-import { normalizeCategory } from "@/lib/finance/categories";
+import { resolveCategory } from "@/lib/finance/categories";
 import { loanBalances, type LoanStore } from "@/lib/finance/loans";
 import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import type { LookupQuery } from "@/lib/finance/schemas";
@@ -40,7 +40,7 @@ export function createLookup(deps: LookupDeps, profile: UserProfile) {
   async function run(query: LookupQuery): Promise<string[]> {
     const text = words(query.text);
     if (query.tool === "transactions") {
-      const category = query.category ? normalizeCategory(query.category, query.type ?? "expense") ?? query.category : null;
+      const category = query.category ? await resolveCategory(deps.store, owner, query.category, query.type ?? "expense") ?? query.category : null;
       const rows = (await deps.store.listTransactions(owner))
         .filter((row) => row.userId === owner && row.status === "active" && inRange(row.transactionDate, query)
           && (!query.type || row.type === query.type) && (!category || row.category === category)

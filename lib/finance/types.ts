@@ -4,6 +4,16 @@ export type GoalStatus = "active" | "completed" | "deleted";
 export type PendingStatus = "pending" | "processing" | "completed" | "cancelled" | "expired";
 export type ProcessedStatus = "processing" | "completed" | "failed" | "duplicate_skipped";
 
+/** A category belongs to one profile; the built-in categories remain available. */
+export type CategoryRecord = {
+  categoryId: string;
+  userId: string;
+  name: string;
+  type: TransactionType;
+  createdAt: string;
+  rowNumber: number;
+};
+
 export type TransactionRecord = {
   transactionId: string;
   createdAt: string;

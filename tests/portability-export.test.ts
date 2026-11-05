@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { SupabaseSettings } from "@/lib/config";
-import { ALFRED_EXPORT_SNAPSHOT_SQL, buildAlfredExport, scrubNativeOwnership, type AlfredNativeExport } from "@/lib/portability/export";
+import { ALFRED_EXPORT_SNAPSHOT_SQL, ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL, buildAlfredExport, scrubNativeOwnership, type AlfredNativeExport } from "@/lib/portability/export";
 
 const mocks = vi.hoisted(() => ({ query: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
@@ -27,10 +27,10 @@ function snapshot(): AlfredNativeExport {
   };
 }
 
-function database(native = snapshot(), missing?: string) {
+function database(native = snapshot(), missing?: string, categoriesReady = false) {
   mocks.query.mockImplementation(async (_settings, sql: string, values: unknown[]) => {
     if (sql.startsWith("select table_name,")) {
-      return (values[0] as string[]).map((table_name) => ({ table_name, ready: table_name !== missing }));
+      return (values[0] as string[]).map((table_name) => ({ table_name, ready: table_name !== missing && (table_name !== "custom_categories" || categoriesReady) }));
     }
     return [{ native }];
   });
@@ -101,6 +101,33 @@ describe("read-only Alfred native export", () => {
     database(snapshot(), "investment_values");
     await expect(buildAlfredExport({} as SupabaseSettings, OWNER)).rejects.toThrow("Missing tables: investment_values");
     expect(mocks.query).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves custom-category definitions in the same owner-scoped snapshot when optional storage exists", async () => {
+    const native = snapshot();
+    native.tables.customCategories = [{ id: "42", category_id: "synthetic-category", name: "Shopping", type: "expense", created_at: "2026-11-05T12:00:00Z" }];
+    database(native, undefined, true);
+
+    const result = await buildAlfredExport({} as SupabaseSettings, OWNER);
+
+    expect(mocks.query).toHaveBeenCalledTimes(2);
+    expect(mocks.query.mock.calls[0][2][0]).toContain("custom_categories");
+    expect(mocks.query.mock.calls[1].slice(1)).toEqual([ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL, [OWNER]]);
+    expect(ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL).toContain("select id::text, category_id, name, type, created_at from public.custom_categories where owner_id = $1::uuid");
+    expect(ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL).not.toContain(OWNER);
+    expect(result.datasets["alfred.native"].tables.customCategories).toEqual(native.tables.customCategories);
+    expect(result.coverage.find(item => item.dataset === "alfred.native.customCategories")).toMatchObject({ status: "preserved", count: 1 });
+    expect(result.coverage.find(item => item.dataset === "alfred.native.customCategories")?.reason).toContain("recreate these categories manually");
+  });
+
+  it("keeps existing exports available when optional category storage is absent", async () => {
+    database(snapshot(), "custom_categories");
+
+    const result = await buildAlfredExport({} as SupabaseSettings, OWNER);
+
+    expect(mocks.query.mock.calls[1][1]).toBe(ALFRED_EXPORT_SNAPSHOT_SQL);
+    expect(ALFRED_EXPORT_SNAPSHOT_SQL).not.toContain("custom_categories");
+    expect(result.datasets["alfred.native"].tables).not.toHaveProperty("customCategories");
   });
 
   it("refuses a missing authenticated profile instead of falling back to another profile or claiming defaults", async () => {

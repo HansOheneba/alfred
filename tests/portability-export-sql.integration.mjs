@@ -4,7 +4,7 @@
 import assert from 'node:assert/strict';
 import { createHash } from 'node:crypto';
 import { readFile, readdir } from 'node:fs/promises';
-import { ALFRED_EXPORT_SNAPSHOT_SQL } from '../lib/portability/export.ts';
+import { ALFRED_EXPORT_SNAPSHOT_SQL, ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL } from '../lib/portability/export.ts';
 import { planNativeRestoration } from '../lib/portability/native-restoration.ts';
 import { moneyNativeSupplement } from '../lib/portability/money-native.ts';
 import { matchAccountRule, applyAccountRules } from '../lib/account-rules/matcher.ts';
@@ -57,6 +57,26 @@ try {
   await rows(`insert into public.imported_finance_sources(owner_id,movement_id,receipt_id,movement) values($1::uuid,'synthetic-imported','synthetic-history',$2::jsonb)`,[owner,JSON.stringify({id:'synthetic-imported',ownerId:owner,amountMinor:1000,taxMinor:10})]);
   await rows(`insert into public.finance_import_native_origins(owner_id,table_name,record_key,namespace,source_key,receipt_id) values($1::uuid,'budgets','synthetic-budget','synthetic:canonical-source','original-budget','synthetic-history'),($1::uuid,'investments','30000000-0000-4000-8000-000000000001','synthetic:canonical-source','original-investment','synthetic-history')`,[owner]);
   const result=(await rows(ALFRED_EXPORT_SNAPSHOT_SQL,[owner]))[0].native;
+  await rows(`insert into public.custom_categories(owner_id,category_id,name,type,created_at) values
+    ($1::uuid,'synthetic-shopping','Shopping','expense','2026-11-05T12:00:00Z'),
+    ($1::uuid,'synthetic-side-projects','Side projects','income','2026-11-05T12:01:00Z'),
+    ($2::uuid,'foreign-private-category','Foreign private category','expense','2026-11-05T12:02:00Z')`,[owner,stranger]);
+  const withCategories=(await rows(ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL,[owner]))[0].native;
+  check(withCategories.tables.customCategories.map(({category_id,name,type})=>({category_id,name,type})),[
+    {category_id:'synthetic-shopping',name:'Shopping',type:'expense'},
+    {category_id:'synthetic-side-projects',name:'Side projects',type:'income'},
+  ],'optional snapshot preserves exact owner-scoped category names and types');
+  check(withCategories.tables.customCategories.every(row=>typeof row.id==='string'),true,'category identity integers export as exact text');
+  check(withCategories.tables.customCategories[0].created_at,'2026-11-05T12:00:00+00:00','category creation timestamp preserved');
+  check(JSON.stringify(withCategories).includes('Foreign private category'),false,'optional category snapshot excludes other owner definitions');
+  const {customCategories,...withoutCategories}=withCategories.tables;
+  check(withoutCategories,result.tables,'optional categories remain part of the same complete native snapshot');
+  check(Object.hasOwn(result.tables,'customCategories'),false,'baseline query retains no dependency on optional category storage');
+  const categoryOnly={schema:1,tables:{customCategories},settings:withCategories.settings};
+  const preservedCategories=planNativeRestoration(result,[{namespace:'synthetic:category-source',native:categoryOnly}],'synthetic:category-destination',new Date().toISOString());
+  check(Object.values(preservedCategories.summary.additions).reduce((sum,n)=>sum+n,0),0,'category definitions do not create unreviewed restore actions');
+  check(preservedCategories.summary.coverage.find(row=>row.dataset==='alfred.native.customCategories')?.status,'preserved','import preview labels category definitions as preserved evidence');
+  check(preservedCategories.summary.coverage.find(row=>row.dataset==='alfred.native.customCategories')?.reason.includes('recreate these categories manually'),true,'import preview explains manual category recreation');
   check(result.schema,1,'real snapshot query executes against actual tables and columns');
   check(Object.keys(result.tables).length,22,'every declared native domain is present');
   check(result.tables.transactions.length,2,'owner filter retains active and deleted owned rows only');

@@ -6,7 +6,7 @@ import { bareTwin, feeDescription, feeFor, feesAround, holdFor, isBare, namedTwi
 import type { BankMessage, BankStore, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import type { BankAccess } from "@/lib/finance/action-router";
-import { normalizeCategory } from "@/lib/finance/categories";
+import { normalizeCategory, readCategories } from "@/lib/finance/categories";
 import { addDays, formatDisplayDate, zonedYmd } from "@/lib/finance/dates";
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
@@ -181,6 +181,7 @@ export async function ingestPreparedBankText(
   deps: IngestDeps, profile: UserProfile, prepared: PreparedBankText, options: IngestOptions,
 ): Promise<{ outcomes: IngestOutcome[]; duplicates: number; found: number; durableMessageIds: string[] }> {
   const { parsed, readBy } = prepared;
+  const categories = await readCategories(deps.ledger, profile.profileId);
   const names = await deps.bank.accountNames(profile.profileId);
   const ignored = await deps.bank.ignoredAccounts(profile.profileId);
   const outcomes: IngestOutcome[] = [];
@@ -283,7 +284,7 @@ export async function ingestPreparedBankText(
     }
     // Someone who chips in toward a bill: their money lowers that category's spending.
     if (rule?.kind === "chip_in") {
-      const billCategory = stored.direction === "in" ? normalizeCategory(rule.category, "expense") : null;
+      const billCategory = stored.direction === "in" ? normalizeCategory(rule.category, "expense", categories) : null;
       if (billCategory) {
         const id = await record(deps, profile, stored, { type: "expense", amount: `-${stored.amount}`, category: billCategory, description: rule.description || chipInDescription(stored) });
         await deps.bank.updateMessage(profile.profileId, stored.id, { status: "recorded", transactionId: id });
@@ -294,7 +295,7 @@ export async function ingestPreparedBankText(
       continue;
     }
     const type = stored.direction === "out" ? "expense" : "income";
-    const category = rule ? normalizeCategory(rule.category, type) : null;
+    const category = rule ? normalizeCategory(rule.category, type, categories) : null;
     if (rule && category) {
       const id = await record(deps, profile, stored, { type, amount: stored.amount, category, description: rule.description || describe(stored) });
       await deps.bank.updateMessage(profile.profileId, stored.id, { status: "recorded", transactionId: id });
@@ -444,6 +445,7 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   const message = await deps.bank.getMessage(profile.profileId, messageId);
   if (!message) return { ok: false, text: "I couldn't find that payment anymore." };
   if (message.status !== "needs_label") return { ok: false, text: "That one is already sorted." };
+  const categories = await readCategories(deps.ledger, profile.profileId);
   const money = formatAmount(message.amount, message.currency);
   const change: LabelChange = { messageId: message.id, previous: { status: message.status, kind: message.kind }, transactionIds: [] };
 
@@ -471,7 +473,7 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   }
   if (label.kind === "refund") {
     if (message.direction !== "in") return { ok: false, text: `${money} went out, so it can't be a refund coming back.` };
-    const refundCategory = normalizeCategory(label.category, "expense");
+    const refundCategory = normalizeCategory(label.category, "expense", categories);
     if (!refundCategory) return { ok: false, text: "Which spending category was the refund for? Pick one from the list." };
     const sender = titleCase(message.counterparty);
     const description = `Refund · ${label.description?.trim() || sender || "Returned purchase"}`.slice(0, 200);
@@ -560,7 +562,7 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
 
   if (label.kind === "chip_in") {
     if (message.direction !== "in") return { ok: false, text: `${money} went out, so it can't be someone's share coming in.` };
-    const billCategory = normalizeCategory(label.category, "expense");
+    const billCategory = normalizeCategory(label.category, "expense", categories);
     if (!billCategory) return { ok: false, text: "Which bill was it a share of? Pick a spending category." };
     const sender = titleCase(message.counterparty);
     // Money can come from someone paying on another person's behalf: the share is theirs, not the sender's.
@@ -585,7 +587,7 @@ export async function applyLabel(deps: IngestDeps, profile: UserProfile, message
   }
 
   const type = message.direction === "out" ? "expense" : "income";
-  const category = normalizeCategory(label.category, type);
+  const category = normalizeCategory(label.category, type, categories);
   if (!category) {
     return { ok: false, text: message.direction === "in"
       ? `${money} came in, so it can't be ${label.category} spending. If it was money onto your own card or account to pay for something, choose My own money, and tell me which payment it paid for.`

@@ -6,6 +6,7 @@ import { LIMITS } from "@/lib/config";
 import { AiError } from "@/lib/errors";
 import { applyFollowUp, readConversation, type ConversationContext } from "@/lib/finance/conversation";
 import { actionsOf, type InterpretedAction, type LookupQuery } from "@/lib/finance/schemas";
+import { readCategories } from "@/lib/finance/categories";
 import { readReporting, type FinanceStore } from "@/lib/finance/store";
 import type { AttentionSummary } from "@/lib/finance/accounting/types";
 import { zonedYmd } from "@/lib/finance/dates";
@@ -15,6 +16,7 @@ import type { TransactionRecord } from "@/lib/finance/types";
 import { conversationalFallback } from "@/lib/telegram/messages";
 
 export async function interpretWithContext(input: {
+  services?: string[];
   text: string;
   profile: UserProfile;
   store: FinanceStore;
@@ -38,13 +40,14 @@ export async function interpretWithContext(input: {
   open?: (history: ChatMessageRecord[]) => string[];
 }): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** Why the model gave nothing usable, so `action` is a stock fallback: its reply couldn't be read, or it was down or too slow. */ unread?: "invalid" | "outage"; /** Lookup rounds the model took. */ lookedUp?: number; /** What those lookups returned. */ found?: { query: string; lines: string[] }[] }> {
   const ownerId = input.profile.profileId;
-  const [transactions, context, budgets, goals, history, reporting] = await Promise.all([
+  const [transactions, context, budgets, goals, history, reporting, categories] = await Promise.all([
     input.store.listTransactions(ownerId),
     readConversation(input.store, ownerId),
     input.store.listBudgets(ownerId),
     input.store.listSavingsGoals(ownerId),
     input.messages ? input.messages.listRecent(ownerId, LIMITS.maxHistory) : Promise.resolve([]),
     readReporting(input.store, ownerId),
+    readCategories(input.store, ownerId),
   ]);
   const recent = transactions
     .filter((item) => item.status === "active")
@@ -74,6 +77,7 @@ export async function interpretWithContext(input: {
   try {
     const open = input.open?.(ownHistory);
     const ask = (lookups: { query: string; lines: string[] }[], lookupsLeft: number | undefined) => input.interpret({
+      services: input.services,
       text: input.text,
       timezone: input.profile.timezone,
       currency: input.profile.currency,
@@ -85,6 +89,7 @@ export async function interpretWithContext(input: {
       toneNote: input.profile.toneNote,
       telegramUserId: input.profile.telegramUserId,
       channel: input.channel,
+      categories,
       budgets: budgets.slice(0, 12).map((item) => ({
         period: item.period,
         category: item.category,
@@ -135,7 +140,7 @@ export async function interpretWithContext(input: {
     }
     throw error;
   }
-  const action = interpreted.type === "several" ? interpreted : applyFollowUp(input.text, interpreted, context);
+  const action = interpreted.type === "several" ? interpreted : applyFollowUp(input.text, interpreted, context, categories);
   return { action, context, cue, lookedUp, found };
 }
 

@@ -1,4 +1,7 @@
 import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
+import { createSupabaseBillStore, type BillStore } from "@/lib/finance/bills";
+import { createSupabaseAccountManagementStore, type AccountManagementStore } from "@/lib/accounts/management";
+import { createSupabasePreferenceManagementStore, type PreferenceManagementStore } from "@/lib/accounts/preference-management";
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
 import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
@@ -50,6 +53,9 @@ export type StudioResult = {
 };
 
 export type StudioDeps = {
+  bills?: BillStore | null;
+  accountManagement?: AccountManagementStore | null;
+  preferences?: PreferenceManagementStore | null;
   settings: StudioSettings;
   store: FinanceStore;
   interpret: (request: InterpretRequest) => Promise<InterpretedAction>;
@@ -138,6 +144,9 @@ export async function handleProfileTurn(
   }
 
   const ctx: ActionContext = {
+    bills: deps.bills ?? null,
+    accountManagement: deps.accountManagement ?? null,
+    preferences: deps.preferences ?? null,
     profile,
     store: deps.store,
     now,
@@ -355,6 +364,9 @@ async function answerDecision(
 export function createStudioDeps(settings: StudioSettings): StudioDeps {
   let sequence = 0;
   return {
+    bills: createSupabaseBillStore(settings.supabase),
+    accountManagement: createSupabaseAccountManagementStore(settings.supabase),
+    preferences: createSupabasePreferenceManagementStore(settings.supabase),
     settings,
     store: createSupabaseFinanceStore(settings.supabase),
     interpret: (request) => interpretMessage(settings.deepseek, request),
