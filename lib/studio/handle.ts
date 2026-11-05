@@ -1,6 +1,7 @@
 import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { createSupabaseBillStore, type BillStore } from "@/lib/finance/bills";
 import { createSupabaseSorter, type MovementSorter } from "@/lib/conversation/sorting";
+import { stepper, type Progress } from "@/lib/conversation/steps";
 import { createSupabaseAccountManagementStore, type AccountManagementStore } from "@/lib/accounts/management";
 import { createSupabasePreferenceManagementStore, type PreferenceManagementStore } from "@/lib/accounts/preference-management";
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
@@ -81,6 +82,8 @@ export type StudioDeps = {
   paymentResolutions?: PaymentResolutionDeps | null;
   /** The Accounts page's Needs attention list, for sorting it in chat. */
   sorting?: MovementSorter | null;
+  /** Hears what Alfred is doing, for the live step shown while a reply is worked out. */
+  progress?: Progress | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -167,6 +170,7 @@ export async function handleProfileTurn(
     notebook: deps.notebook ?? null,
     learning: deps.learning ?? null,
     sorting: deps.sorting ?? null,
+    progress: stepper(deps.progress),
   };
   const labelling = ingestFor(deps, now);
   ctx.labelPayments = labelling ? proposedLabelApplier(labelling, profile) : null;
@@ -289,6 +293,7 @@ function ingestFor(deps: StudioDeps, now: Date): IngestDeps | null {
 
 /** A tapped answer button: files the payment without a model call, then asks the next one. */
 async function answerChoice(choice: string, ctx: ActionContext, deps: StudioDeps, clientId?: string, ledgerChanged: () => boolean = () => false, replyToPayment?: ChatMessageRecord["paymentNotice"] | null): Promise<StudioResult> {
+  ctx.progress?.("Filing that payment");
   const ingest = ingestFor(deps, ctx.now);
   const bound = await bindPaymentReply(deps, ctx.profile.profileId, clientId, replyToPayment);
   const focus = await paymentNoticeFocus(deps.messages, ctx.profile.profileId, { channel: "web", excludeClientId: clientId, replyToPayment: bound });
@@ -342,6 +347,7 @@ async function answerDecision(
   clientId?: string,
   ledgerChanged: () => boolean = () => false,
 ): Promise<StudioResult> {
+  ctx.progress?.(input.decision === "confirm" ? "Saving that" : "Cancelling that");
   const result = await decidePending({ ...input, chatId: String(STUDIO_CHAT_ID) }, ctx);
   if (deps.messages) {
     await deps.messages.append({

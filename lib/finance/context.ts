@@ -14,6 +14,7 @@ import { formatMinor, toMinor } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
 import type { TransactionRecord } from "@/lib/finance/types";
 import { conversationalFallback } from "@/lib/telegram/messages";
+import { lookupStep, type Progress } from "@/lib/conversation/steps";
 
 export async function interpretWithContext(input: {
   services?: string[];
@@ -38,6 +39,8 @@ export async function interpretWithContext(input: {
   lookup?: (queries: LookupQuery[]) => Promise<{ query: string; lines: string[] }[]>;
   /** Works out what's open in the conversation from its recent messages. */
   open?: (history: ChatMessageRecord[]) => string[];
+  /** Hears what Alfred is doing, for the live step shown while a reply is worked out. */
+  progress?: Progress | null;
 }): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** Why the model gave nothing usable, so `action` is a stock fallback: its reply couldn't be read, or it was down or too slow. */ unread?: "invalid" | "outage"; /** Lookup rounds the model took. */ lookedUp?: number; /** What those lookups returned. */ found?: { query: string; lines: string[] }[] }> {
   const ownerId = input.profile.profileId;
   const [transactions, context, budgets, goals, history, reporting, categories] = await Promise.all([
@@ -119,6 +122,7 @@ export async function interpretWithContext(input: {
     let lookups: { query: string; lines: string[] }[] = [];
     interpreted = await ask(lookups, input.lookup ? LOOKUP_ROUNDS : undefined);
     while (input.lookup && lookedUp < LOOKUP_ROUNDS && lookupsIn(interpreted).length > 0) {
+      input.progress?.(lookupStep(lookupsIn(interpreted)));
       lookups = [...lookups, ...(await input.lookup(lookupsIn(interpreted)))];
       found = lookups;
       lookedUp += 1;

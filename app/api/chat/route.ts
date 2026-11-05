@@ -9,6 +9,7 @@ import { NOT_INVITED } from "@/lib/auth/invites";
 import { LIMITS } from "@/lib/config";
 import { getStudioSettings } from "@/lib/env";
 import { openConfirmationFor } from "@/lib/finance/pending";
+import type { Progress } from "@/lib/conversation/steps";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { logError } from "@/lib/log";
 import { DbRateLimiter } from "@/lib/security/db-rate-limit";
@@ -112,7 +113,37 @@ export async function GET(request?: Request): Promise<Response> {
   }
 }
 
+/** Asked for by the web chat: each step as a line while Alfred works, then the reply. */
+const STEP_STREAM = "application/x-ndjson";
+
+/**
+ * A chat turn. With `Accept: application/x-ndjson` the reply streams: one
+ * {"type":"step"} line per thing Alfred starts doing, then one
+ * {"type":"result"} line with the same status and body as the plain reply.
+ * The reply itself is only sent once it's been worked out and checked.
+ */
 export async function POST(request: Request): Promise<Response> {
+  if (!request.headers.get("accept")?.includes(STEP_STREAM)) return answer(request, null);
+  const encoder = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      const send = (event: object) => {
+        try { controller.enqueue(encoder.encode(`${JSON.stringify(event)}\n`)); } catch { /* the reader went away; the turn still finishes and is saved */ }
+      };
+      try {
+        const response = await answer(request, (step) => send({ type: "step", text: step }));
+        send({ type: "result", status: response.status, body: await response.json() });
+      } catch (error) {
+        logError("web_chat_stream", error);
+        send({ type: "result", status: 500, body: { ok: false, text: userFacingError(error) } });
+      }
+      try { controller.close(); } catch { /* already closed by the reader */ }
+    },
+  });
+  return new Response(stream, { headers: { "content-type": `${STEP_STREAM}; charset=utf-8`, "cache-control": "private, no-store, no-transform", "x-accel-buffering": "no" } });
+}
+
+async function answer(request: Request, progress: Progress | null): Promise<Response> {
   const user = await getAuthUser();
   if (!user) return Response.json({ ok: false, text: "Sign in to talk to Alfred." }, { status: 401 });
 
@@ -168,7 +199,7 @@ export async function POST(request: Request): Promise<Response> {
           ? { choice: choice.data.choice, clientId: choice.data.clientId, replyToPayment: choice.data.replyToPayment }
           : null;
     if (!turn) return Response.json({ ok: false, text: "Send a text message." }, { status: 400 });
-    const result = await handleProfileTurn(profile, turn, createStudioDeps(settings));
+    const result = await handleProfileTurn(profile, turn, progress ? { ...createStudioDeps(settings), progress } : createStudioDeps(settings));
     if (result.pending) {
       return Response.json({ ok: false, text: result.text, messages: (result.messages ?? []).map((message) => present(message)) }, { status: 409 });
     }

@@ -56,6 +56,12 @@
 .alfred-production-chat-thinking i { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); }
 .alfred-production-chat-thinking i:nth-child(2) { animation-delay: .15s; }
 .alfred-production-chat-thinking i:nth-child(3) { animation-delay: .3s; }
+/* What Alfred is doing right now; each new step fades in over the last. */
+.alfred-production-chat-thinking > .alfred-production-chat-step { display: inline; gap: 0; color: var(--muted); font-size: 0.86rem; animation: alfred-step-in .25s ease-out both; }
+@keyframes alfred-step-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
+/* A chart or answers arriving after the reply's words. */
+.alfred-production-chat-assistantContent > figure, .alfred-production-chat-assistantContent > .alfred-chat-answers { animation: alfred-step-in .3s ease-out both; }
+@media (prefers-reduced-motion: reduce) { .alfred-production-chat-thinking > .alfred-production-chat-step, .alfred-production-chat-assistantContent > figure, .alfred-production-chat-assistantContent > .alfred-chat-answers { animation: none; } }
 .alfred-production-chat-error { max-width: 800px; margin: 16px auto 0; padding: 12px; border: 1px solid var(--danger); border-radius: 12px; color: var(--danger); font-size: 14px; line-height: 24px; }
 .alfred-production-chat-followUps { display: flex; gap: 8px; overflow-x: auto; padding: 8px 4px 12px; }
 .alfred-production-chat-followUps button { white-space: nowrap; flex-shrink: 0; }

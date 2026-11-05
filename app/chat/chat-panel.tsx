@@ -15,6 +15,7 @@ import { capturePaymentChatEntry, chatSubmissionReady, linkedPaymentReplyContext
 import { chatReadDeadline } from "@/app/chat/read-deadline";
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { KeepChartButton } from "@/app/chat/keep-chart";
+import { readTurnResponse, revealedWords, TURN_STREAM } from "@/app/chat/turn-stream";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
 import { useRefreshCategories } from "@/app/components/category-catalog";
@@ -133,6 +134,13 @@ export function ChatPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const sending = useRef(false);
   const stickToBottom = useRef(!initialPaymentTarget);
+  // What Alfred is doing while a reply is worked out, then the reply appearing word by word.
+  const [step, setStep] = useState<string | null>(null);
+  const [revealing, setRevealing] = useState<string | null>(null);
+  const keepAtBottom = useCallback(() => {
+    const node = threadRef.current;
+    if (node && stickToBottom.current) node.scrollTop = node.scrollHeight;
+  }, []);
   const publishVisibleChat = useCallback(() => {
     const latest = messages.filter(message => message.role === "assistant" && message.status === "sent" && message.text.trim()).at(-1);
     const active = historyLoaded && !sessionChanged && !statsOpen && stickToBottom.current && chatIsReadable();
@@ -378,6 +386,8 @@ export function ChatPanel({
     sending.current = true;
     setBusy(true);
     setError("");
+    setStep(null);
+    setRevealing(null);
     const shownChoices = choices;
     threadRefresh.current?.cancel();
     setChoices([]);
@@ -417,10 +427,10 @@ export function ChatPanel({
     try {
       const response = await requestData("/api/chat", {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", accept: `${TURN_STREAM}, application/json` },
         body: JSON.stringify({ ...body, clientId: turnId, ...(paymentLinkId(ownerId) ? { expectedOwnerId: paymentLinkId(ownerId) } : {}), ...((typeof body.text === "string" || typeof body.choice === "string") ? { replyToPayment: replyToPayment ?? null } : {}), ...(startsNewTopic ? { newTopic: true } : {}) }),
       });
-      const payload = (await response.json()) as {
+      const { ok: responseOk, payload } = await readTurnResponse<{
         ok?: boolean;
         text?: string;
         actionId?: string | null;
@@ -428,13 +438,13 @@ export function ChatPanel({
         choices?: ChatChoice[][];
         ledgerChanged?: boolean;
         sessionChanged?: boolean;
-      };
+      }>(response, setStep);
       if (payload.sessionChanged) {
         sessionRejected = true;
         onReadProgress({ part: "thread", state: "error", sessionChanged: true, text: "Your session changed. Reload this page to continue." });
         return;
       }
-      if (!response.ok || !payload.ok) {
+      if (!responseOk || !payload.ok) {
         afterOutcome(undefined);
         if (userText && turnId) markFailed(turnId);
         setError(payload.text || "Alfred could not complete that request.");
@@ -464,6 +474,7 @@ export function ChatPanel({
       );
       const lastAssistant = incoming.filter((message) => message.role === "assistant").at(-1);
       if (lastAssistant) observedAssistant.current = lastAssistant.id;
+      if (lastAssistant && !window.matchMedia?.("(prefers-reduced-motion: reduce)")?.matches) setRevealing(lastAssistant.id);
       // Only a server-observed write (or an older unknown outcome) invalidates financial context.
       afterOutcome(payload.ledgerChanged);
     } catch {
@@ -474,6 +485,7 @@ export function ChatPanel({
     } finally {
       sending.current = false;
       setBusy(false);
+      setStep(null);
       if (sessionRejected || completed && activePaymentTarget) refreshQueued.current = false;
       else if (refreshQueued.current || loadInitialThread && !historyLoadedCurrent.current) { refreshQueued.current = false; refreshThread(); }
     }
@@ -592,7 +604,10 @@ export function ChatPanel({
                 <article key={threadKey(message)} ref={isSelectedPaymentMessage(message, paymentEntry) ? selectedPaymentArticle : undefined} tabIndex={isSelectedPaymentMessage(message, paymentEntry) ? -1 : undefined} data-payment-selected={isSelectedPaymentMessage(message, paymentEntry) || undefined} className="alfred-production-chat-assistant">
                   <div className="alfred-production-chat-messageIdentity"><AlfredMark size="size-6" /><span>Alfred</span>{message.channel === "telegram" ? <TelegramBadge /> : null}</div>
                   <div className="alfred-production-chat-assistantContent">
-                    {message.actionId && !message.settled ? (
+                    {message.id === revealing ? (
+                      // The reply arriving: its words first, then its chart, answers and buttons.
+                      <RevealText text={message.text} onTick={keepAtBottom} onDone={() => setRevealing(null)} />
+                    ) : message.actionId && !message.settled ? (
                       // Alfred is waiting for a yes or no: the question and its two answers sit together, and the
                       // payment's answer chips stay hidden so there's only one thing to do.
                       <section className="alfred-production-chat-decisionCard" aria-label="Alfred is waiting for your answer">
@@ -604,8 +619,8 @@ export function ChatPanel({
                         <p className="alfred-production-chat-decisionHint">Or tell me what&apos;s different.</p>
                       </section>
                     ) : <MessageText text={message.text} />}
-                    {message.chart ? <ReplyChart chart={message.chart} onAsk={busy ? undefined : (value) => submitText(value)} footer={message.chart.kind === "chart" ? <KeepChartButton chart={message.chart} /> : undefined} /> : null}
-                    {!(message.actionId && !message.settled) && (paymentEntry?.state === "ready" ? isSelectedPaymentMessage(message, paymentEntry) : message === last) && !newTopic && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
+                    {message.chart && message.id !== revealing ? <ReplyChart chart={message.chart} onAsk={busy ? undefined : (value) => submitText(value)} footer={message.chart.kind === "chart" ? <KeepChartButton chart={message.chart} /> : undefined} /> : null}
+                    {message.id !== revealing && !(message.actionId && !message.settled) && (paymentEntry?.state === "ready" ? isSelectedPaymentMessage(message, paymentEntry) : message === last) && !newTopic && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
                   </div>
                 </article>
               ) : (
@@ -615,7 +630,7 @@ export function ChatPanel({
                   {canRetry(message, index) ? <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-production-chat-retry" })} onClick={() => submitText(message.text, message.clientId ?? undefined)}>Not sent · Retry</button> : null}
                 </article>
               ))}
-              {busy ? <div className="alfred-production-chat-thinking" role="status" aria-label="Alfred is thinking"><AlfredMark size="size-6" /><span aria-hidden="true"><i className="alfred-dot" /><i className="alfred-dot" /><i className="alfred-dot" /></span></div> : null}
+              {busy ? <div className="alfred-production-chat-thinking" role="status" aria-label={step ? `Alfred is ${step.charAt(0).toLowerCase()}${step.slice(1)}` : "Alfred is thinking"}><AlfredMark size="size-6" /><span aria-hidden="true"><i className="alfred-dot" /><i className="alfred-dot" /><i className="alfred-dot" /></span>{step ? <span key={step} className="alfred-production-chat-step" aria-hidden="true">{step}…</span> : null}</div> : null}
             </div>
           ) : null}
           {historyLoading ? <ChatHistorySkeleton /> : null}
@@ -641,7 +656,7 @@ export function ChatPanel({
           </div> : null}
           {initialQuestion && text === initialQuestion ? <p className="alfred-production-chat-handoff"><ChatIcon><path d="m5 12 4 4L19 6" /></ChatIcon>Question from your dashboard. Review it below, then send when ready.</p> : null}
           {shownPaymentContext ? <PaymentReplyContext newTopic={newTopic} pending={shownPaymentContext.requiresPurpose} busy={busy} onChange={() => { if (!newTopic) { const captured = capturePaymentChatEntry(messages, paymentEntry); if (captured?.state === "ready") { publishPaymentEntry(captured); setActivePaymentTarget(captured.bankMessageId); } } setNewTopic(!newTopic); setChoices([]); if (newTopic) refreshThread(); inputRef.current?.focus(); }} /> : null}
-          {showFollowUps && !choices.length ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
+          {showFollowUps && !choices.length && !revealing ? <div className="alfred-production-chat-followUps" aria-label="Suggested follow-up questions">{followUpsFor(last).map((suggestion) => <button className={buttonClassName({ variant: "secondary", size: "sm" })} key={suggestion.label} type="button" onClick={() => pickSuggestion(suggestion)}>{suggestion.label}</button>)}</div> : null}
           <form key="alfred-composer" className="alfred-production-chat-composer" aria-busy={busy} onSubmit={(event) => { event.preventDefault(); submitText(text); }}>
             <label className="sr-only" htmlFor="alfred-message">Message Alfred</label>
             <div className="alfred-production-chat-composerRow">
@@ -675,6 +690,30 @@ function suggestedChoice(item: ChatChoice): boolean {
 }
 
 /** Alfred's words, with "• " lines shown as a real list so each item reads on its own. */
+/** A reply appearing a few words at a time. Screen readers get the whole reply at once. */
+function RevealText({ text, onTick, onDone }: { text: string; onTick: () => void; onDone: () => void }) {
+  const words = useMemo(() => text.split(/(\s+)/), [text]);
+  const total = words.filter((word) => word.trim()).length;
+  const [shown, setShown] = useState(1);
+  const done = useRef(onDone);
+  const tick = useRef(onTick);
+  useEffect(() => { done.current = onDone; tick.current = onTick; });
+  useEffect(() => {
+    // A timer, not animation frames: those pause in a hidden tab, which would hold the chart and buttons back.
+    const started = performance.now();
+    const timer = setInterval(() => {
+      const next = revealedWords(total, performance.now() - started);
+      setShown(next);
+      tick.current();
+      if (next >= total) { clearInterval(timer); done.current(); }
+    }, 24);
+    return () => clearInterval(timer);
+  }, [total]);
+  let seen = 0;
+  const partial = words.filter((word) => (word.trim() ? ++seen <= shown : seen < shown)).join("");
+  return <><span className="sr-only">{text}</span><div aria-hidden="true" className="alfred-production-chat-reveal"><MessageText text={partial} /></div></>;
+}
+
 function MessageText({ text }: { text: string }) {
   const blocks: { list: boolean; lines: string[] }[] = [];
   for (const line of text.split("\n")) {

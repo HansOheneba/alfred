@@ -39,6 +39,7 @@ import { actionsOf, offeredActions, type FinanceAction, type InterpretedAction }
 import type { FinanceStore } from "@/lib/finance/store";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { createLookup } from "@/lib/conversation/lookups";
+import { actionStep, stepper } from "@/lib/conversation/steps";
 import { rememberedAnswers } from "@/lib/conversation/remembered";
 import { remember } from "@/lib/learning/log";
 import { logInfo } from "@/lib/log";
@@ -93,6 +94,8 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
 type TurnSeen = { actions: string[]; model: string | null };
 
 async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, options: TurnOptions, seen: TurnSeen): Promise<TurnReply> {
+  const step = stepper(ctx.progress);
+  step("Reading your message");
   const noticeFocus = await paymentNoticeFocus(deps.messages, ctx.profile.profileId, options);
   const closedNotice = Boolean(noticeFocus && !noticeFocus.requiresPurpose);
   const closedSource = closedNotice && noticeFocus ? await deps.bank?.getMessage(ctx.profile.profileId, noticeFocus.bankMessageId) : null;
@@ -203,6 +206,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     about,
     investments,
     model: waiting || sort || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
+    progress: step,
     open: (history) => {
       open = openThread({ history: noticeFocus === undefined ? history : [], waiting, pending, now: ctx.now });
       if (sort) open.push(sortGuidance(sort));
@@ -627,6 +631,8 @@ export const OUTAGE_INTRO = "My thinking is running slow right now, so I couldn'
 
 async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
   const { ctx, ingest, waiting } = turn;
+  const working = actionStep(action);
+  if (working) ctx.progress?.(working);
   if (action.type === "label_payments") {
     const resolved = waiting ? resolvedFrom(action.answers, waiting.listed) : [];
     const answers = turn.purposeDetail ? resolved.map(answer => answer.label.kind === "category" ? { ...answer, label: { ...answer.label, description: turn.purposeDetail } } : answer) : resolved;
@@ -657,6 +663,7 @@ async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
   const delivery = await handleAction(action, { ...ctx, conversation: turn.context });
   // An answer built from lookups is kept as the model wrote it: the voice only sees the snapshot and would undo it.
   // Every figure in it must come from the results; if not, the results are shown plainly instead.
+  if (!turn.lookedUp && turn.deps.voice) ctx.progress?.("Putting it into words");
   const voiced = turn.lookedUp ? groundedInLookups(delivery, turn) : await voiceDelivery(turn.deps.voice, action, delivery, {
     userText: turn.text,
     profile: ctx.profile,
