@@ -1,12 +1,13 @@
 "use client";
 
 import Link from "next/link";
-import { useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 
 import { useChatViewport } from "./chat-viewport";
 import { buttonClassName } from "./button-styles";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
 import { ChatNavigationItem } from "@/app/chat/chat-context-control";
+import { getMutationRecoveryServerSnapshot, getMutationRecoverySnapshot, MUTATION_UNCONFIRMED_MESSAGE, subscribeMutationRecovery } from "./mutation-request";
 import { serializeBrowserPreferenceWrite } from "@/lib/portability/browser-preferences-lock";
 import "./app-ui.css";
 import "./header-controls.css";
@@ -163,6 +164,16 @@ export function AppearanceToggle() {
   );
 }
 
+function MutationRecoveryScreen() {
+  const heading = useRef<HTMLHeadingElement>(null);
+  useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
+  return <section className="alfred-mutationRecovery" role="alert">
+    <h1 ref={heading} tabIndex={-1}>We couldn’t confirm that save.</h1>
+    <p>{MUTATION_UNCONFIRMED_MESSAGE}</p>
+    <button type="button" className={buttonClassName({ variant: "primary" })} onClick={() => window.location.reload()}>Reload latest records</button>
+  </section>;
+}
+
 /** Authenticated application frame: top bar navigation on wider screens, a bottom tab bar on phones. */
 export function AppShell({ current, fill = false, headerAction, children }: {
   current: Section;
@@ -173,6 +184,7 @@ export function AppShell({ current, fill = false, headerAction, children }: {
 }) {
   const chat = current === "chat";
   const viewport = useChatViewport(chat);
+  const recoveryRequired = useSyncExternalStore(subscribeMutationRecovery, getMutationRecoverySnapshot, getMutationRecoveryServerSnapshot);
   return <div ref={viewport} className={`alfred-app${chat ? " alfred-app-chat alfred-chat-viewport" : ""}`}>
     <div className={`alfred-ui-pageShell${fill || chat ? " alfred-ui-fill" : ""}`}>
       <a className="alfred-ui-skip" href="#app-content">Skip to content</a>
@@ -189,7 +201,7 @@ export function AppShell({ current, fill = false, headerAction, children }: {
           </div>
         </div>
       </header>
-      <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{children}</main>
+      <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{recoveryRequired ? <MutationRecoveryScreen /> : children}</main>
       <nav className="alfred-ui-dock" aria-label="Main (mobile)">
         {NAV.map((item) => chat && item.section === "chat" ? <ChatNavigationItem key={item.section} placement="dock" icon={<Icon className="size-5">{item.icon}</Icon>} /> : <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-5">{item.icon}</Icon><span>{item.label}</span></Link>)}
       </nav>

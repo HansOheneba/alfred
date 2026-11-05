@@ -33,6 +33,13 @@ html[data-theme="dark"] .alfred-app {
 .alfred-ui-privacy { white-space: nowrap; }
 .alfred-ui-privacy svg { width: 20px; height: 20px; }
 .alfred-ui-main { min-width: 0; }
+.alfred-mutationRecovery { box-sizing:border-box; width:calc(100% - 32px); max-width:560px; margin:48px auto; padding:28px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.alfred-mutationRecovery h1 { margin:0; font-size:24px; font-weight:600; line-height:32px; letter-spacing:-.025em; }
+.alfred-mutationRecovery h1:focus { outline:none; }
+.alfred-mutationRecovery p { margin:16px 0 24px; color:var(--muted); font-size:14px; line-height:22px; }
+.alfred-mutationRecovery > button { max-width:100%; min-height:44px; white-space:normal; }
+.alfred-app-chat .alfred-mutationRecovery { flex:none; max-height:calc(100% - 64px); margin-block:32px; overflow:auto; }
+@media(max-width:760px) { .alfred-mutationRecovery { margin-block:32px; padding:24px; } .alfred-mutationRecovery > button { width:100%; } }
 .alfred-ui-skip { position: fixed; left: 16px; top: -80px; z-index: 80; padding: 12px; background: var(--surface); border: 2px solid var(--accent); border-radius: 8px; }
 .alfred-ui-skip:focus { top: 8px; }
 .alfred-ui-dock { position: fixed; left: 50%; bottom: max(20px,env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 40; display: flex; gap: 4px; padding: 8px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 10px 36px #153b2924; }
