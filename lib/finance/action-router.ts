@@ -105,6 +105,9 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
   switch (action.type) {
     case "help":
       return { kind: "text", text: helpText() };
+    // Lookups are answered inside the turn; one that reaches here found nothing more to do.
+    case "look_up":
+      return { kind: "text", text: "I couldn't find that in your records. Can you tell me a bit more about what you're looking for?" };
     case "clarify": {
       // A question that offers something specific carries it, so a yes does exactly that.
       const offered = offeredActions(action.offer);

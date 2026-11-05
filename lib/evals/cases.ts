@@ -62,6 +62,8 @@ export const evalCaseSchema = z.object({
     notice: z.string().optional(),
     investments: z.array(z.object({ name: z.string(), kind: z.enum(["us_stocks", "gse_stocks", "tbill", "fixed_deposit", "bond", "mutual_fund", "pension", "crypto", "other"]), investedBefore: amount })).default([]),
     budgets: z.array(z.object({ category: z.string(), amount })).default([]),
+    /** Earlier transactions on the books, so questions about older spending have something to find. */
+    transactions: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), type: z.enum(["income", "expense"]), amount, category: z.string(), description: z.string() })).default([]),
     /** Earlier chat, oldest first. */
     messages: z.array(z.object({ role: z.enum(["user", "assistant"]), body: z.string(), intent: z.string().optional() })).default([]),
   }).prefault({}),

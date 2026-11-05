@@ -1,7 +1,7 @@
 import { clientTurnUpdateId, isClientMessageId, isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { Channel } from "@/lib/ai/persona";
-import { intentOf, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { intentOf, keepsFacts, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import type { IngestDeps } from "@/lib/bank/ingest";
 import {
   applyResolved,
@@ -34,6 +34,7 @@ import { answerTypedDecision, decidePending, latestOpenPending, typedDecision } 
 import { actionsOf, type FinanceAction, type InterpretedAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import type { ConversationContext } from "@/lib/finance/conversation";
+import { createLookup } from "@/lib/conversation/lookups";
 import { remember } from "@/lib/learning/log";
 import { logInfo } from "@/lib/log";
 import { aboutForPrompt, type NotebookStore } from "@/lib/notebook/store";
@@ -175,8 +176,10 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   const askedAbout = waiting?.current && (waiting.exactQuestion || (noticeFocus === undefined && await alfredAskedAboutPayment(deps.messages, ctx.profile.profileId, options.excludeClientId))) ? waiting.current : null;
   const proposal = askedAbout ? await openProposalText(deps.messages, ctx, askedAbout.id, options.excludeClientId) : null;
   const earlier = noticeFocus?.requiresPurpose ? await saidAboutPayment(deps.messages, ctx.profile.profileId, noticeFocus.bankMessageId, options.excludeClientId) : [];
+  const lookup = createLookup({ store: ctx.store, bank: deps.bank, loans: deps.loans, investments: deps.investments, notebook: deps.notebook, people: deps.people }, ctx.profile);
   const request = (said: string): Parameters<typeof interpretWithContext>[0] => ({
     text: said,
+    lookup,
     profile: ctx.profile,
     store: ctx.store,
     now: ctx.now,
@@ -209,14 +212,14 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
       return open;
     },
   });
-  let { action, context, cue, unread } = await interpretWithContext(request(text));
+  let { action, context, cue, unread, lookedUp, found } = await interpretWithContext(request(text));
   // A "yes" to a question Alfred asked in plain words has no saved confirmation to settle.
   // It accepts what Alfred offered, so read it again as that request instead of a dead end.
   if (!pending && noticeFocus === undefined && isConfirmation(action)) {
     const asked = await alfredsOpenQuestion(deps.messages, ctx.profile.profileId, options.excludeClientId);
-    if (asked) ({ action, context, cue, unread } = await interpretWithContext(request(`Yes, go ahead with what you asked: "${asked}"${text.trim().length > 12 ? ` (${text.trim()})` : ""}`)));
+    if (asked) ({ action, context, cue, unread, lookedUp, found } = await interpretWithContext(request(`Yes, go ahead with what you asked: "${asked}"${text.trim().length > 12 ? ` (${text.trim()})` : ""}`)));
   }
-  seen.actions = actionsOf(action).map((item) => item.type);
+  seen.actions = [...Array.from({ length: lookedUp ?? 0 }, () => "look_up"), ...actionsOf(action).map((item) => item.type)];
   seen.model = waiting || actionsMayNeedCare(text) ? LABEL_MODEL : "default";
   logInfo("interpreted", { userId: ctx.profile.profileId, action: action.type === "several" ? action.actions.map((item) => item.type).join("+") : action.type });
 
@@ -268,7 +271,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   const parts: TurnReply[] = [];
   for (const item of actions) {
     const confirmed = allowedIndependent && item.type === "create_transaction" ? { ...item, explicit: false } : item;
-    parts.push(await perform(confirmed, { text, ctx, deps, ingest, waiting, pending: pending?.actionId ?? null, context, cue, open, channel: options.channel, purposeDetail }));
+    parts.push(await perform(confirmed, { text, ctx, deps, ingest, waiting, pending: pending?.actionId ?? null, context, cue, open, channel: options.channel, purposeDetail, lookedUp, found }));
   }
   return keepNoticeFocus(combine(parts, action));
 }
@@ -498,6 +501,9 @@ type Turn = {
   open: string[];
   channel: Channel;
   purposeDetail?: string | null;
+  /** The model looked records up this turn, so its reply rests on results the voice never sees. */
+  lookedUp?: number;
+  found?: { query: string; lines: string[] }[];
 };
 
 /**
@@ -533,7 +539,9 @@ async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
     return { kind: "text", text: decided.text, context: decided.context, intent: "answer_confirmation" };
   }
   const delivery = await handleAction(action, { ...ctx, conversation: turn.context });
-  const voiced = await voiceDelivery(turn.deps.voice, action, delivery, {
+  // An answer built from lookups is kept as the model wrote it: the voice only sees the snapshot and would undo it.
+  // Every figure in it must come from the results; if not, the results are shown plainly instead.
+  const voiced = turn.lookedUp ? groundedInLookups(delivery, turn) : await voiceDelivery(turn.deps.voice, action, delivery, {
     userText: turn.text,
     profile: ctx.profile,
     channel: turn.channel,
@@ -609,4 +617,13 @@ async function alfredAskedAboutPayment(messages: MessageLog | null | undefined, 
   if (!messages) return false;
   const last = (await messages.listRecent(ownerId, 4)).filter((item) => !excludeClientId || item.clientId !== excludeClientId).at(-1);
   return last?.role === "assistant" && /^bank:/.test(last.intent ?? "") && last.body.includes("?");
+}
+
+/** A lookup-based reply whose figures all come from the results, or the results themselves when they don't. */
+function groundedInLookups(delivery: Delivery, turn: Turn): Delivery {
+  if (delivery.kind !== "text") return delivery;
+  const results = (turn.found ?? []).flatMap((item) => item.lines);
+  if (keepsFacts(delivery.text, [...results, turn.text, turn.cue.snapshot].join("\n"))) return delivery;
+  logInfo("lookup_reply_rejected", { userId: turn.ctx.profile.profileId });
+  return { ...delivery, text: ["Here's what I found:", ...results.slice(0, 8)].join("\n") };
 }

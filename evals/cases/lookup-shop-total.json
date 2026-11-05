@@ -1,0 +1,157 @@
+{
+  "id": "lookup-shop-total",
+  "title": "How much at one shop last month",
+  "source": "PR 4: questions about older records need a lookup",
+  "tags": [
+    "lookups",
+    "questions"
+  ],
+  "now": "2026-11-05T14:00:00.000Z",
+  "setup": {
+    "transactions": [
+      {
+        "date": "2026-09-14",
+        "type": "expense",
+        "amount": "212.40",
+        "category": "Food",
+        "description": "Shoprite groceries"
+      },
+      {
+        "date": "2026-10-05",
+        "type": "expense",
+        "amount": "187.60",
+        "category": "Food",
+        "description": "Shoprite groceries"
+      },
+      {
+        "date": "2026-10-21",
+        "type": "expense",
+        "amount": "95.00",
+        "category": "Food",
+        "description": "Shoprite snacks"
+      },
+      {
+        "date": "2026-10-12",
+        "type": "expense",
+        "amount": "140.00",
+        "category": "Food",
+        "description": "Melcom kitchen stuff"
+      },
+      {
+        "date": "2026-10-03",
+        "type": "expense",
+        "amount": "1307.48",
+        "category": "Subscriptions",
+        "description": "Claude subscription"
+      },
+      {
+        "date": "2026-09-03",
+        "type": "expense",
+        "amount": "1290.10",
+        "category": "Subscriptions",
+        "description": "Claude subscription"
+      },
+      {
+        "date": "2026-10-08",
+        "type": "expense",
+        "amount": "85.00",
+        "category": "Subscriptions",
+        "description": "Netflix"
+      },
+      {
+        "date": "2026-11-01",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-02",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-03",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      },
+      {
+        "date": "2026-11-04",
+        "type": "expense",
+        "amount": "25.00",
+        "category": "Food",
+        "description": "Lunch"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "say": "How much did I spend at Shoprite in October?",
+      "expect": {
+        "reply": "282\\.60",
+        "savesNothing": true
+      }
+    }
+  ],
+  "final": {}
+}

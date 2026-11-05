@@ -81,6 +81,11 @@ async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain)
   for (const investment of evalCase.setup.investments) {
     await deps.investments!.create(OWNER_ID, { name: investment.name, kind: investment.kind, currency: "GHS", investedBefore: investment.investedBefore });
   }
+  for (const [index, row] of evalCase.setup.transactions.entries()) {
+    await deps.store.appendTransaction({ transactionId: `7a1b2c3d-8888-4888-8888-${String(index + 1).padStart(12, "0")}`, createdAt: `${row.date}T12:00:00.000Z`, transactionDate: row.date,
+      userId: OWNER_ID, type: row.type, amount: row.amount, currency: "GHS", category: row.category, description: row.description, paymentMethod: "", notes: "",
+      status: "active", updatedAt: `${row.date}T12:00:00.000Z`, sourceUpdateId: `eval:${index}` });
+  }
   for (const [index, budget] of evalCase.setup.budgets.entries()) {
     await deps.store.saveBudget({ budgetId: `eval-budget-${index}`, userId: OWNER_ID, period: evalCase.now.slice(0, 7), category: budget.category, amount: budget.amount, currency: "GHS", createdAt: evalCase.now, updatedAt: evalCase.now });
   }

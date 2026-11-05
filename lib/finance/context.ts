@@ -5,7 +5,7 @@ import type { UserProfile } from "@/lib/config";
 import { LIMITS } from "@/lib/config";
 import { AiError } from "@/lib/errors";
 import { applyFollowUp, readConversation, type ConversationContext } from "@/lib/finance/conversation";
-import type { InterpretedAction } from "@/lib/finance/schemas";
+import { actionsOf, type InterpretedAction, type LookupQuery } from "@/lib/finance/schemas";
 import { readReporting, type FinanceStore } from "@/lib/finance/store";
 import type { AttentionSummary } from "@/lib/finance/accounting/types";
 import { zonedYmd } from "@/lib/finance/dates";
@@ -32,9 +32,11 @@ export async function interpretWithContext(input: {
   /** The user's investments, one per line. */
   investments?: string[];
   model?: string;
+  /** Runs the model's lookups for this person; without it the model answers from what's in its prompt. */
+  lookup?: (queries: LookupQuery[]) => Promise<{ query: string; lines: string[] }[]>;
   /** Works out what's open in the conversation from its recent messages. */
   open?: (history: ChatMessageRecord[]) => string[];
-}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** Why the model gave nothing usable, so `action` is a stock fallback: its reply couldn't be read, or it was down or too slow. */ unread?: "invalid" | "outage" }> {
+}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** Why the model gave nothing usable, so `action` is a stock fallback: its reply couldn't be read, or it was down or too slow. */ unread?: "invalid" | "outage"; /** Lookup rounds the model took. */ lookedUp?: number; /** What those lookups returned. */ found?: { query: string; lines: string[] }[] }> {
   const ownerId = input.profile.profileId;
   const [transactions, context, budgets, goals, history, reporting] = await Promise.all([
     input.store.listTransactions(ownerId),
@@ -67,8 +69,11 @@ export async function interpretWithContext(input: {
     attention: reporting.attention,
   };
   let interpreted: InterpretedAction;
+  let lookedUp = 0;
+  let found: { query: string; lines: string[] }[] = [];
   try {
-    interpreted = await input.interpret({
+    const open = input.open?.(ownHistory);
+    const ask = (lookups: { query: string; lines: string[] }[], lookupsLeft: number | undefined) => input.interpret({
       text: input.text,
       timezone: input.profile.timezone,
       currency: input.profile.currency,
@@ -101,8 +106,23 @@ export async function interpretWithContext(input: {
       about: input.about,
       investments: input.investments,
       model: input.model,
-      open: input.open?.(ownHistory),
+      open,
+      lookups,
+      lookupsLeft,
     });
+    // The model may look records up before it answers: at most two rounds, then it answers with what it has.
+    let lookups: { query: string; lines: string[] }[] = [];
+    interpreted = await ask(lookups, input.lookup ? LOOKUP_ROUNDS : undefined);
+    while (input.lookup && lookedUp < LOOKUP_ROUNDS && lookupsIn(interpreted).length > 0) {
+      lookups = [...lookups, ...(await input.lookup(lookupsIn(interpreted)))];
+      found = lookups;
+      lookedUp += 1;
+      interpreted = await ask(lookups, LOOKUP_ROUNDS - lookedUp);
+    }
+    if (lookupsIn(interpreted).length > 0) {
+      const rest = actionsOf(interpreted).filter((item) => item.type !== "look_up");
+      interpreted = rest.length > 1 ? { type: "several", actions: rest } : rest[0] ?? { type: "clarify", question: "I couldn't find that in your records. Can you tell me a bit more about what you're looking for?" };
+    }
   } catch (error) {
     if (error instanceof AiError && error.code === "invalid") {
       logError("interpret_unread", error);
@@ -116,7 +136,15 @@ export async function interpretWithContext(input: {
     throw error;
   }
   const action = interpreted.type === "several" ? interpreted : applyFollowUp(input.text, interpreted, context);
-  return { action, context, cue };
+  return { action, context, cue, lookedUp, found };
+}
+
+/** Lookup rounds a turn may take before the model has to answer. */
+const LOOKUP_ROUNDS = 2;
+
+/** The lookups the model asked for, alone or among several actions. */
+function lookupsIn(action: InterpretedAction): LookupQuery[] {
+  return actionsOf(action).flatMap((item) => item.type === "look_up" ? item.queries : []).slice(0, 3);
 }
 
 /** What the voice needs to hold a natural conversation without drifting from money. */

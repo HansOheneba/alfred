@@ -17,6 +17,7 @@ const RANGE = '"period":null,"month":null,"year":null,"start_date":null,"end_dat
 
 const ACTION_SHAPES = [
   '{"type":"chat","message":"...","topic":"money or other"}',
+  '{"type":"look_up","queries":[{"tool":"transactions","text":"shoprite","category":null,"type":"expense","from":"YYYY-MM-DD","to":"YYYY-MM-DD","person":null}]}',
   '{"type":"clarify","question":"...","offer":null}',
   '{"type":"clarify","question":"Shall I record GH₵1,500.00 for rent today?","offer":[{"type":"create_transaction","explicit":true,"transactions":[{"transaction_type":"expense","amount":"1500.00","currency":"GHS","category":"Rent & home","description":"Rent","date":null,"payment_method":null,"notes":null}]}]}',
   '{"type":"help"}',
@@ -82,6 +83,8 @@ export function buildSystemPrompt(input: {
   investments?: string[];
   /** What's open in the conversation: what Alfred just asked, offered, or promised. */
   open?: string[];
+  lookups?: { query: string; lines: string[] }[];
+  lookupsLeft?: number;
 }): string {
   const yesterday = addDays(input.today, -1);
   const recent =
@@ -198,6 +201,12 @@ export function buildSystemPrompt(input: {
     "Read the user's latest message as the next line of that conversation: short replies like \"ask\", \"yes\", \"go on\", \"the second one\", or \"why?\" answer whatever you said last.",
     "What's open in the conversation right now:",
     ...(input.open?.length ? input.open : ["Nothing in particular."]),
+    ...(input.lookupsLeft === undefined ? [] : [
+      input.lookupsLeft > 0
+        ? "Use look_up when the answer depends on records not shown above: older or specific transactions (by shop, person or word), filed or waiting bank payments, what someone owes, investment values, or your notes. Tools: transactions (text matches the description, category or notes; results include totals), bank_payments (text matches who it was to or from), loans (person), investments, notes (text). Don't look up what's already shown. Quote totals from the results instead of adding them up yourself."
+        : "You can't look anything else up now: answer with what you have.",
+    ]),
+    ...(input.lookups?.length ? ["Your lookups this turn, with results:", ...input.lookups.flatMap((item) => [`${item.query}:`, ...(item.lines.length ? item.lines : ["Nothing matched."])])] : []),
   ].join("\n");
 }
 

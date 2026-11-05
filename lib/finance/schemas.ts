@@ -104,6 +104,19 @@ const investmentFields = {
   holdings: z.array(holdingSchema).max(30).nullable().optional(),
 };
 
+/** One lookup: which records, and what narrows them. Every lookup is scoped to the person asking. */
+export const lookupQuerySchema = z.object({
+  tool: z.enum(["transactions", "bank_payments", "loans", "investments", "notes"]),
+  /** Words to match, like a shop, a person or "claude". */
+  text: z.string().max(80).nullable().optional(),
+  category: z.string().max(40).nullable().optional(),
+  type: z.enum(["income", "expense"]).nullable().optional(),
+  from: isoDateSchema.nullable().optional(),
+  to: isoDateSchema.nullable().optional(),
+  person: z.string().max(120).nullable().optional(),
+});
+export type LookupQuery = z.infer<typeof lookupQuerySchema>;
+
 export const financeActionSchema = z.discriminatedUnion("type", [
   z.object({
     type: z.literal("create_transaction"),
@@ -251,6 +264,11 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     /** Settle the confirmation Alfred has open, from a reply like "yes go ahead" or "no leave it". */
     type: z.literal("answer_confirmation"),
     decision: z.enum(["confirm", "cancel"]),
+  }),
+  z.object({
+    /** Look records up before answering; the results come back and the model answers on the next round. */
+    type: z.literal("look_up"),
+    queries: z.array(lookupQuerySchema).min(1).max(3),
   }),
   z.object({
     type: z.literal("clarify"),
