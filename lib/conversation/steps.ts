@@ -35,6 +35,7 @@ export function actionStep(action: FinanceAction): string | null {
     case "get_budget_status": return "Checking your budgets";
     case "get_transaction_history": return "Finding those payments";
     case "show_chart": return "Drawing your chart";
+    case "manage_project": return action.op === "list" ? "Looking at your projects" : "Updating your projects";
     case "get_investments": return "Checking your investments";
     case "create_transaction": return "Recording that";
     case "correct_transaction": return "Finding that payment to change";

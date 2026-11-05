@@ -9,6 +9,7 @@ import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { MemoryLoanStore, loanBalances } from "@/lib/finance/loans";
 import { canonicalizeAmount, toMinor } from "@/lib/finance/money";
 import { MemorySorter } from "@/lib/conversation/sorting";
+import { MemoryTeamStore } from "@/lib/team/memory";
 import { emptyAccountingState, type AccountingState } from "@/lib/finance/accounting/types";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 import { MemoryInvestmentStore } from "@/lib/investments/store";
@@ -99,6 +100,14 @@ async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain)
     await deps.store.saveBudget({ budgetId: `eval-budget-${index}`, userId: OWNER_ID, period: evalCase.now.slice(0, 7), category: budget.category, amount: budget.amount, currency: "GHS", createdAt: evalCase.now, updatedAt: evalCase.now });
   }
   deps.sorting = new MemorySorter(attentionBooks(evalCase));
+  if (evalCase.setup.team) {
+    const others = evalCase.setup.team.others.map((name, index) => ({ id: `7a1b2c3d-9999-4999-8999-${String(index + 1).padStart(12, "0")}`, name }));
+    const team = new MemoryTeamStore([{ id: OWNER_ID, name: evalCase.name }, ...others]);
+    for (const project of evalCase.setup.team.projects) {
+      await team.addProject(OWNER_ID, { title: project.title, summary: "", status: project.status, priority: project.priority, links: [], leadId: project.lead === "me" ? OWNER_ID : project.lead === "other" ? others[0].id : null });
+    }
+    deps.team = team;
+  }
   for (const message of evalCase.setup.messages) {
     await deps.messages!.append({ ownerId: OWNER_ID, role: message.role, channel: "web", body: message.body, intent: message.intent ?? null });
   }
@@ -132,6 +141,7 @@ function attentionBooks(evalCase: EvalCase): AccountingState {
 /** Everything a step could change, to tell whether it saved anything. */
 async function snapshot(deps: StudioDeps): Promise<string> {
   const sorted = deps.sorting instanceof MemorySorter ? deps.sorting.state.movements.map((item) => [item.status, item.category]) : [];
+  const projects = deps.team instanceof MemoryTeamStore ? deps.team.projects.map((item) => [item.title, item.status, item.priority, item.leadId, item.notes.length, item.links.length]) : [];
   const [transactions, loans, messages, contributions, notes] = await Promise.all([
     deps.store.listTransactions(OWNER_ID),
     deps.loans!.list(OWNER_ID),
@@ -146,6 +156,7 @@ async function snapshot(deps: StudioDeps): Promise<string> {
     contributions.map((item) => [item.investmentId, item.amount]),
     notes.length,
     sorted,
+    projects,
   ]);
 }
 
@@ -255,6 +266,20 @@ async function checkFinal(evalCase: EvalCase, deps: StudioDeps, refs: Map<string
       const wrong = rows.filter((item) => item.status !== expected.status || (expected.category !== undefined && item.category !== expected.category));
       if (!rows.length || wrong.length) problems.push(`“${expected.description}” should be ${expected.status}${expected.category ? ` under ${expected.category}` : ""}, have ${JSON.stringify([...new Set(rows.map((item) => `${item.status} ${item.category}`))])}`);
     }
+  }
+  if ((final.projects || final.noProjects) && deps.team instanceof MemoryTeamStore) {
+    const projects = deps.team.projects;
+    const leadOf = (leadId: string | null) => leadId === null ? "both" : leadId === OWNER_ID ? "me" : "other";
+    for (const expected of final.projects ?? []) {
+      const found = projects.find((item) => new RegExp(expected.title, "i").test(item.title));
+      if (!found) { problems.push(`no project like /${expected.title}/ (have ${projects.map((item) => item.title).join(", ") || "none"})`); continue; }
+      if (expected.status && found.status !== expected.status) problems.push(`“${found.title}” is ${found.status}, expected ${expected.status}`);
+      if (expected.priority && found.priority !== expected.priority) problems.push(`“${found.title}” is ${found.priority} priority, expected ${expected.priority}`);
+      if (expected.lead && leadOf(found.leadId) !== expected.lead) problems.push(`“${found.title}” is taken by ${leadOf(found.leadId)}, expected ${expected.lead}`);
+      if (expected.notes !== undefined && found.notes.length !== expected.notes) problems.push(`“${found.title}” has ${found.notes.length} notes, expected ${expected.notes}`);
+      if (expected.links !== undefined && found.links.length !== expected.links) problems.push(`“${found.title}” has ${found.links.length} links, expected ${expected.links}`);
+    }
+    for (const gone of final.noProjects ?? []) if (projects.some((item) => new RegExp(gone, "i").test(item.title))) problems.push(`project /${gone}/ should be gone`);
   }
   if (final.budgets) {
     const budgets = await deps.store.listBudgets(OWNER_ID);

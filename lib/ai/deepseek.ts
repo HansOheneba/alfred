@@ -49,6 +49,8 @@ export type InterpretRequest = {
   about?: string[];
   /** The user's investments, one per line. */
   investments?: string[];
+  /** The team's shared projects, for members only: the other members' names and one line per project. */
+  team?: { others: string[]; projects: string[] } | null;
   /** What's open in the conversation: what Alfred just asked, offered, or promised. */
   open?: string[];
   /** What the model looked up earlier in this turn, with the results. */
@@ -86,6 +88,7 @@ export async function interpretMessage(
     people: request.people,
     about: request.about,
     investments: request.investments,
+    team: request.team,
     open: request.open,
     lookups: request.lookups,
     lookupsLeft: request.lookupsLeft,
@@ -120,6 +123,12 @@ export async function interpretMessage(
   if (turnSettings.model !== settings.model) {
     const fallback = await attempt(settings, messages, {}, today, fetchImpl, complete);
     if (fallback.success) return fallback.data;
+  }
+  // Some conversations (a link after a few turns, say) make JSON mode come back empty every time.
+  // The message on its own, with everything else in the instructions, still reads the request.
+  if (!first && request.history?.length) {
+    const alone = await attempt(turnSettings, [messages[0], messages.at(-1)!], {}, today, fetchImpl, complete);
+    if (alone.success) return alone.data;
   }
   // The schema issue (field paths and messages, never the user's words) is what the logs need to explain a fallback.
   throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);

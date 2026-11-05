@@ -42,6 +42,7 @@ const ACTION_SHAPES = [
   `{"type":"get_insights",${RANGE}}`,
   '{"type":"remember_person","name":"Kofi","note":"Colleague. Sometimes sends money on behalf of his brother Yaw."}',
   '{"type":"forget_person","name":"Kofi"}',
+  '{"type":"manage_project","op":"add | update | note | list | remove","project":"existing name or null","title":null,"summary":null,"status":null,"priority":null,"lead":"me | other | both or null","link":{"url":"https://…","label":null},"note":null}',
   '{"type":"ask_next","skip":"true only to move past the group Alfred asked about, else null"}',
   '{"type":"file_movements","group":1,"outcome":"category | own_money | not_charged | duplicate","category":"Subscriptions or null"}',
   '{"type":"answer_confirmation","decision":"confirm"}',
@@ -102,6 +103,8 @@ export function buildSystemPrompt(input: {
   about?: string[];
   /** The user's investments, one "Name (kind, currency)" per line. */
   investments?: string[];
+  /** The team's shared projects, for members only: the other members' names and one line per project. */
+  team?: { others: string[]; projects: string[] } | null;
   /** What's open in the conversation: what Alfred just asked, offered, or promised. */
   open?: string[];
   lookups?: { query: string; lines: string[] }[];
@@ -167,6 +170,11 @@ export function buildSystemPrompt(input: {
     "invest_money when they say they put money into an investment or took money out, outside their bank texts (direction in or out).",
     "Paying for something out of savings or an investment is two actions in several, even when they also ask you to check first (\"check if I have 1,500 saved and take the rent from it\"): the investment list below already answers the check, so don't add lookups. invest_money with direction out from that investment (by its name from the list below), and the expense itself. Never say money came from an investment or savings unless invest_money is part of the answer; if they haven't said which investment and they have more than one, use clarify to ask which. With one investment, or one they named, don't ask whether to check: propose both actions with explicit false, so the person sees the exact step and confirms it.",
     "get_investments when they ask how their investments are doing, what they're worth, their returns, or when something matures; set name when they ask about one. Set net_worth true when they ask for their net worth or everything they have.",
+    ...(input.team ? [
+      `The user builds side projects with ${input.team.others.join(" and ") || "a teammate"}, tracked in a shared project list (not money). manage_project changes it: op add for a new idea (title, and lead me, other or both when they say who's taking it), update to change a project's status (idea, planned, building, shipped, parked), priority (high, medium, low), lead, title, description or to add a link, note to add a note on how to build it, list to show them, remove to delete one (Alfred asks first). Set project to the existing project's name. If they call the other person by a nickname, that's still the other person (lead other). Never record a project as a transaction, a reminder or a note in the notebook. Every request to add, change, note, link or remove a project is manage_project, however casually it's said; never answer one in chat, which changes nothing.`,
+      "The shared projects:",
+      ...(input.team.projects.length ? input.team.projects : ["None yet."]),
+    ] : []),
     "The user's investments:",
     ...(input.investments?.length ? input.investments : ["None yet."]),
     "get_spending_summary for how much was spent. Use detail total for a total, by_category for a breakdown, largest for the biggest expenses, and comparison to compare with the previous period.",

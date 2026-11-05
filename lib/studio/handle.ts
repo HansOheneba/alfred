@@ -2,6 +2,7 @@ import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { createSupabaseBillStore, type BillStore } from "@/lib/finance/bills";
 import { createSupabaseSorter, type MovementSorter } from "@/lib/conversation/sorting";
 import { stepper, type Progress } from "@/lib/conversation/steps";
+import { createSupabaseTeamStore, type TeamStore } from "@/lib/team/store";
 import { createSupabaseAccountManagementStore, type AccountManagementStore } from "@/lib/accounts/management";
 import { createSupabasePreferenceManagementStore, type PreferenceManagementStore } from "@/lib/accounts/preference-management";
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
@@ -84,6 +85,8 @@ export type StudioDeps = {
   sorting?: MovementSorter | null;
   /** Hears what Alfred is doing, for the live step shown while a reply is worked out. */
   progress?: Progress | null;
+  /** The team's shared projects; only members get to use them. */
+  team?: TeamStore | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -172,6 +175,8 @@ export async function handleProfileTurn(
     sorting: deps.sorting ?? null,
     progress: stepper(deps.progress),
   };
+  // Members of the team that builds Alfred can manage its shared projects in chat; a failed check just leaves it off.
+  if (deps.team && await deps.team.isMember(profile.profileId).catch(() => false)) ctx.team = { store: deps.team, memberId: profile.profileId };
   const labelling = ingestFor(deps, now);
   ctx.labelPayments = labelling ? proposedLabelApplier(labelling, profile) : null;
 
@@ -399,5 +404,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     transferConversations: createTransferConversationDeps(settings.supabase),
     paymentResolutions: createPaymentResolutionDeps(settings.supabase),
     sorting: createSupabaseSorter(settings.supabase),
+    team: createSupabaseTeamStore(settings.supabase),
   };
 }

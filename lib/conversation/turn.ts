@@ -1,7 +1,7 @@
 import { clientTurnUpdateId, isClientMessageId, isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { Channel } from "@/lib/ai/persona";
-import { intentOf, keepsFacts, voiceDelivery, type Voice } from "@/lib/ai/voice";
+import { claimsWrite, intentOf, keepsFacts, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import type { IngestDeps } from "@/lib/bank/ingest";
 import {
   applyResolved,
@@ -40,6 +40,7 @@ import type { FinanceStore } from "@/lib/finance/store";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { createLookup } from "@/lib/conversation/lookups";
 import { actionStep, stepper } from "@/lib/conversation/steps";
+import { projectLines } from "@/lib/team/chat";
 import { rememberedAnswers } from "@/lib/conversation/remembered";
 import { remember } from "@/lib/learning/log";
 import { logInfo } from "@/lib/log";
@@ -160,12 +161,13 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   }
 
   // Waiting payments are part of the conversation, so "Mitch was business" or "who's Mitch?" both work.
-  const [waiting, pending, people, about, investments] = await Promise.all([
+  const [waiting, pending, people, about, investments, team] = await Promise.all([
     ingest && !options.newTopic ? waitingPayments(ingest, ctx.profile, { currentMessageId }) : Promise.resolve(null),
     noticeFocus === undefined && !options.newTopic ? confirmation.fenced ? Promise.resolve(confirmation.pending) : latestOpenPending(ctx.store, ctx.profile.profileId, ctx.now) : Promise.resolve(null),
     notesForPrompt(deps.people, ctx.profile.profileId),
     aboutForPrompt(deps.notebook, ctx.profile.profileId),
     investmentsForPrompt(deps.investments, ctx.profile.profileId),
+    teamForPrompt(ctx),
   ]);
   // Going through the Accounts page's Needs attention list: the group Alfred just asked about, and the rest.
   const sort = noticeFocus === undefined && !options.newTopic ? await openSortGroups(ctx.sorting, deps.messages, ctx.profile.profileId, options.excludeClientId) : null;
@@ -205,6 +207,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     people,
     about,
     investments,
+    team,
     model: waiting || sort || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
     progress: step,
     open: (history) => {
@@ -306,7 +309,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   const parts: TurnReply[] = [];
   for (const item of actions) {
     const confirmed = allowedIndependent && item.type === "create_transaction" ? { ...item, explicit: false } : item;
-    parts.push(await perform(confirmed, { text, ctx, deps, ingest, waiting, pending: pending?.actionId ?? null, context, cue, open, channel: options.channel, purposeDetail, lookedUp, found, sort }));
+    parts.push(await perform(confirmed, { text, ctx, deps, ingest, waiting, pending: pending?.actionId ?? null, context, cue, open, channel: options.channel, purposeDetail, lookedUp, found, sort, unread }));
   }
   return keepNoticeFocus(combine(parts, action));
 }
@@ -549,6 +552,8 @@ type Turn = {
   found?: { query: string; lines: string[] }[];
   /** The Needs attention groups, while Alfred is going through them. */
   sort?: SortState | null;
+  /** The model gave nothing usable, so the reply is a stock line the voice mustn't embellish. */
+  unread?: "invalid" | "outage";
 };
 
 type SortState = { groups: SortGroup[]; asked: SortGroup | null; numbered: SortGroup[]; lines: string[] };
@@ -660,11 +665,15 @@ async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
     const decided = await decidePending({ decision: action.decision, actionId: turn.pending, chatId: null }, ctx);
     return { kind: "text", text: decided.text, context: decided.context, intent: "answer_confirmation" };
   }
-  const delivery = await handleAction(action, { ...ctx, conversation: turn.context });
+  const handled = await handleAction(action, { ...ctx, conversation: turn.context });
+  // The model answering in plain chat can't change anything, so a reply saying it did is untrue: say so instead.
+  const delivery: Delivery = action.type === "chat" && handled.kind === "text" && claimsWrite(handled.text)
+    ? (logInfo("chat_claimed_write", { userId: ctx.profile.profileId }), { kind: "text", text: "I haven't changed anything yet. Tell me once more what to change and I'll do it." })
+    : handled;
   // An answer built from lookups is kept as the model wrote it: the voice only sees the snapshot and would undo it.
   // Every figure in it must come from the results; if not, the results are shown plainly instead.
-  if (!turn.lookedUp && turn.deps.voice) ctx.progress?.("Putting it into words");
-  const voiced = turn.lookedUp ? groundedInLookups(delivery, turn) : await voiceDelivery(turn.deps.voice, action, delivery, {
+  if (!turn.lookedUp && !turn.unread && turn.deps.voice) ctx.progress?.("Putting it into words");
+  const voiced = turn.lookedUp ? groundedInLookups(delivery, turn) : turn.unread ? delivery : await voiceDelivery(turn.deps.voice, action, delivery, {
     userText: turn.text,
     profile: ctx.profile,
     channel: turn.channel,
@@ -696,6 +705,14 @@ function combine(parts: TurnReply[], action: InterpretedAction): TurnReply {
   const intent = action.type === "several" ? action.actions.map((item) => intentOf(item)).join("+").slice(0, 60) : parts[0].intent;
   const base = confirm?.kind === "confirm" ? { kind: "confirm" as const, text, actionId: confirm.actionId } : { kind: "text" as const, text };
   return { ...base, ...(context ? { context } : {}), ...(chart ? { chart } : {}), ...(buttons ? { buttons } : {}), intent };
+}
+
+/** For a team member, the other members and one line per shared project; nothing for anyone else. */
+async function teamForPrompt(ctx: ActionContext): Promise<{ others: string[]; projects: string[] } | null> {
+  if (!ctx.team) return null;
+  const board = await ctx.team.store.board(ctx.team.memberId).catch(() => null);
+  if (!board) return null;
+  return { others: board.members.filter((member) => member.id !== ctx.team!.memberId).map((member) => member.name), projects: projectLines(board, ctx.team.memberId) };
 }
 
 /** "Risevest (US stocks, USD)" for each investment, so the model can name the one the user means. */

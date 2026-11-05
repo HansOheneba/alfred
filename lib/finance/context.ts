@@ -34,6 +34,8 @@ export async function interpretWithContext(input: {
   about?: string[];
   /** The user's investments, one per line. */
   investments?: string[];
+  /** The team's shared projects, for members only: the other members' names and one line per project. */
+  team?: { others: string[]; projects: string[] } | null;
   model?: string;
   /** Runs the model's lookups for this person; without it the model answers from what's in its prompt. */
   lookup?: (queries: LookupQuery[]) => Promise<{ query: string; lines: string[] }[]>;
@@ -113,6 +115,7 @@ export async function interpretWithContext(input: {
       people: input.people,
       about: input.about,
       investments: input.investments,
+      team: input.team,
       model: input.model,
       open,
       lookups,

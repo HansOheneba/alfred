@@ -1,0 +1,24 @@
+{
+  "id": "projects-from-chat",
+  "title": "Adding and moving shared side projects by talking to Alfred",
+  "source": "2026-11-06: Hans wants to manage the projects he shares with Pyro mostly through chat",
+  "tags": ["projects"],
+  "now": "2026-11-06T10:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "team": { "others": ["Kojo"], "projects": [{ "title": "Bubble Bliss App Design", "status": "planned", "priority": "high", "lead": "other" }] }
+  },
+  "steps": [
+    { "say": "add an idea for a five-a-side booking app, Kojo's taking it", "expect": { "notReply": "couldn't|can't help" } },
+    { "say": "move bubble bliss to building and make it medium priority" },
+    { "say": "note on the booking app: take payments with mobile money first, cards later" },
+    { "say": "add this link to bubble bliss https://example.com/bubble-moodboard" }
+  ],
+  "final": {
+    "projects": [
+      { "title": "booking|five-a-side|5-a-side", "status": "idea", "lead": "other", "notes": 1 },
+      { "title": "Bubble Bliss", "status": "building", "priority": "medium", "lead": "other", "links": 1 }
+    ],
+    "transactions": []
+  }
+}
