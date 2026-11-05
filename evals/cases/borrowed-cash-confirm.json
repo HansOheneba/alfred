@@ -1,0 +1,36 @@
+{
+  "id": "borrowed-cash-confirm",
+  "title": "Borrowed cash, confirmed in my own words",
+  "source": "Earlier hand-run eval",
+  "tags": [
+    "loans",
+    "conversation"
+  ],
+  "now": "2026-10-31T05:15:00.000Z",
+  "steps": [
+    {
+      "say": "I borrowed 200 cash from Kwame yesterday",
+      "expect": {
+        "asksToConfirm": true
+      }
+    },
+    {
+      "say": "yeah go ahead"
+    },
+    {
+      "say": "who do I owe?",
+      "expect": {
+        "reply": "Kwame",
+        "savesNothing": true
+      }
+    }
+  ],
+  "final": {
+    "loans": [
+      {
+        "person": "Kwame",
+        "owe": "200.00"
+      }
+    ]
+  }
+}

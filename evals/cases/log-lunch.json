@@ -1,0 +1,27 @@
+{
+  "id": "log-lunch",
+  "title": "Logging a simple expense",
+  "source": "Earlier hand-run eval",
+  "tags": [
+    "logging"
+  ],
+  "now": "2026-10-31T12:15:00.000Z",
+  "steps": [
+    {
+      "say": "I spent 40 on lunch today"
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "40.00",
+        "category": "Food"
+      }
+    ]
+  }
+}

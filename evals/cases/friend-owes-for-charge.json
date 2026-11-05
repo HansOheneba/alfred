@@ -1,0 +1,43 @@
+{
+  "id": "friend-owes-for-charge",
+  "title": "Replying to a card charge: a friend owes me",
+  "source": "Variant of Hans's George conversation",
+  "tags": [
+    "payments",
+    "loans"
+  ],
+  "now": "2026-11-04T18:20:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "charge",
+        "direction": "out",
+        "amount": "332.19",
+        "counterparty": "MTCGAME.COM",
+        "occurredAt": "2026-11-04T18:18:00.000Z"
+      }
+    ],
+    "notice": "charge"
+  },
+  "steps": [
+    {
+      "say": "that was George using my card, he owes me",
+      "replyTo": "charge"
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "payments": {
+      "charge": "lent"
+    },
+    "loans": [
+      {
+        "person": "George",
+        "owed": "332.19"
+      }
+    ]
+  }
+}

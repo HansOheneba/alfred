@@ -52,3 +52,6 @@ next-env.d.ts
 # Inactive local SMS collector builds
 /relay/mac/build/
 /relay/collector/build/
+
+# real-model eval output
+/eval-results.json

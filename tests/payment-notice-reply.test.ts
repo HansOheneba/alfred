@@ -233,7 +233,8 @@ describe("replying to a proactive payment-purpose question", () => {
     const classifyRequest = state.interpret.mock.calls[1][0];
     expect(classifyRequest.text).toBe("Gift");
     expect(JSON.stringify(classifyRequest.history)).not.toContain(purpose);
-    expect(JSON.stringify(classifyRequest.open)).not.toContain(purpose);
+    // The person's earlier words about this same payment are given as labelled context, never as chat history.
+    expect(JSON.stringify(classifyRequest.open)).toContain(`Earlier about this payment they said: \\"${purpose}\\"`);
   });
 
   it("does not recover purpose details from another payment's private reply", async () => {

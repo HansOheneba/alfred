@@ -1,0 +1,59 @@
+{
+  "id": "rent-from-investment",
+  "title": "Pay rent out of my one investment",
+  "source": "Mitch, 2026-11-05: 'Yes.' hit 'nothing waiting', then a false claim about investments",
+  "tags": [
+    "investments",
+    "real-failure"
+  ],
+  "now": "2026-11-05T00:03:00.000Z",
+  "name": "Mitch",
+  "setup": {
+    "investments": [
+      {
+        "name": "Risevest",
+        "kind": "us_stocks",
+        "investedBefore": "5000.00"
+      }
+    ],
+    "budgets": [
+      {
+        "category": "Rent & home",
+        "amount": "1500.00"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "say": "Check if I have any money that I saved for 1,500. That is the rent so remove it from savings or investments to rent.",
+      "expect": {
+        "notReply": "can't see any (savings|investments)|nothing (shows )?(as )?(saved|invested)"
+      }
+    },
+    {
+      "say": "Yes.",
+      "expect": {
+        "notReply": "nothing waiting"
+      }
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "1500.00",
+        "category": "Rent & home"
+      }
+    ],
+    "investmentFlows": [
+      {
+        "investment": "Risevest",
+        "amount": "-1500.00"
+      }
+    ]
+  }
+}

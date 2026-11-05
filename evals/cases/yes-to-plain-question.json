@@ -1,0 +1,45 @@
+{
+  "id": "yes-to-plain-question",
+  "title": "Yes to a question Alfred asked in plain words",
+  "source": "Mitch, 2026-11-05",
+  "tags": [
+    "conversation",
+    "real-failure"
+  ],
+  "now": "2026-11-05T00:03:30.000Z",
+  "name": "Mitch",
+  "setup": {
+    "messages": [
+      {
+        "role": "user",
+        "body": "I paid my rent today, 1,500"
+      },
+      {
+        "role": "assistant",
+        "body": "Do you want me to record a GH₵1,500.00 Rent & home expense for today, Mitch?",
+        "intent": "clarify"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "say": "Yes.",
+      "expect": {
+        "notReply": "nothing waiting"
+      }
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "1500.00",
+        "category": "Rent & home"
+      }
+    ]
+  }
+}

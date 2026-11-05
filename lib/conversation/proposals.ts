@@ -4,6 +4,7 @@ import type { BankMessage } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { saveConfirmation, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { proposedLabelSchema } from "@/lib/finance/schemas";
+import { remember } from "@/lib/learning/log";
 
 /** One captured payment and the label Alfred read from the person's words. */
 export type Proposal = { message: BankMessage; label: Label };
@@ -57,7 +58,7 @@ export function describeLabel(message: BankMessage, label: Label): string {
  * Shows what Alfred understood and asks before filing anything. Returns null
  * when none of the readings can apply, so the caller asks the question again.
  */
-export async function proposeLabels(ctx: ActionContext, proposals: Proposal[], profile: UserProfile): Promise<Delivery | null> {
+export async function proposeLabels(ctx: ActionContext, proposals: Proposal[], profile: UserProfile, said: string | null = null): Promise<Delivery | null> {
   const seen = new Set<string>();
   const usable = proposals.filter((item) => {
     if (seen.has(item.message.id) || item.message.ownerId !== profile.profileId || item.message.status !== "needs_label" || !fitsDirection(item.message, item.label)) return false;
@@ -66,16 +67,23 @@ export async function proposeLabels(ctx: ActionContext, proposals: Proposal[], p
   }).slice(0, 4);
   if (usable.length === 0 || !ctx.labelPayments) return null;
   // A newer reading replaces any earlier one for the same payments, so "yes" can only confirm the latest.
+  const items = usable.map((item) => ({ bankMessageId: item.message.id, label: proposedLabelSchema.parse(item.label) }));
   for (const message of usable) {
     const earlier = await openLabelProposal(ctx, message.message.id);
-    if (earlier) await ctx.store.updatePendingAction(earlier.actionId, { status: "cancelled" });
+    if (!earlier) continue;
+    await ctx.store.updatePendingAction(earlier.actionId, { status: "cancelled" });
+    // The person changed Alfred's reading: the old one and what replaced it are a lesson.
+    const before = await ctx.store.getPendingAction(earlier.actionId);
+    let proposed: unknown = [];
+    try { proposed = (JSON.parse(before?.payloadJson ?? "{}") as { items?: unknown }).items ?? []; } catch { proposed = []; }
+    await remember(ctx.learning, (log) => log.correction({ ownerId: profile.profileId, bankMessageId: message.message.id, kind: "edit", userText: said, proposed, final: items }));
   }
   const lines = usable.map((item) => `• ${waitingLine(item.message, profile)}: ${describeLabel(item.message, item.label)}`);
   const text = [usable.length === 1 ? "Here's how I read that:" : "Here's how I read those:", ...lines, "", "Save this? Nothing changes until you confirm."].join("\n");
   return saveConfirmation(ctx, text, {
     type: "label_payments",
     originUpdateId: String(ctx.updateId),
-    items: usable.map((item) => ({ bankMessageId: item.message.id, label: proposedLabelSchema.parse(item.label) })),
+    items,
   });
 }
 

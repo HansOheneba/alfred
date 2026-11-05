@@ -1,0 +1,47 @@
+{
+  "id": "ask-after-promising-later",
+  "title": "Asking about a payment after promising to ask later",
+  "source": "Earlier hand-run eval",
+  "tags": [
+    "payments",
+    "conversation"
+  ],
+  "now": "2026-10-31T05:15:00.000Z",
+  "setup": {
+    "bankTexts": [
+      "Payment made for GHS 22.50 to ELLEN OHENEWA OBENG-DARKO Current Balance: GHS 1512.11 . Available Balance: GHS 1512.11. Reference: . Transaction ID: 92694674830. Fee charged: GHS0.00"
+    ],
+    "messages": [
+      {
+        "role": "assistant",
+        "body": "I'll ask about the one that needs a label in the morning.",
+        "intent": "bank:notice"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "say": "go on then",
+      "expect": {
+        "reply": "Ellen",
+        "notReply": "quiet|all ears"
+      }
+    },
+    {
+      "say": "malt"
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "22.50",
+        "category": "Food"
+      }
+    ]
+  }
+}

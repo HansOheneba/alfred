@@ -1,4 +1,5 @@
 import { LIMITS, type AppSettings } from "@/lib/config";
+import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
 import { ConfigError } from "@/lib/errors";
 import { logError } from "@/lib/log";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
@@ -55,6 +56,8 @@ export type HandlerDeps = {
   people?: PeopleStore | null;
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
+  /** Corrections and turn traces, for learning and measuring. */
+  learning?: LearningLog | null;
   /** Explicit fixed commands; never interpreted by the language model. */
   accountRuleCommands?: AccountRuleBotDeps | null;
   /** Downloads and reads a photo the person sent. */
@@ -364,6 +367,7 @@ function actionContext(
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
     bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
     notebook: deps.notebook ?? null,
+    learning: deps.learning ?? null,
     labelPayments: deps.bank
       ? proposedLabelApplier({ bank: deps.bank, ledger: deps.store as FinanceStore, now: deps.now(), createId: deps.createId, loans: deps.loans ?? undefined, people: deps.people, investments: deps.investments ?? null }, profile)
       : null,
@@ -429,6 +433,7 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     investments: settings.supabase ? createSupabaseInvestmentStore(settings.supabase) : null,
     people: settings.supabase ? createSupabasePeopleStore(settings.supabase) : null,
     notebook: settings.supabase ? createSupabaseNotebookStore(settings.supabase) : null,
+    learning: settings.supabase ? createSupabaseLearningLog(settings.supabase) : null,
     accountRuleCommands: settings.supabase ? createAccountRuleBotDeps(settings.supabase) : null,
     readPhoto: settings.deepseek
       ? async (fileId) => {
