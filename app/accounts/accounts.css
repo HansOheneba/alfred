@@ -420,3 +420,20 @@
  .alfred-accounts-changeSummary dl > div { align-items:flex-start; }
  .alfred-accounts-changeSummary dd { max-width:72%; }
 }
+
+/* Excluded or duplicate: still listed, but set aside so it doesn't read as counted. */
+.alfred-accounts [data-counted="false"] strong,
+.alfred-accounts [data-counted="false"] .alfred-accounts-rowCopy > span,
+.alfred-accounts [data-counted="false"] .alfred-accounts-tableCopy small,
+.alfred-accounts [data-counted="false"] .alfred-accounts-tableAccount { color:var(--faint); }
+.alfred-accounts [data-counted="false"] .alfred-accounts-rowAmount strong,
+.alfred-accounts [data-counted="false"] td.is-numeric strong { text-decoration:line-through; text-decoration-thickness:1px; }
+.alfred-accounts [data-counted="false"] .is-out,
+.alfred-accounts [data-counted="false"] .is-in,
+.alfred-accounts [data-counted="false"] .is-out strong,
+.alfred-accounts [data-counted="false"] .is-in strong { color:var(--faint); }
+.alfred-accounts [data-counted="false"] .alfred-accounts-directionIcon { filter:grayscale(1); opacity:.5; }
+.alfred-accounts-movementRow[data-counted="false"],
+.alfred-accounts-movements tr[data-counted="false"] td { background:color-mix(in srgb,var(--line) 22%,transparent); }
+.alfred-accounts .alfred-accounts-status.is-excluded,
+.alfred-accounts .alfred-accounts-status.is-duplicate { color:var(--faint); }
