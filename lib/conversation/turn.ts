@@ -244,7 +244,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   // A reply that couldn't be read, or that came while the model was down, most likely answers the
   // payment just asked about, so that question stays open with buttons that work without the model.
   if (unread && ingest && waiting?.current) {
-    const intro = unread === "outage" ? OUTAGE_INTRO : undefined;
+    const intro = unread === "outage" ? OUTAGE_INTRO : unread === "account" ? ACCOUNT_OUTAGE_INTRO : undefined;
     const again = await askAgain(ingest, ctx.profile, waiting.current, noticeFocus !== undefined ? purposeQuestionIntro(waiting.current, intro ?? "I couldn't understand that answer.") : intro);
     return keepNoticeFocus({ kind: "text", text: again.text, intent: "bank:label", buttons: again.buttons });
   }
@@ -628,6 +628,9 @@ export function nothingWaiting(attention: AttentionSummary | null | undefined): 
 
 /** Said before re-asking a payment question when the model is down, so a tap still moves things on. */
 export const OUTAGE_INTRO = "My thinking is running slow right now, so I couldn't take that in. Tap an answer below, or send it again in a minute. Nothing was saved.";
+
+/** Said instead when the model provider has cut Alfred off, which waiting a minute won't fix. */
+export const ACCOUNT_OUTAGE_INTRO = "I can't think right now: the service I use to understand messages is switched off on my side. It's nothing you did. Tap an answer below and it still works. Nothing was saved.";
 
 async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
   const { ctx, ingest, waiting } = turn;

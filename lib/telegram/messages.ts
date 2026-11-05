@@ -19,6 +19,10 @@ Try: 'Spent GH₵200 on food yesterday' or 'Where is my money going this month?'
 
 Your dashboard, with the same records and charts, is at ${DASHBOARD_URL}.`;
 
+/** When the model provider has cut Alfred off (no credit, bad key): not the person's fault, and waiting a minute won't help. */
+export const AI_ACCOUNT_TEXT =
+  "I can't think right now: the service I use to understand messages is switched off on my side. It's nothing you did, and it needs fixing on my end. Nothing was saved, so send this again later.";
+
 export function userFacingError(error: unknown): string {
   if (error instanceof SheetsError) {
     if (error.code === "permission") {
@@ -44,6 +48,7 @@ export function userFacingError(error: unknown): string {
   if (error instanceof AiError) {
     if (error.code === "rate_limit") return "The assistant is busy right now. Try again in a minute.";
     if (error.code === "timeout") return "That took too long to understand. Please try again.";
+    if (error.code === "account") return AI_ACCOUNT_TEXT;
     if (error.code === "unavailable") return "My thinking is running slow right now. Try again in a minute; nothing was saved.";
     return "I couldn't read that reliably. Please rephrase with the amount and what it was for.";
   }

@@ -24,7 +24,11 @@ export class SheetsError extends Error {
   }
 }
 
-export type AiErrorCode = "timeout" | "rate_limit" | "invalid" | "unavailable";
+/**
+ * `account` means the model provider refused Alfred itself: out of credit (402)
+ * or a rejected key (401/403). Retrying won't help until someone fixes billing.
+ */
+export type AiErrorCode = "timeout" | "rate_limit" | "invalid" | "unavailable" | "account";
 
 export class AiError extends Error {
   readonly code: AiErrorCode;
