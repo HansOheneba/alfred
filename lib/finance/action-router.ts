@@ -27,6 +27,7 @@ import type { BankBalance } from "@/lib/bank/store";
 import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
 import type { LearningLog } from "@/lib/learning/log";
 import { fileAndAskNext, type MovementSorter, type SortOutcome } from "@/lib/conversation/sorting";
+import type { Progress } from "@/lib/conversation/steps";
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
@@ -105,6 +106,8 @@ export type ActionContext = {
   learning?: LearningLog | null;
   /** The Accounts page's Needs attention list, sorted in chat a merchant at a time. */
   sorting?: MovementSorter | null;
+  /** Hears what Alfred is doing, for the live step shown while a reply is worked out. */
+  progress?: Progress | null;
 };
 
 export type BankAccess = {
