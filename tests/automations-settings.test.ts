@@ -19,7 +19,7 @@ describe("Automations settings placement", () => {
     expect(html).toContain("Alfred in chat");
     expect(html).toContain("Device notifications");
     expect(html).toContain('href="#automations-notifications"');
-    expect(html.match(/aria-checked="false"/g)).toHaveLength(5);
+    expect(html.match(/aria-checked="false"/g)).toHaveLength(7);
     expect(html).toContain("Manage sync");
     expect(html).not.toContain("Scheduled push recovery");
     expect(html).not.toContain("Create forwarding key");

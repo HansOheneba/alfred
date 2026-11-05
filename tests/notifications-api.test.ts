@@ -1,9 +1,10 @@
 import { beforeEach,describe,expect,it,vi } from "vitest";
-const mocks=vi.hoisted(()=>({owner:vi.fn(),preferences:vi.fn(),devices:vi.fn(),update:vi.fn(),subscribe:vi.fn(),unsubscribe:vi.fn(),deviceForEndpoint:vi.fn(),configuration:vi.fn(),dispatch:vi.fn(),mentions:vi.fn(),recovery:vi.fn(),recoveryConfiguration:vi.fn(),completed:vi.fn(),failed:vi.fn(),policy:vi.fn()}));
+const mocks=vi.hoisted(()=>({owner:vi.fn(),preferences:vi.fn(),devices:vi.fn(),update:vi.fn(),subscribe:vi.fn(),unsubscribe:vi.fn(),deviceForEndpoint:vi.fn(),configuration:vi.fn(),dispatch:vi.fn(),messages:vi.fn(),mentions:vi.fn(),recovery:vi.fn(),recoveryConfiguration:vi.fn(),completed:vi.fn(),failed:vi.fn(),policy:vi.fn()}));
 vi.mock("@/lib/web/api",()=>({requireOwner:mocks.owner}));
 vi.mock("@/lib/notifications/store",()=>({createNotificationStore:()=>({preferences:mocks.preferences,devices:mocks.devices,update:mocks.update,subscribe:mocks.subscribe,unsubscribe:mocks.unsubscribe,deviceForEndpoint:mocks.deviceForEndpoint})}));
 vi.mock("@/lib/notifications/push",()=>({pushConfiguration:mocks.configuration}));
 vi.mock("@/lib/notifications/service",()=>({dispatchScheduledNotifications:mocks.dispatch}));
+vi.mock("@/lib/notifications/messages",()=>({dispatchMessageNotifications:mocks.messages}));
 vi.mock("@/lib/bank/notices",()=>({recoverAllIncomingPaymentMentions:mocks.mentions}));
 vi.mock("@/lib/notifications/recovery",()=>({loadRecoveryStatus:mocks.recovery,recoveryConfiguration:mocks.recoveryConfiguration,recordRecoveryCompletion:mocks.completed,recordRecoveryFailure:mocks.failed}));
 vi.mock("@/lib/env",()=>({getDatabaseSettings:()=>({fixture:true})}));
@@ -19,6 +20,7 @@ beforeEach(()=>{
  mocks.preferences.mockResolvedValue({paymentPush:false});mocks.devices.mockResolvedValue([{id:"device",createdAt:"2026-11-03T12:00:00Z"}]);mocks.update.mockResolvedValue({paymentPush:true});
  mocks.configuration.mockReturnValue({ready:true,publicKey:"public-fixture",config:{publicKey:"public-fixture",privateKey:"must-never-be-serialized",subject:"mailto:fixture@example.invalid"}});
  mocks.subscribe.mockResolvedValue("device");mocks.unsubscribe.mockResolvedValue(undefined);mocks.deviceForEndpoint.mockResolvedValue(null);
+ mocks.messages.mockResolvedValue({available:true,owners:0,queued:0,attempted:0});
 });
 describe("notification API authorization and private responses",()=>{
  it.each([true,false])("changes only explicit preview consent to %s without needing push activation or changing other choices",async(paymentPreview)=>{
@@ -122,5 +124,11 @@ describe("notification API authorization and private responses",()=>{
    const recovered=await call();expect(recovered.status).toBe(200);expect(await recovered.json()).toMatchObject({mentionsRecovered:2,recoveryCheckedIn:true});
    expect(mocks.dispatch).toHaveBeenCalledOnce();expect(mocks.completed).toHaveBeenCalledOnce();
   } finally { logged.mockRestore(); }
+ });
+ it("does not record a healthy heartbeat when message notification recovery fails",async()=>{
+  vi.stubEnv("ALFRED_NOTIFICATION_CRON_SECRET","synthetic-fixture-only");vi.stubEnv("ALFRED_NOTIFICATION_SCHEDULES_ENABLED","true");
+  mocks.mentions.mockResolvedValue(0);mocks.messages.mockRejectedValueOnce(new Error("sample message recovery failure"));
+  const response=await dispatch(new Request(origin+"/api/notifications/dispatch",{method:"POST",headers:{authorization:"Bearer synthetic-fixture-only"}}));
+  expect(response.status).toBe(503);expect(mocks.completed).not.toHaveBeenCalled();expect(mocks.failed).toHaveBeenCalledOnce();expect(mocks.dispatch).not.toHaveBeenCalled();
  });
 });

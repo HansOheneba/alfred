@@ -69,9 +69,11 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
       const targetId=paymentTargetId(messageId);if(!targetId)return null;
       const rows=await execute<{amount:string;currency:string;direction:string;kind:string;status:string}>(settings,`select amount::text,currency,direction,kind,status
         from public.bank_messages b where owner_id=$1::uuid and id=$2::uuid and b.channel in ('mac','shortcut') and b.amount>0
-          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer') or (b.direction='out' and b.kind in ('card_hold','hold_settle') and b.status in ('needs_label','recorded','matched')))
           and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')`,[ownerId,messageId]);
-      const details=paymentPushDetails(rows[0]);if(!details)return null;
+      const source=rows[0];
+      const activity=source&&['card_hold','hold_settle'].includes(source.kind)?source.kind:undefined;
+      const details=paymentPushDetails(source?{...source,...(activity?{activity}:{})}:null);if(!details)return null;
       if(rows[0]?.kind==="transfer_own"&&rows[0]?.status==="transfer"){
         const transfer=await loadOwnTransferNotice(settings,ownerId,messageId);
         const outgoing=paymentTargetId(transfer?.outgoingBankMessageId);
@@ -94,11 +96,13 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
         where d.owner_id=$1::uuid and d.id=$2::uuid and d.kind='payment' and d.status='attempted'
           and p.payment_push and d.preference_epoch=p.payment_epoch and (s.expires_at is null or s.expires_at>$3::timestamptz)
           and b.channel in ('mac','shortcut') and b.amount>0 and b.amount=$4::numeric and b.currency=$5 and b.direction=$6
-          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer') or (b.direction='out' and b.kind in ('card_hold','hold_settle') and b.status in ('needs_label','recorded','matched')))
           and (not $7::boolean or (b.kind='transfer_own' and b.status='transfer'))
+          and (($8::text is null and b.kind not in ('card_hold','hold_settle')) or b.kind=$8::text)
           and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
+          and (b.kind not in ('card_hold','hold_settle') or (b.created_at>=p.card_activity_push_since and b.occurred_at>=p.card_activity_push_since))
           and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')`,
-        [ownerId,deliveryId,now.toISOString(),details.amount,details.currency,details.direction,details.transfer!==undefined]);
+        [ownerId,deliveryId,now.toISOString(),details.amount,details.currency,details.direction,details.transfer!==undefined,details.activity??null]);
       return rows[0]?{preview:rows[0].payment_preview===true}:null;
     },
     async devices(ownerId:string):Promise<{id:string;createdAt:string}[]> {
@@ -131,8 +135,9 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
         join public.push_subscriptions s on s.owner_id=p.owner_id
         where p.owner_id=$1::uuid and b.id=$2::uuid and p.payment_push and p.payment_push_since is not null
           and b.channel in ('mac','shortcut') and b.amount>0
-          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+          and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer') or (b.direction='out' and b.kind in ('card_hold','hold_settle') and b.status in ('needs_label','recorded','matched')))
           and b.occurred_at>=p.payment_push_since and b.created_at>=p.payment_push_since
+          and (b.kind not in ('card_hold','hold_settle') or (b.created_at>=p.card_activity_push_since and b.occurred_at>=p.card_activity_push_since))
           and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
           and b.occurred_at>=s.created_at and (s.expires_at is null or s.expires_at>now())
         on conflict(owner_id,subscription_id,event_key) do nothing returning id::text`,[ownerId,messageId]);
@@ -161,8 +166,9 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
           and d.status='queued' and d.attempts<3 and d.next_attempt_at<=$3::timestamptz
           and (s.expires_at is null or s.expires_at>$3::timestamptz)
           and ((d.kind='payment' and p.payment_push and d.preference_epoch=p.payment_epoch and exists(select 1 from public.bank_messages b where b.id=d.resource_id and b.owner_id=d.owner_id
-            and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer')) and b.channel in ('mac','shortcut') and b.amount>0
+            and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer') or (b.direction='out' and b.kind in ('card_hold','hold_settle') and b.status in ('needs_label','recorded','matched'))) and b.channel in ('mac','shortcut') and b.amount>0
             and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
+          and (b.kind not in ('card_hold','hold_settle') or (b.created_at>=p.card_activity_push_since and b.occurred_at>=p.card_activity_push_since))
             and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')))
             or (d.kind='bill' and p.bill_reminders and d.preference_epoch=p.bill_epoch and exists(select 1 from public.bills b where b.id=d.resource_id and b.owner_id=d.owner_id and b.active))
             or (d.kind='weekly' and p.weekly_overview and d.preference_epoch=p.weekly_epoch))
@@ -182,8 +188,9 @@ export function createNotificationStore(settings:SupabaseSettings,execute:Execut
             join public.bank_messages b on b.owner_id=p.owner_id and b.id=d.resource_id
             where p.owner_id=d.owner_id and p.payment_push and p.payment_epoch=d.preference_epoch
               and (s.expires_at is null or s.expires_at>$3::timestamptz)
-              and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer')) and b.channel in ('mac','shortcut') and b.amount>0
+              and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer') or (b.direction='out' and b.kind in ('card_hold','hold_settle') and b.status in ('needs_label','recorded','matched'))) and b.channel in ('mac','shortcut') and b.amount>0
               and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since and b.occurred_at>=s.created_at
+          and (b.kind not in ('card_hold','hold_settle') or (b.created_at>=p.card_activity_push_since and b.occurred_at>=p.card_activity_push_since))
               and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,$3::timestamptz) n where n.state='ready')
           )) returning d.id::text`,[ownerId,id,now.toISOString()]);
       return rows.length>0;

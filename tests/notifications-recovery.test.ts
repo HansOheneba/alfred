@@ -32,7 +32,7 @@ beforeAll(async()=>{
  create table profiles(id uuid primary key,timezone text);create table bank_messages(id uuid primary key,owner_id uuid,channel text,kind text,status text,amount numeric,created_at timestamptz,occurred_at timestamptz,direction text default 'in',counterparty text default 'Fixture',transaction_id uuid,fee_transaction_id uuid,currency text default 'GHS');
  create table transactions(owner_id uuid,transaction_id uuid,status text,type text,category text,amount numeric,currency text,source_update_id text);
  create table bills(id uuid primary key,owner_id uuid,active boolean,next_date date,cadence text);`);
- for(const file of ["20261103110000_notifications.sql","20261103200000_notification_recovery.sql","20261103233000_payment_activity_notices.sql","20261103235000_fee_notice_readiness.sql","20261104110000_notification_previews.sql"])await db.exec(await readFile(new URL("../supabase/migrations/"+file,import.meta.url),"utf8"));
+ for(const file of ["20261103110000_notifications.sql","20261103200000_notification_recovery.sql","20261103233000_payment_activity_notices.sql","20261103235000_fee_notice_readiness.sql","20261104110000_notification_previews.sql","20261105093000_card_activity_push.sql"])await db.exec(await readFile(new URL("../supabase/migrations/"+file,import.meta.url),"utf8"));
  const pair=await webcrypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveBits"]);
  subscription={endpoint:"https://fcm.googleapis.com/fcm/send/synthetic-recovery",keys:{p256dh:Buffer.from(await webcrypto.subtle.exportKey("raw",pair.publicKey)).toString("base64url"),auth:Buffer.alloc(16,9).toString("base64url")}};
 });
@@ -88,6 +88,19 @@ describe("immediate payment delivery and durable recovery",()=>{
   const old=new Date(Date.now()-25*60*60*1000);await seed(old,false);
   expect(await recoverPaymentNotifications(settings,owner)).toBe(1);
   const now=new Date(Date.now()+2000),id=(await store().pending(owner,now))[0].id;expect(await store().claim(owner,id,now)).not.toBeNull();
+ });
+ it("recovers new card activity after rollout without replaying an older held alert",async()=>{
+  const old=new Date(Date.now()-60_000);await seed(old,false);
+  await db.query("update bank_messages set kind='card_hold',direction='out' where id=$1::uuid",[message]);
+  expect(await recoverPaymentNotifications(settings,owner)).toBe(0);
+  const fresh="00000000-0000-4000-8000-000000000011",at=new Date(Date.now()+1000);
+  await db.query("insert into bank_messages(id,owner_id,channel,kind,status,amount,created_at,occurred_at,direction) values($1::uuid,$2::uuid,'mac','card_hold','needs_label',10,$3::timestamptz,$3::timestamptz,'out')",[fresh,owner,at.toISOString()]);
+  expect(await recoverPaymentNotifications(settings,owner)).toBe(1);
+  expect(await recoverPaymentNotifications(settings,owner)).toBe(0);
+  const pending=await store().pending(owner,new Date(Date.now()+2000));
+  expect(pending.map(item=>item.resourceId)).toEqual([fresh]);
+  expect(await store().claim(owner,pending[0].id,new Date(Date.now()+2000))).not.toBeNull();
+  expect((await db.query<{kind:string}>("select kind from bank_messages order by id")).rows).toEqual([{kind:"card_hold"},{kind:"card_hold"}]);
  });
  it("muting a queued payment cancels it before overnight recovery",async()=>{
   const at=new Date("2026-11-03T22:30:00Z");await seed(at);

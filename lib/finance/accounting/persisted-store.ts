@@ -11,6 +11,14 @@ import { hydrateAccountingSources, sourceMovements } from "./sources";
 import { AccountingError, emptyAccountingState, type AccountingAction, type AccountingState, type CashMovement } from "./types";
 
 export type AccountingResult={state:AccountingState;availability:"ready"|"migration-required";sourceVersion:string|null;rawTransactions:TransactionRecord[];bankMessages?:BankMessage[];transferWindow?:BankTransferWindow;transferProviders?:ImportedTransferProviders};
+const FULL_STATE_SQL="select state from public.accounting_states where owner_id=$1::uuid";
+// Match browserAccountingState before the JSON crosses the database connection.
+// jsonb_set preserves current data and unknown top-level fields; ordinality keeps Undo metadata ordered.
+const READ_MODEL_SQL=`select jsonb_set(state, '{audit}', coalesce((
+  select jsonb_agg(entry || jsonb_build_object('before',
+    '{"accounts":[],"movements":[],"snapshots":[],"transfers":[],"settlements":[]}'::jsonb) order by position)
+  from jsonb_array_elements(state->'audit') with ordinality as entries(entry, position)
+), '[]'::jsonb)) as state from public.accounting_states where owner_id=$1::uuid`;
 async function sourceVersion(settings:SupabaseSettings,ownerId:string) {
   const rows=await query<{version:string}>(settings,"select public.alfred_accounting_source_version($1::uuid) as version",[ownerId]);
   return rows[0].version;
@@ -18,11 +26,20 @@ async function sourceVersion(settings:SupabaseSettings,ownerId:string) {
 
 /** Does not initialize or migrate tables. Legacy ledgers remain usable before the additive migration. */
 export async function loadAccountingState(settings:SupabaseSettings,ownerId:string,providedRaw?:TransactionRecord[],transferPivotIds?:string[],includeImportedProviderFacts=true):Promise<AccountingResult> {
+  return loadAccounting(settings,ownerId,providedRaw,transferPivotIds,includeImportedProviderFacts,FULL_STATE_SQL);
+}
+
+/** Display/reporting reads only. Mutations, Undo and exports must load the complete audit before-state. */
+export async function loadAccountingReadModel(settings:SupabaseSettings,ownerId:string):Promise<AccountingResult> {
+  return loadAccounting(settings,ownerId,undefined,undefined,true,READ_MODEL_SQL);
+}
+
+async function loadAccounting(settings:SupabaseSettings,ownerId:string,providedRaw:TransactionRecord[]|undefined,transferPivotIds:string[]|undefined,includeImportedProviderFacts:boolean,stateSql:string):Promise<AccountingResult> {
   const ready=await query<{ready:boolean;portability_ready:boolean;receipts_ready:boolean;provider_summaries_ready:boolean}>(settings,"select to_regclass('public.accounting_states') is not null and to_regprocedure('public.alfred_write_accounting_state(uuid,bigint,text,text,text,jsonb)') is not null as ready, to_regclass('public.imported_finance_sources') is not null as portability_ready, to_regclass('public.finance_import_receipts') is not null as receipts_ready, to_regprocedure('public.alfred_import_provider_facts(uuid,jsonb)') is not null as provider_summaries_ready");
   const availability=ready[0]?.ready ? "ready" : "migration-required";
   const versionBefore=availability==="ready" ? await sourceVersion(settings,ownerId) : null;
   const [saved,raw,messages,imported,rules,transferWindow]=await Promise.all([
-    availability==="ready" ? query<{state:AccountingState}>(settings,"select state from public.accounting_states where owner_id=$1::uuid",[ownerId]) : Promise.resolve([]),
+    availability==="ready" ? query<{state:AccountingState}>(settings,stateSql,[ownerId]) : Promise.resolve([]),
     // For a source-coherent accounting read, fetch fresh rows inside the two version observations.
     availability==="ready" || !providedRaw ? listRawTransactions(settings,ownerId) : Promise.resolve(providedRaw),
     createSupabaseBankStore(settings).listMessages(ownerId),

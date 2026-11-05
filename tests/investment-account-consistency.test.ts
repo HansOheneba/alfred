@@ -14,8 +14,8 @@ import { formatMinor } from "@/lib/finance/money";
 import { loadIncludedAccountCash } from "@/lib/web/included-account-cash";
 import type { SupabaseSettings } from "@/lib/config";
 
-const mocks = vi.hoisted(() => ({ loadAccountingState: vi.fn(), logError: vi.fn() }));
-vi.mock("@/lib/finance/accounting/persisted-store", () => ({ loadAccountingState: mocks.loadAccountingState }));
+const mocks = vi.hoisted(() => ({ loadAccountingReadModel: vi.fn(), logError: vi.fn() }));
+vi.mock("@/lib/finance/accounting/persisted-store", () => ({ loadAccountingReadModel: mocks.loadAccountingReadModel }));
 vi.mock("@/lib/log", () => ({ logError: mocks.logError }));
 
 const OWNER = "synthetic-asset-owner";
@@ -146,17 +146,17 @@ describe("the same cash basis across Accounts, Overview and Investments", () => 
 
 describe("loading canonical account cash for Investments", () => {
   const settings = {} as SupabaseSettings;
-  beforeEach(() => { mocks.loadAccountingState.mockReset(); mocks.logError.mockReset(); });
+  beforeEach(() => { mocks.loadAccountingReadModel.mockReset(); mocks.logError.mockReset(); });
   it("uses one current accounting load without rewriting source or account data", async () => {
     const s = state(), before = structuredClone(s);
-    mocks.loadAccountingState.mockResolvedValue({ state: s, availability: "ready" });
+    mocks.loadAccountingReadModel.mockResolvedValue({ state: s, availability: "ready" });
     const cash = await loadIncludedAccountCash(settings, OWNER, "GHS");
     expect(cash.totalMinor).toBe(accountBalances(s, "GHS").totalMinor);
-    expect(mocks.loadAccountingState).toHaveBeenCalledExactlyOnceWith(settings, OWNER);
+    expect(mocks.loadAccountingReadModel).toHaveBeenCalledExactlyOnceWith(settings, OWNER);
     expect(s).toEqual(before);
   });
   it("keeps cash unavailable if the evidence read fails while allowing the investment view to load", async () => {
-    mocks.loadAccountingState.mockRejectedValue(new Error("Synthetic database failure"));
+    mocks.loadAccountingReadModel.mockRejectedValue(new Error("Synthetic database failure"));
     expect(await loadIncludedAccountCash(settings, OWNER, "GHS")).toMatchObject({ availability: "unavailable", totalMinor: null, knownSubtotalMinor: null });
     expect(mocks.logError).toHaveBeenCalledOnce();
   });

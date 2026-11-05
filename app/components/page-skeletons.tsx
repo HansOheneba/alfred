@@ -1,12 +1,10 @@
 import type { ReactNode } from "react";
 import { Skeleton } from "./status";
+import { LoadingWait } from "./loading-wait";
 import "./page-skeletons.css";
 
 function LoadingFrame({ label, className = "", children }: { label: string; className?: string; children: ReactNode }) {
-  return <section className={`alfred-loading ${className}`} role="status" aria-busy="true" aria-label={label}>
-    <p className="sr-only">{label}…</p>
-    <div aria-hidden="true">{children}</div>
-  </section>;
+  return <LoadingWait label={label} className={`alfred-loading ${className}`}>{children}</LoadingWait>;
 }
 
 function LoadingHeading({ title, action = false }: { title: string; action?: boolean }) {

@@ -33,6 +33,15 @@ html[data-theme="dark"] .alfred-app {
 .alfred-ui-privacy { white-space: nowrap; }
 .alfred-ui-privacy svg { width: 20px; height: 20px; }
 .alfred-ui-main { min-width: 0; }
+.alfred-chatNavIcon { position:relative; display:inline-flex; align-items:center; }
+.alfred-chatUnread { position:absolute; top:-10px; right:-12px; display:grid; place-items:center; min-width:17px; height:17px; padding:0 3px; border-radius:99px; background:var(--accent); color:var(--accent-ink); font-size:10px; line-height:1; font-weight:700; box-shadow:0 0 0 2px var(--surface); }
+.alfred-chatMessageAlert { position:fixed; z-index:55; right:24px; bottom:24px; display:flex; align-items:center; gap:16px; width:min(440px,calc(100% - 32px)); padding:18px; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--ink); box-shadow:0 8px 32px #0003; }
+.alfred-chatMessageAlert strong { font-size:14px; font-weight:600; }
+.alfred-chatMessageAlert p { margin:4px 0 0; color:var(--muted); font-size:12px; }
+.alfred-chatMessageAlert > a { display:flex; min-height:44px; align-items:center; gap:4px; margin-left:auto; white-space:nowrap; color:var(--accent); font-size:13px; font-weight:500; }
+.alfred-chatMessageAlert > button { display:grid; place-items:center; min-width:36px; min-height:44px; font-size:24px; color:var(--muted); border-radius:8px; }
+.alfred-chatMessageAlert :is(a,button):focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
+@media(max-width:760px) { .alfred-chatMessageAlert { right:16px; bottom:calc(84px + env(safe-area-inset-bottom)); gap:12px; padding:14px; } }
 .alfred-mutationRecovery { box-sizing:border-box; width:calc(100% - 32px); max-width:560px; margin:48px auto; padding:28px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
 .alfred-mutationRecovery h1 { margin:0; font-size:24px; font-weight:600; line-height:32px; letter-spacing:-.025em; }
 .alfred-mutationRecovery h1:focus { outline:none; }

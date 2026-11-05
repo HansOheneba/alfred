@@ -5,6 +5,6 @@ import { AppShell } from "@/app/components/app-shell";
 import { ChatContextProvider } from "@/app/chat/chat-context-control";
 
 /** Keep context state within the current owned route; the draft provider stays above Suspense. */
-export function ChatShell({ name, contextAvailable = false, children }: { name: string; contextAvailable?: boolean; children?: ReactNode }) {
-  return <ChatContextProvider initiallyAvailable={contextAvailable}><AppShell current="chat" name={name} fill>{children}</AppShell></ChatContextProvider>;
+export function ChatShell({ name, contextAvailable = false, children, ownerId }: { name: string; contextAvailable?: boolean; children?: ReactNode; ownerId?: string }) {
+  return <ChatContextProvider initiallyAvailable={contextAvailable}><AppShell current="chat" name={name} ownerId={ownerId} fill>{children}</AppShell></ChatContextProvider>;
 }

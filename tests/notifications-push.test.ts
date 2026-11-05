@@ -82,6 +82,15 @@ describe("private Web Push transport", () => {
       expect(payload.notification.navigate).toBe('https://alfred.hansopoku.com/chat?payment='+id);
     }
     expect(paymentPushBody({amount:'1',currency:'USD',direction:'out'})).toBe('Money out · −USD 1.00. Open Alfred to chat.');
+    expect(paymentPushBody({amount:'500.01',currency:'GHS',direction:'out',activity:'card_hold'})).toBe('Card hold · GH₵500.01. Open Alfred to chat.');
+    expect(paymentPushBody({amount:'500.01',currency:'GHS',direction:'out',activity:'hold_settle'})).toBe('Card settlement alert · GH₵500.01. Open Alfred to review.');
+    const holdPreview=notificationPayload('payment','11111111-1111-4111-8111-111111111111',{amount:'500.01',currency:'GHS',direction:'out',activity:'card_hold'});
+    expect(holdPreview.cardActivity).toEqual({amount:'500.01',currency:'GHS',direction:'out',activity:'card_hold'});
+    expect(holdPreview.payment).toBeUndefined();
+    expect(holdPreview.notification.body).toBe('Card hold · GH₵500.01. Open Alfred to chat.');
+    for(const activity of ['payment','raw SMS',{},null])expect(paymentPushDetails({amount:'1',currency:'GHS',direction:'out',activity})).toBeNull();
+    expect(paymentPushDetails({amount:'1',currency:'GHS',direction:'in',activity:'card_hold'})).toBeNull();
+    expect(paymentPushDetails({amount:'1',currency:'GHS',direction:'out',activity:'card_hold',transfer:{}})).toBeNull();
     expect(paymentPushBody({amount:'1.00',currency:'GHS',direction:'out',transfer:{fromAccount:'Hubtel wallet',toAccount:'MTN MoMo'}})).toBe('Transfer · GH₵1.00 · Hubtel wallet → MTN MoMo.');
     expect(paymentPushBody({amount:'1.00',currency:'GHS',direction:'in',transfer:{}})).toBe('Transfer · GH₵1.00 between your accounts.');
     for(const amount of ['0','0.00','-1.00','1e2','1.001','Infinity','NaN','01.00','99999999999.99'])expect(paymentPushDetails({amount,currency:'GHS',direction:'in'})).toBeNull();
@@ -168,12 +177,14 @@ describe("notification-only service worker",()=>{
       {amount:'12345.67',currency:'USD',direction:'out'},
       {amount:'1.00',currency:'GHS',direction:'in',transfer:{fromAccount:'Hubtel wallet',toAccount:'MTN MoMo'}},
       {amount:'1',currency:'GHS',direction:'out',transfer:{fromAccount:'bad\nSMS',toAccount:'MoMo'}},
+      {amount:'500.01',currency:'GHS',direction:'out',activity:'card_hold'},
+      {amount:'500.01',currency:'GHS',direction:'out',activity:'hold_settle'},
     ]){
-      handlers.get('push')!({data:{json:()=>({kind:'payment',targetId,payment,notification:{body:'UNTRUSTED_RAW_SMS',navigate:'https://evil.invalid'}})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
+      handlers.get('push')!({data:{json:()=>({kind:'payment',targetId,...('activity' in payment&&payment.activity?{cardActivity:payment}:{payment}),notification:{body:'UNTRUSTED_RAW_SMS',navigate:'https://evil.invalid'}})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
       expect(shown.at(-1)?.body).toBe(paymentPushBody(payment as Parameters<typeof paymentPushBody>[0]));
       expect(JSON.stringify(shown.at(-1)?.data)).not.toMatch(/amount|currency|Hubtel/);
     }
-    for(const payment of [undefined,{amount:'-1',currency:'GHS',direction:'in'},{amount:'1.001',currency:'GHS',direction:'in'},{amount:'1',currency:'GHS\nPRIVATE',direction:'in'}]){
+    for(const payment of [undefined,{amount:'-1',currency:'GHS',direction:'in'},{amount:'1.001',currency:'GHS',direction:'in'},{amount:'1',currency:'GHS\nPRIVATE',direction:'in'},{amount:'1',currency:'GHS',direction:'out',activity:'raw SMS'},{amount:'1',currency:'GHS',direction:'in',activity:'card_hold'}]){
       handlers.get('push')!({data:{json:()=>({kind:'payment',targetId,payment})},waitUntil:(p:Promise<unknown>)=>{done=p;}});await done;
       expect(shown.at(-1)?.body).toBe(notificationPayload('payment').notification.body);
     }

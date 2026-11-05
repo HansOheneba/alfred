@@ -1,0 +1,9 @@
+.alfred-app .alfred-headerContext.alfred-button { display:inline-flex; align-items:center; justify-content:center; flex:none; gap:8px; inline-size:auto; min-inline-size:44px; min-block-size:44px; padding:0 12px; border-radius:10px; color:var(--muted); white-space:nowrap; }
+.alfred-headerContext svg { inline-size:18px; block-size:18px; flex:none; }
+.alfred-app .alfred-headerContext:hover,
+.alfred-app .alfred-headerContext[aria-expanded="true"] { background:var(--surface-2); color:var(--ink); }
+.alfred-app .alfred-headerContext:disabled { cursor:default; opacity:.55; }
+@media(min-width:761px) and (max-width:1023px) {
+  .alfred-app .alfred-headerContext.alfred-button { inline-size:44px; padding:0; }
+  .alfred-headerContext > span { display:none; }
+}

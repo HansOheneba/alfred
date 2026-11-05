@@ -55,8 +55,9 @@ function checkedCategory(category: string): string {
 export function prepareMovementReview(state: AccountingState, movementId: string, input: { accountId: string | null; category: string; status: string }): AccountReview {
   const row = state.movements.find(item => item.id === movementId && item.ownerId === state.ownerId);
   if (!row || movementIsLinked(state, row)) throw new Error("This payment is no longer available for classification. Review its current details.");
-  const category = checkedCategory(input.category);
+  const category = input.category === row.category ? row.category : checkedCategory(input.category);
   if (!editable(input.status)) throw new Error("Choose an available status.");
+  if (row.legacyClassification && (category !== row.category || input.status !== row.status)) throw new Error("This payment has an existing loan or refund record. Review that record in Chat before changing its category or status.");
   if (input.accountId && !state.accounts.some(account => account.id === input.accountId && account.currency === row.currency)) throw new Error("Choose an account in the payment's currency.");
   if (row.accountId && !input.accountId) throw new Error("Choose an assigned account. This form cannot remove its account.");
   const commands: AccountCommand[] = [], reference = { movementId: row.id, sourceFingerprint: row.sourceFingerprint };
@@ -73,7 +74,7 @@ export function prepareSimilarReview(state: AccountingState, movementIds: string
   if (rows.some(row => !row)) throw new Error("A selected payment is no longer available.");
   const movements = rows as CashMovement[];
   if (new Set(movements.map(attentionGroupKey)).size !== 1) throw new Error("Only matching merchant, account, currency and direction can be reviewed together.");
-  if (movements.some(row => !editable(row.status) || movementIsLinked(state, row))) throw new Error("A selected payment has a protected classification. Review it separately.");
+  if (movements.some(row => !editable(row.status) || movementIsLinked(state, row) || row.legacyClassification)) throw new Error("A selected payment has a protected classification. Review it separately.");
   const changed = movements.filter(row => row.category !== value);
   if (!changed.length) throw new Error("The selected payments already use that category.");
   return { ownerId: state.ownerId, revision: state.revision, commands: changed.map(row => ({ type: "classify_movement", movement: { movementId: row.id, sourceFingerprint: row.sourceFingerprint }, status: row.status as EditableStatus, category: value })), movements: changed.map(row => ({ id: row.id, description: row.description, date: row.date, amountMinor: row.amountMinor, currency: row.currency, before: { accountId: row.accountId, category: row.category, status: row.status }, after: { accountId: row.accountId, category: value, status: row.status } })) };

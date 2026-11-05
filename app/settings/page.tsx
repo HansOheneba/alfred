@@ -48,7 +48,7 @@ async function SettingsContent() {
     data = await readSettingsInputs(account.settings.supabase, account.userId);
   } catch (error) {
     return (
-      <AppShell current="settings" name={account.profile.preferredName.trim()}>
+      <AppShell current="settings" ownerId={account.userId} name={account.profile.preferredName.trim()}>
         <div className="mx-auto w-full max-w-5xl px-4 py-8">
           <p className="text-sm text-danger" role="alert">
             {error instanceof Error ? error.message : "Settings could not be loaded."}
@@ -59,7 +59,7 @@ async function SettingsContent() {
   }
 
   return (
-    <AppShell current="settings" name={account.profile.preferredName.trim()}>
+    <AppShell current="settings" ownerId={account.userId} name={account.profile.preferredName.trim()}>
       <SettingsView key={account.userId} ownerId={account.userId} refreshKey={data.refreshKey} initial={data.settings} home={data.home} />
     </AppShell>
   );

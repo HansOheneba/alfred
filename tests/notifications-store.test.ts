@@ -4,16 +4,19 @@ import { webcrypto } from "node:crypto";
 import { PGlite } from "@electric-sql/pglite";
 import { createNotificationStore, type Execute } from "@/lib/notifications/store";
 import type { SupabaseSettings } from "@/lib/config";
+import { recoverPaymentNotifications } from "@/lib/notifications/service";
 const transferLookup=vi.hoisted(()=>vi.fn());
+const liveQuery=vi.hoisted(()=>vi.fn());
 vi.mock("@/lib/bank/own-transfers",()=>({loadOwnTransferNotice:transferLookup}));
+vi.mock("@/lib/supabase/connection",()=>({query:liveQuery}));
 const a="00000000-0000-4000-8000-000000000001",b="00000000-0000-4000-8000-000000000002";
 const message="00000000-0000-4000-8000-000000000010";
 const settings={} as SupabaseSettings;
 let db:PGlite,subscription:{endpoint:string;keys:{p256dh:string;auth:string}};
 const execute:Execute=async<T extends Record<string,unknown>>(_s:SupabaseSettings,sql:string,values:unknown[]=[])=> (await db.query<T>(sql,values)).rows;
 const store=()=>createNotificationStore(settings,execute);
-async function insertMessage(owner=a,id=message,overrides:{channel?:string;status?:string;kind?:string;old?:boolean}={}) {
-  await db.query(`insert into bank_messages(id,owner_id,channel,kind,status,amount,created_at,occurred_at) values($1::uuid,$2::uuid,$3,$4,$5,10,now()+interval '1 second',now()+case when $6 then interval '-7 days' else interval '1 second' end)`,[id,owner,overrides.channel??"mac",overrides.kind??"payment",overrides.status??"needs_label",overrides.old??false]);
+async function insertMessage(owner=a,id=message,overrides:{channel?:string;status?:string;kind?:string;old?:boolean;direction?:string}={}) {
+  await db.query(`insert into bank_messages(id,owner_id,channel,kind,status,amount,created_at,occurred_at,direction) values($1::uuid,$2::uuid,$3,$4,$5,10,now()+interval '1 second',now()+case when $6 then interval '-7 days' else interval '1 second' end,$7)`,[id,owner,overrides.channel??"mac",overrides.kind??"payment",overrides.status??"needs_label",overrides.old??false,overrides.direction??"in"]);
 }
 async function prepare() {
   await store().update(a,{paymentPush:true});
@@ -35,10 +38,11 @@ describe("owner-scoped durable notification storage",()=>{
     await db.exec(await readFile(new URL("../supabase/migrations/20261103233000_payment_activity_notices.sql",import.meta.url),"utf8"));
     await db.exec(await readFile(new URL("../supabase/migrations/20261103235000_fee_notice_readiness.sql",import.meta.url),"utf8"));
     await db.exec(await readFile(new URL("../supabase/migrations/20261104110000_notification_previews.sql",import.meta.url),"utf8"));
+    await db.exec(await readFile(new URL("../supabase/migrations/20261105093000_card_activity_push.sql",import.meta.url),"utf8"));
     const pair=await webcrypto.subtle.generateKey({name:"ECDH",namedCurve:"P-256"},true,["deriveBits"]);
     subscription={endpoint:"https://fcm.googleapis.com/fcm/send/synthetic-fixture",keys:{p256dh:Buffer.from(await webcrypto.subtle.exportKey("raw",pair.publicKey)).toString("base64url"),auth:Buffer.alloc(16,7).toString("base64url")}};
   });
-  beforeEach(async()=>{transferLookup.mockReset();transferLookup.mockResolvedValue(null);await db.exec("truncate notification_deliveries,push_subscriptions,notification_preferences,bank_messages,bills,transactions cascade");});
+  beforeEach(async()=>{liveQuery.mockReset();liveQuery.mockImplementation(execute);transferLookup.mockReset();transferLookup.mockResolvedValue(null);await db.exec("truncate notification_deliveries,push_subscriptions,notification_preferences,bank_messages,bills,transactions cascade");});
   afterAll(async()=>{await db.close();});
   it("defaults off, creates fresh opt-in cutoffs and preserves omitted preferences",async()=>{
     expect(await store().preferences(a)).toMatchObject({paymentMentions:false,outgoingMentions:false,outgoingMentionsSince:null,paymentPush:false,paymentPreview:false,billReminders:false,weeklyOverview:false});
@@ -130,6 +134,48 @@ describe("owner-scoped durable notification storage",()=>{
     expect(await store().enqueuePayment(a,message)).toBe(1);expect(await store().enqueuePayment(a,message)).toBe(0);
     const at=new Date(Date.now()+2000),pending=await store().pending(a,at);
     expect(pending).toHaveLength(1);expect(await store().claim(a,pending[0].id,at)).not.toBeNull();
+  });
+  it.each(["card_hold","hold_settle"])("queues and claims an outgoing %s once while preserving privacy and current source consent",async kind=>{
+    await store().update(a,{paymentPush:true});await store().subscribe(a,subscription);
+    await insertMessage(a,message,{kind,direction:"out"});
+    expect(await store().enqueuePayment(a,message)).toBe(1);expect(await store().enqueuePayment(a,message)).toBe(0);
+    const at=new Date(Date.now()+2000),job=(await store().pending(a,at))[0];
+    expect(await store().claim(a,job.id,at)).not.toBeNull();
+    const details=await store().paymentDetails(a,message);
+    expect(details).toEqual({targetId:message,details:{amount:"10.00",currency:"GHS",direction:"out",activity:kind}});
+    expect(await store().paymentConsent(a,job.id,details!.details,at)).toEqual({preview:false});
+    await store().update(a,{paymentPreview:true});
+    expect(await store().paymentConsent(a,job.id,details!.details,at)).toEqual({preview:true});
+    await db.query("update bank_messages set kind=$1 where id=$2::uuid",[kind==="card_hold"?"hold_settle":"card_hold",message]);
+    expect(await store().paymentConsent(a,job.id,details!.details,at)).toBeNull();
+  });
+  it.each(["card_hold","hold_settle"])("recovers a missed %s enqueue without replaying history or accepted work",async kind=>{
+    await store().update(a,{paymentPush:true});await store().subscribe(a,subscription);
+    await insertMessage(a,message,{kind,direction:"out"});
+    expect(await recoverPaymentNotifications(settings,a)).toBe(1);
+    expect(await recoverPaymentNotifications(settings,a)).toBe(0);
+    const at=new Date(Date.now()+2000),job=(await store().pending(a,at))[0];
+    await store().claim(a,job.id,at);await store().finish(a,job.id,{status:"accepted",reason:"provider-accepted"});
+    expect(await recoverPaymentNotifications(settings,a)).toBe(0);
+    expect(await recoverPaymentNotifications(settings,b)).toBe(0);
+  });
+  it.each(["card_hold","hold_settle"])("excludes incoming, old, manual and skipped %s sources",async kind=>{
+    await store().update(a,{paymentPush:true});await store().subscribe(a,subscription);
+    for(const [i,overrides]of [{direction:"in"},{direction:"out",old:true},{direction:"out",channel:"manual"},{direction:"out",status:"skipped"}].entries()){
+      const id=`00000000-0000-4000-8000-${String(80+i).padStart(12,"0")}`;
+      await insertMessage(a,id,{kind,...overrides});expect(await store().enqueuePayment(a,id)).toBe(0);
+    }
+  });
+  it("keeps the new card activity boundary without shortening ordinary payment recovery",async()=>{
+    await store().update(a,{paymentPush:true});await store().subscribe(a,subscription);
+    await db.exec("update notification_preferences set payment_push_since=now()-interval '1 day';update push_subscriptions set created_at=now()-interval '1 day'");
+    await insertMessage(a,message,{kind:"card_hold",direction:"out"});
+    await db.query("update bank_messages set created_at=now()-interval '1 hour' where id=$1::uuid",[message]);
+    expect(await store().enqueuePayment(a,message)).toBe(0);
+    await db.query("update bank_messages set created_at=now()+interval '1 second',occurred_at=now()-interval '1 hour' where id=$1::uuid",[message]);
+    expect(await store().enqueuePayment(a,message)).toBe(0);expect(await recoverPaymentNotifications(settings,a)).toBe(0);
+    await db.query("update bank_messages set kind='payment' where id=$1::uuid",[message]);
+    expect(await store().enqueuePayment(a,message)).toBe(1);
   });
   it("claims atomically and does not retry accepted, attempted, or ambiguous requests",async()=>{
     await prepare();const now=new Date(Date.now()+2000),pending=await store().pending(a,now),id=pending[0].id;

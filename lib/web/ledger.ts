@@ -10,7 +10,7 @@ import { createSupabaseBankStore } from "@/lib/bank/store";
 import { query } from "@/lib/supabase/connection";
 import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { sourceName, type BankSource } from "@/lib/bank/parse";
-import { loadAccountingState } from "@/lib/finance/accounting/persisted-store";
+import { loadAccountingReadModel } from "@/lib/finance/accounting/persisted-store";
 import { buildAccountingView, projectAccountingTransactions } from "@/lib/finance/accounting/view";
 import { withLedgerReceipts } from "@/lib/finance/accounting/receipts";
 
@@ -86,7 +86,7 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
   const store = createSupabaseFinanceStore(settings.supabase);
   const userId = profile.profileId;
   const [accounting, budgets, goals, bank, loans, bills] = await Promise.all([
-    loadAccountingState(settings.supabase,userId),
+    loadAccountingReadModel(settings.supabase,userId),
     store.listBudgets(userId),
     store.listSavingsGoals(userId),
     loadBank(settings, profile),

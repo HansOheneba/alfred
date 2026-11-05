@@ -12,7 +12,7 @@ import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 
 const mocks = vi.hoisted(() => ({ query: vi.fn(), loadAccountingState: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
-vi.mock("@/lib/finance/accounting/persisted-store", () => ({ loadAccountingState: mocks.loadAccountingState }));
+vi.mock("@/lib/finance/accounting/persisted-store", () => ({ loadAccountingReadModel: mocks.loadAccountingState }));
 
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const RAW_ID = "00000000-0000-4000-8000-000000000010";

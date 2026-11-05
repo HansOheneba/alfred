@@ -21,6 +21,7 @@ import type { ChatChoice } from "@/lib/accounts/chat-choices";
 import type { ChatChart, ChatMessageRecord } from "@/lib/accounts/messages";
 import { mergeThread, paymentReplyContext, threadKey, toThreadMessage, type ThreadMessage } from "@/lib/accounts/thread";
 import { createSupabaseBrowserClient } from "@/lib/supabase/browser";
+import { CHAT_REFRESH_EVENT, chatIsReadable, publishChatRead } from "@/app/chat/message-alerts";
 import type { Ledger } from "@/lib/web/ledger";
 
 import "./chat.css";
@@ -126,6 +127,21 @@ export function ChatPanel({
   const fileRef = useRef<HTMLInputElement>(null);
   const sending = useRef(false);
   const stickToBottom = useRef(!initialPaymentTarget);
+  const publishVisibleChat = useCallback(() => {
+    const latest = messages.filter(message => message.role === "assistant" && message.status === "sent" && message.text.trim()).at(-1);
+    const active = historyLoaded && !sessionChanged && !statsOpen && stickToBottom.current && chatIsReadable();
+    publishChatRead({ ownerId, messageId: active ? latest?.id ?? null : null, active });
+  }, [ownerId, messages, historyLoaded, sessionChanged, statsOpen]);
+  useEffect(() => {
+    const frame = requestAnimationFrame(publishVisibleChat);
+    const interval = setInterval(publishVisibleChat, 15000);
+    window.addEventListener("focus", publishVisibleChat); window.addEventListener("blur", publishVisibleChat); document.addEventListener("visibilitychange", publishVisibleChat);
+    return () => {
+      cancelAnimationFrame(frame); clearInterval(interval);
+      window.removeEventListener("focus", publishVisibleChat); window.removeEventListener("blur", publishVisibleChat); document.removeEventListener("visibilitychange", publishVisibleChat);
+    };
+  }, [ownerId, publishVisibleChat]);
+  useEffect(() => () => { publishChatRead({ ownerId, messageId: null, active: false }); }, [ownerId]);
   const selectedPaymentArticle = useRef<HTMLElement>(null);
   const paymentEntryScrolled = useRef(false);
   const observedAssistant = useRef(initialMessages.filter((message) => message.role === "assistant").at(-1)?.id);
@@ -325,11 +341,19 @@ export function ChatPanel({
     threadRefresh.current = refresh;
     if (loadInitialChoices || loadInitialThread) refreshThread();
     function onVisible() { if (document.visibilityState === "visible") refreshThread(); }
+    function onMessageUpdate(event: Event) {
+      const detail = (event as CustomEvent<{ ownerId?: string; latestMessageId?: string | null }>).detail;
+      if (detail?.ownerId === ownerId && (detail.latestMessageId === null || paymentLinkId(detail.latestMessageId))) refreshThread();
+    }
     document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("focus", onVisible);
+    window.addEventListener(CHAT_REFRESH_EVENT, onMessageUpdate);
     return () => {
       refresh.dispose();
       if (threadRefresh.current === refresh) threadRefresh.current = null;
       document.removeEventListener("visibilitychange", onVisible);
+      window.removeEventListener("focus", onVisible);
+      window.removeEventListener(CHAT_REFRESH_EVENT, onMessageUpdate);
     };
   }, [ownerId, publishThread, refreshThread, loadInitialChoices, loadInitialThread, activePaymentTarget, requestData, onReadProgress]);
 
@@ -337,6 +361,7 @@ export function ChatPanel({
     const node = threadRef.current;
     if (!node) return;
     stickToBottom.current = node.scrollHeight - node.scrollTop - node.clientHeight < 96;
+    publishVisibleChat();
   }
 
   async function send(body: Record<string, unknown>, userText?: string, clientId?: string) {

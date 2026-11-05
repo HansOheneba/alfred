@@ -1,6 +1,7 @@
 import { DASHBOARD_URL } from "@/lib/config";
 import { paymentTargetId } from './payment-target';
 import { paymentPushBody, paymentPushDetails, type PaymentPushDetails } from './payment-copy';
+import { messagePushDetails, type MessagePush } from './message-copy';
 
 /** Subscription secrets are server-only; never put endpoints or keys in logs. */
 export type PushSubscriptionRecord = {
@@ -9,7 +10,7 @@ export type PushSubscriptionRecord = {
   keys: { p256dh: string; auth: string };
 };
 export type QueuedPushKind = "payment" | "bill" | "weekly";
-export type PushKind = QueuedPushKind | "test";
+export type PushKind = QueuedPushKind | "test" | "message";
 export type PushConfiguration = { publicKey: string; privateKey: string; subject: string };
 export type PushEnvironment = Record<string, string | undefined>;
 export type PushStage = "authorization" | "encryption" | "connection";
@@ -88,22 +89,29 @@ const copy: Record<PushKind, { title: string; body: string; path: string }> = {
   bill: { title: "Alfred", body: "A private reminder is ready. Open Alfred to review.", path: "/dashboard" },
   weekly: { title: "Alfred", body: "Your private overview is ready. Open Alfred to review.", path: "/dashboard" },
   test: { title: "Alfred", body: "This is a test notification from Alfred.", path: "/settings" },
+  message: { title: "Alfred", body: "Alfred sent you a message. Open Chat to read it.", path: "/chat" },
 };
 /** Payment numbers are explicitly requested; the locator still resolves under the signed-in owner. */
-export function notificationPayload(kind: PushKind, targetId?: string, details?: PaymentPushDetails) {
+export function notificationPayload(kind: PushKind, targetId?: string, details?: PaymentPushDetails, suppliedMessage?: MessagePush) {
   if (!Object.hasOwn(copy, kind)) throw new Error("Invalid notification kind.");
   const selected = copy[kind];
   const target = targetId === undefined ? null : paymentTargetId(targetId);
   if (targetId !== undefined && (kind !== 'payment' || !target)) throw new Error('Invalid payment target.');
   const payment = details === undefined ? null : paymentPushDetails(details);
   if (details !== undefined && (kind !== 'payment' || !target || !payment)) throw new Error('Invalid payment details.');
+  const message = suppliedMessage === undefined ? null : messagePushDetails(suppliedMessage);
+  if (kind === "message" && !message || suppliedMessage !== undefined && (kind !== "message" || !message)) throw new Error("Invalid message notification.");
   const path = target ? `/chat?payment=${target}` : selected.path;
   return {
     web_push: 8030,
     kind,
     ...(target ? { targetId: target } : {}),
-    ...(payment ? { payment } : {}),
-    notification: { title: selected.title, body: payment ? paymentPushBody(payment) : selected.body, navigate: DASHBOARD_URL + path, silent: false },
+    // Legacy workers do not understand card holds. Leave their ordinary-payment
+    // preview empty so they retain discreet copy instead of claiming money out.
+    ...(payment && !payment.activity ? { payment } : {}),
+    ...(payment?.activity ? { cardActivity: payment } : {}),
+    ...(message ? { message } : {}),
+    notification: { title: selected.title, body: message?.text ?? (payment ? paymentPushBody(payment) : selected.body), navigate: DASHBOARD_URL + path, silent: false, ...(message ? { tag: `alfred-message-${message.id}` } : {}) },
   };
 }
 async function hkdf(input: Bytes, salt: Bytes, info: Bytes, length: number): Promise<Bytes> {
@@ -140,11 +148,11 @@ export async function authorization(endpoint: string, config: PushConfiguration,
 }
 export type PushFetcher = (input: string | URL | Request, init?: RequestInit) => Promise<Response>;
 export async function sendWebPush(
-  subscription: PushSubscriptionRecord, config: PushConfiguration, kind: PushKind, fetcher: PushFetcher = fetch, targetId?: string, details?: PaymentPushDetails,
+  subscription: PushSubscriptionRecord, config: PushConfiguration, kind: PushKind, fetcher: PushFetcher = fetch, targetId?: string, details?: PaymentPushDetails, message?: MessagePush,
 ): Promise<Response> {
   let auth: string, body: Bytes;
   try { auth = await authorization(subscription.endpoint, config); } catch { throw new PushFailure("authorization"); }
-  try { body = await encryptedBody(subscription, notificationPayload(kind, targetId, details)); } catch { throw new PushFailure("encryption"); }
+  try { body = await encryptedBody(subscription, notificationPayload(kind, targetId, details, message)); } catch { throw new PushFailure("encryption"); }
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), 15_000);
   try {

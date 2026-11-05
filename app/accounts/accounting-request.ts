@@ -77,9 +77,10 @@ export async function dispatchAccounting(action: AccountingAction, { ownerId, pu
     return next.state;
   } catch (error) {
     if (error instanceof AccountingRequestError && error.status === 409) {
-      try { publish(await requestAccounting({ ownerId, request, timeoutMs })); }
+      let refreshed = false;
+      try { publish(await requestAccounting({ ownerId, request, timeoutMs })); refreshed = true; }
       catch { requireMutationRecovery(); recover("The latest account records could not be loaded. Reload them before making another change."); }
-      throw new Error("Your account records changed in another session. Reload the latest records and review your selection before trying again.");
+      throw new Error(`${error.message} ${refreshed ? "The latest records are loaded. Review the details before confirming again." : "Reload the latest records before confirming again."}`);
     }
     if (error instanceof AccountingRequestError && error.unconfirmed) { requireMutationRecovery(); recover(UNCONFIRMED_SAVE_MESSAGE); }
     throw error;

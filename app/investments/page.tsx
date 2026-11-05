@@ -62,7 +62,7 @@ async function InvestmentsScreen() {
     };
   } catch (error) {
     return (
-      <AppShell current="investments" name={name}>
+      <AppShell current="investments" ownerId={account.userId} name={name}>
         <p className="mx-auto w-full max-w-5xl px-4 py-8 text-sm text-danger" role="alert">
           {error instanceof Error ? error.message : "Alfred could not load your investments."}
         </p>
@@ -71,7 +71,7 @@ async function InvestmentsScreen() {
   }
 
   return (
-    <AppShell current="investments" name={name}>
+    <AppShell current="investments" ownerId={account.userId} name={name}>
       <InvestmentsClient initial={data} />
     </AppShell>
   );

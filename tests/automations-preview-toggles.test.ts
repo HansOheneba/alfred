@@ -68,7 +68,9 @@ type Element = ReactElement<Record<string, unknown>>;
 function descendants(node: ReactNode, resolveComponents = true): Element[] {
   if (Array.isArray(node)) return node.flatMap((item) => descendants(item, resolveComponents));
   if (!isValidElement<Record<string, unknown>>(node)) return [];
-  if (resolveComponents && typeof node.type === "function") return descendants((node.type as (props: Record<string, unknown>) => ReactNode)(node.props), resolveComponents);
+  // This harness owns NotificationsSection's hook state. The separate message
+  // preferences component has its own state and dedicated behavioral coverage.
+  if (resolveComponents && typeof node.type === "function" && node.type.name !== "MessageNotificationSettings") return descendants((node.type as (props: Record<string, unknown>) => ReactNode)(node.props), resolveComponents);
   return [node, ...descendants(node.props.children as ReactNode, resolveComponents)];
 }
 function text(node: ReactNode): string {
@@ -346,7 +348,7 @@ describe("production boundaries and responsive preview markup", () => {
   it("renders compact demo controls with touch targets and wrapping mobile/desktop layout", () => {
     const html = renderToStaticMarkup(createElement(AutomationsSettingsPreview));
     const switches = html.match(/<button[^>]*role="switch"[^>]*>/g)!;
-    expect(switches).toHaveLength(5); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
+    expect(switches).toHaveLength(7); expect(switches.every((button) => !/\sdisabled(?:=|\s|>)/.test(button) && /min-h-11 min-w-11 shrink-0/.test(button))).toBe(true);
     expect(html).toContain("flex flex-col gap-6 md:flex-row md:items-start");
     expect(html).toContain("min-w-0 flex-1"); expect(html).toContain("flex flex-wrap items-center justify-between gap-3");
     expect(html).toContain("Demo · sample choices only");

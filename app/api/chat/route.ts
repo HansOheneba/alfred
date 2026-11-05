@@ -1,4 +1,4 @@
-import { connection } from "next/server";
+import { after, connection } from "next/server";
 
 import { chatChoiceSchema, chatDecisionSchema, chatTextSchema } from "@/lib/accounts/chat-request";
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
@@ -16,6 +16,8 @@ import { userFacingError } from "@/lib/telegram/messages";
 import { includePaymentChatEntry, loadPaymentChatEntry } from "@/app/chat/payment-entry";
 import { chatReadDeadline } from "@/app/chat/read-deadline";
 import { paymentLinkId } from "@/app/chat/payment-link";
+import { deliverOwnerMessageNotifications } from "@/lib/notifications/messages";
+import { pushConfiguration } from "@/lib/notifications/push";
 
 export const maxDuration = 60;
 
@@ -152,6 +154,12 @@ export async function POST(request: Request): Promise<Response> {
     const result = await handleProfileTurn(profile, turn, createStudioDeps(settings));
     if (result.pending) {
       return Response.json({ ok: false, text: result.text, messages: (result.messages ?? []).map(present) }, { status: 409 });
+    }
+    // A committed reply does not wait for device delivery. The authenticated
+    // scheduler recovers registration failures and serverless interruptions.
+    if (process.env.ALFRED_PUSH_DELIVERY_ENABLED === "true" && pushConfiguration().ready) {
+      try { after(async () => { await deliverOwnerMessageNotifications(settings.supabase, user.id).catch(() => { logError("chat_message_notification", new Error("Message notification recovery could not complete.")); }); }); }
+      catch { logError("chat_message_notification_schedule", new Error("Message notification recovery was deferred.")); }
     }
     return Response.json({
       ok: true,

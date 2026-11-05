@@ -5,6 +5,7 @@ const notices = {
   bill: { body: 'A private reminder is ready. Open Alfred to review.', path: '/dashboard' },
   weekly: { body: 'Your private overview is ready. Open Alfred to review.', path: '/dashboard' },
   test: { body: 'This is a test notification from Alfred.', path: '/settings' },
+  message: { body: 'Alfred sent you a message. Open Chat to read it.', path: '/chat' },
 };
 function paymentTarget(value) {
   return typeof value === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(value) ? value : null;
@@ -19,6 +20,10 @@ function paymentBody(value) {
       typeof value.currency !== 'string' || !/^[A-Z]{3}$/.test(value.currency) || (value.direction !== 'in' && value.direction !== 'out')) return null;
   const [whole, fraction = ''] = value.amount.split('.');
   const amount = (value.currency === 'GHS' ? 'GH₵' : value.currency + ' ') + whole.replace(/\B(?=(\d{3})+(?!\d))/g, ',') + '.' + fraction.padEnd(2, '0');
+  if (value.activity !== undefined) {
+    if (!['card_hold', 'hold_settle'].includes(value.activity) || value.direction !== 'out' || value.transfer !== undefined) return null;
+    return value.activity === 'card_hold' ? 'Card hold · ' + amount + '. Open Alfred to chat.' : 'Card settlement alert · ' + amount + '. Open Alfred to review.';
+  }
   if (value.transfer !== undefined) {
     if (!value.transfer || typeof value.transfer !== 'object' || Array.isArray(value.transfer)) return null;
     const label = input => typeof input === 'string' && input.trim().length > 0 && input.trim().length <= 60 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(input.trim()) ? input.trim() : null;
@@ -40,20 +45,30 @@ self.addEventListener('push', event => {
   // Only the structured, server-selected preview is eligible for financial copy.
   // Arbitrary nested notification text and links remain ignored. Old payloads
   // without a structured preview keep the discreet copy.
-  let kind = 'payment', targetId = null, payment = null;
+  let kind = 'payment', targetId = null, payment = null, message = null;
   try {
     const supplied = event.data.json();
     if (typeof supplied.kind === 'string' && Object.hasOwn(notices, supplied.kind)) kind = supplied.kind;
+    if (supplied.kind === 'message' && supplied.message && typeof supplied.message === 'object') {
+      const id = paymentTarget(supplied.message.id);
+      const text = supplied.message.text;
+      if (id) message = { id, ...(typeof text === 'string' && text.trim().length > 0 && text.length <= 180 && !/[\u0000-\u001f\u007f-\u009f\u202a-\u202e\u2066-\u2069]/.test(text) ? { text: text.trim() } : {}) };
+    }
     if (supplied.kind === 'payment') {
       targetId = paymentTarget(supplied.targetId);
-      if (targetId) payment = paymentBody(supplied.payment);
+      if (targetId) {
+        if (supplied.cardActivity !== undefined) {
+          const card = supplied.cardActivity;
+          if (supplied.payment === undefined && card && typeof card === 'object' && ['card_hold', 'hold_settle'].includes(card.activity)) payment = paymentBody(card);
+        } else payment = paymentBody(supplied.payment);
+      }
     }
   } catch {}
   const notice = notices[kind];
   event.waitUntil(self.registration.showNotification('Alfred', {
-    body: payment || notice.body, data: { kind, ...(targetId ? { targetId } : {}) },
+    body: message?.text || payment || notice.body, data: { kind, ...(targetId ? { targetId } : {}) },
     // A retry replaces this payment's notice, without replacing a different payment.
-    ...(targetId ? { tag: 'alfred-payment-' + targetId } : kind !== 'payment' ? { tag: 'alfred-' + kind } : {}),
+    ...(message ? { tag: 'alfred-message-' + message.id } : targetId ? { tag: 'alfred-payment-' + targetId } : kind !== 'payment' ? { tag: 'alfred-' + kind } : {}),
   }));
 });
 self.addEventListener('notificationclick', event => {

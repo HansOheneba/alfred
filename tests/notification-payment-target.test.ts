@@ -6,7 +6,7 @@ import { ownedPaymentMovement, paymentTargetId, paymentTargetRequest } from '@/l
 
 const mocks=vi.hoisted(()=>({account:vi.fn(),load:vi.fn()}));
 vi.mock('@/app/signed-in',()=>({publicAuthConfigured:()=>true,signedInAccount:mocks.account,MissingAuthConfig:()=>null}));
-vi.mock('@/lib/finance/accounting/persisted-store',()=>({loadAccountingState:mocks.load}));
+vi.mock('@/lib/finance/accounting/persisted-store',()=>({loadAccountingReadModel:mocks.load}));
 vi.mock('@/app/components/app-shell',()=>({AppShell:({children}:{children:ReactNode})=>createElement('main',null,children),usePrivacyMask:()=>[false]}));
 import AccountsPage from '@/app/accounts/page';
 
