@@ -1,3 +1,4 @@
+import { clientTurnUpdateId, isClientMessageId, type ChatMessageRecord } from "@/lib/accounts/messages";
 import { executeConfirmed, type ActionContext } from "@/lib/finance/action-router";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { pendingPayloadSchema } from "@/lib/finance/schemas";
@@ -71,6 +72,24 @@ export async function decidePending(
   const confirmed = await executeConfirmed(payload.data, ctx);
   await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
   return { text: confirmed.text, context: confirmed.context };
+}
+
+/**
+ * The confirmation Alfred's message showed, while it's still open, so a chat
+ * that reloads keeps its Yes and No. Only a confirmation from that same turn counts.
+ */
+export async function openConfirmationFor(store: FinanceStore, ownerId: string, message: Pick<ChatMessageRecord, "role" | "clientId"> | undefined, now: Date): Promise<string | null> {
+  if (!message || message.role !== "assistant" || !message.clientId || !isClientMessageId(message.clientId)) return null;
+  const origin = String(clientTurnUpdateId(message.clientId));
+  const open = (await store.listPendingActions(ownerId)).find((pending) => {
+    if (pending.userId !== ownerId || pending.status !== "pending" || pending.actionType === "account_rule_command" || Date.parse(pending.expiresAt) <= now.getTime()) return false;
+    try {
+      return (JSON.parse(pending.payloadJson) as { originUpdateId?: unknown }).originUpdateId === origin;
+    } catch {
+      return false;
+    }
+  });
+  return open?.actionId ?? null;
 }
 
 /** Answers a typed yes or no when a confirmation is open; otherwise returns null. */

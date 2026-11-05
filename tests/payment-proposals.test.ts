@@ -9,6 +9,7 @@ import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { MemoryLoanStore, loanBalances } from "@/lib/finance/loans";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 import { handleProfileTurn, type StudioDeps } from "@/lib/studio/handle";
+import { openConfirmationFor } from "@/lib/finance/pending";
 import { MemoryLearningLog } from "@/lib/learning/log";
 import { profile } from "./helpers";
 
@@ -142,5 +143,29 @@ describe("everyday loan phrasing", () => {
   });
   it("never proposes a spending category the person didn't mention", () => {
     expect(proposableLabel("It was a nice message", { direction: "in", counterparty: "" } as BankMessage, { kind: "category", category: "Gift" })).toBe(false);
+  });
+});
+
+describe("a typed yes to a proposal in the question flow, after an earlier alert", () => {
+  it("files it instead of saying nothing is waiting, and keeps Yes/No across a reload", async () => {
+    const state = setup((request) => {
+      const charge = request.waiting!.lines.findIndex((line) => line.includes("332.19")) + 1;
+      return { type: "label_payments", answers: [{ items: [request.waiting!.current], action: "own_transfer" }, { items: [charge], action: "category", category: "Subscriptions", description: "Claude subscription" }] };
+    });
+    const { topUp, charge } = await cardStory(state);
+    // Alfred then asked about the top-up in chat, not through the alert.
+    await state.bank.updateMessage(state.owner.profileId, topUp.id, { askedAt: NOW.toISOString() });
+    await state.deps.messages!.append({ ownerId: state.owner.profileId, role: "assistant", channel: "web", body: "Next (1 more after this): GH₵350.00 came in onto your GCB card. What was it?", intent: "bank:label" });
+    const proposal = await handleProfileTurn(state.owner, { text: "I topped up my card and the next one was a Claude subscription with that money", clientId: "6f0a3c2e-1111-4111-8111-000000000001" }, state.deps);
+    expect(proposal.actionId).toBeTruthy();
+    const last = (await state.deps.messages!.listRecent(state.owner.profileId, 1)).at(-1);
+    expect(await openConfirmationFor(state.store, state.owner.profileId, last, NOW)).toBe(proposal.actionId);
+
+    const yes = await handleProfileTurn(state.owner, { text: "Yes", clientId: "6f0a3c2e-1111-4111-8111-000000000002" }, state.deps);
+    expect(yes.text).not.toContain("nothing waiting");
+    expect((await state.bank.getMessage(state.owner.profileId, topUp.id))?.status).toBe("transfer");
+    expect((await state.bank.getMessage(state.owner.profileId, charge.id))?.status).toBe("recorded");
+    const after = (await state.deps.messages!.listRecent(state.owner.profileId, 1)).at(-1);
+    expect(await openConfirmationFor(state.store, state.owner.profileId, after, NOW)).toBeNull();
   });
 });
