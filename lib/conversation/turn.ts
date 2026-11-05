@@ -208,6 +208,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
               remembered.length ? `How they filed payments like this one before: ${remembered.join("; ")}. If this one looks the same, or they say it's the same, propose the same reading; their own words always win.` : "",
               earlier.length ? `Earlier about this payment they said: ${earlier.map((item) => `"${item}"`).join(", then ")}. Read the new message together with that.` : "",
               proposal ? `Alfred already showed this reading, still waiting for a yes: "${proposal.replace(/\s+/g, " ").slice(0, 400)}". If the new message corrects or adds to it, answer with the full corrected set of labels.` : "",
+              "If they ask what you need, or say yes to a reading from earlier in the conversation, answer with label_payments for that reading now: Alfred shows it with Yes and No. Never offer in chat to save something.",
               "If the purpose is unclear, ask; never invent a person or purpose they didn't give, or log the same payment again.",
             ].filter(Boolean).join(" ")
           : "The last private payment notice did not leave an open purpose question. A bare reply does not answer an older payment question or confirmation. Ask which payment they mean if needed.");
@@ -257,7 +258,8 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     const proposals = actions.flatMap((item) => item.type === "label_payments" ? resolvedFrom(item.answers, waiting!.listed) : [])
       .flatMap((answer) => answer.messageIds.map((id) => ({ message: waiting!.listed.find((message) => message.id === id), label: answer.label })))
       .filter((item): item is Proposal => Boolean(item.message));
-    const said = [text, ...(people ?? []), ...remembered];
+    // Their recent messages are their own words too: "I told you the 1300 was …" still counts on the next turn.
+    const said = [text, ...(people ?? []), ...remembered, ...(await recentlySaid(deps.messages, ctx.profile.profileId, options.excludeClientId))];
     const fits = (item: Proposal) => groundedPaymentLabel(text, item.message, item.label) || proposableLabel(text, item.message, item.label, said);
     // A right reading with an embellished note ("Mtcgame purchase on my card") keeps the reading and drops the note.
     const cleaned = proposals.map((item) => fits(item) ? item : fits({ ...item, label: withoutDetails(item.label) }) ? { ...item, label: withoutDetails(item.label) } : item);
@@ -536,6 +538,10 @@ async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
     const answers = turn.purposeDetail ? resolved.map(answer => answer.label.kind === "category" ? { ...answer, label: { ...answer.label, description: turn.purposeDetail } } : answer) : resolved;
     const said = turn.purposeDetail ? `${turn.text}\n${turn.purposeDetail}` : turn.text;
     const labelled = ingest && waiting ? await applyResolved(ingest, ctx.profile, said, answers, waiting) : null;
+    if (!labelled && ingest && waiting?.current) {
+      const again = await askAgain(ingest, ctx.profile, waiting.current, "I couldn't match that to a payment.");
+      return { kind: "text", text: again.text, intent: "bank:label", buttons: again.buttons };
+    }
     return { kind: "text", text: labelled?.text ?? UNMATCHED_LABEL, intent: "bank:label", buttons: labelled?.buttons };
   }
   if (action.type === "ask_next") {
@@ -605,8 +611,12 @@ async function alfredsOpenQuestion(messages: MessageLog | null | undefined, owne
   const last = recent.at(-1);
   if (last?.role !== "assistant" || last.paymentNotice || /^bank:/.test(last.intent ?? "")) return null;
   const body = last.body.replace(/\s+/g, " ").trim();
-  return body.endsWith("?") ? body.slice(0, 400) : null;
+  // A question, or an offer said as a statement ("Say yes and I'll save them").
+  return body.endsWith("?") || OFFERED.test(body) ? body.slice(0, 400) : null;
 }
+
+/** Alfred offering to do something, in words that a "yes" accepts. */
+const OFFERED = /\b(?:say yes|confirm (?:that|this|it)|shall I|should I|do you want me|want me to|I'll (?:save|file|record|log) (?:it|them|that|those|both))\b/i;
 
 /** What Alfred last proposed for this payment, while that proposal is still open. */
 async function openProposalText(messages: MessageLog | null | undefined, ctx: ActionContext, bankMessageId: string, excludeClientId?: string | null): Promise<string | null> {
@@ -626,8 +636,11 @@ async function saidAboutPayment(messages: MessageLog | null | undefined, ownerId
 /** Whether Alfred's last chat message was its question about a waiting payment. */
 async function alfredAskedAboutPayment(messages: MessageLog | null | undefined, ownerId: string, excludeClientId?: string | null): Promise<boolean> {
   if (!messages) return false;
-  const last = (await messages.listRecent(ownerId, 4)).filter((item) => !excludeClientId || item.clientId !== excludeClientId).at(-1);
-  return last?.role === "assistant" && /^bank:/.test(last.intent ?? "") && last.body.includes("?");
+  // A side question ("what do you need from me?") doesn't close the payment question: it stays open
+  // for Alfred's next few replies, until it moves on to something else or the person starts a new topic.
+  const replies = (await messages.listRecent(ownerId, 8)).filter((item) => (!excludeClientId || item.clientId !== excludeClientId) && item.role === "assistant").slice(-3);
+  const asked = replies.findLastIndex((item) => /^bank:/.test(item.intent ?? "") && item.body.includes("?"));
+  return asked !== -1 && replies.slice(asked + 1).every((item) => !item.newTopic && !/^bank:/.test(item.intent ?? "") && !item.paymentNotice);
 }
 
 /** A lookup-based reply whose figures all come from the results, or the results themselves when they don't. */
@@ -644,4 +657,11 @@ function withoutDetails(label: Proposal["label"]): Proposal["label"] {
   const plain: Record<string, unknown> = { ...label };
   for (const key of ["description", "note"]) if (key in plain) plain[key] = null;
   return plain as Proposal["label"];
+}
+
+/** The person's last few messages in this conversation, newest last. */
+async function recentlySaid(messages: MessageLog | null | undefined, ownerId: string, excludeClientId?: string | null): Promise<string[]> {
+  if (!messages) return [];
+  const recent = (await messages.listRecent(ownerId, 12)).filter((item) => item.role === "user" && (!excludeClientId || item.clientId !== excludeClientId));
+  return recent.slice(-4).map((item) => item.body.slice(0, 300));
 }
