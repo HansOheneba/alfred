@@ -76,7 +76,8 @@ describe("dashboard ledger critical path on fictional SQL data", () => {
     expect(JSON.stringify(result)).not.toContain("Other fixture");
     expect(calls.every(call => /^\s*select\b/i.test(call.sql))).toBe(true);
     expect(calls.filter(call => call.values.length).every(call => call.values[0] === OWNER)).toBe(true);
-    expect(calls.length).toBe(15);
+    // The books use fifteen reads, plus one for charts kept from Chat.
+    expect(calls.length).toBe(16);
   });
 
   it("keeps token existence separate from usage and selects the latest non-null balance with creation-time ties", async () => {

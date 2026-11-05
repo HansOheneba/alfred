@@ -22,7 +22,7 @@ export async function loadAccountSubscriptions(): Promise<SubscriptionsResult> {
   }
 }
 
-/** The paged Accounts display never downloads complete accounting sources to derive renewals. */
+/** Durable reads aggregate primary payment facts; the legacy fallback retains its established oracle. */
 export async function loadAccountSubscriptionsView(): Promise<{ ok: true; ownerId: string; data: SubscriptionsData } | { ok: false; text: string }> {
   try {
     const owner = await requireOwner();

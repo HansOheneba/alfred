@@ -1,0 +1,10 @@
+.alfred-pinned { display: grid; gap: 12px; }
+.alfred-pinned-head { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 4px 12px; }
+.alfred-pinned-head h2 { margin: 0; font-size: 0.95rem; font-weight: 600; color: var(--ink); }
+.alfred-pinned-head p { margin: 0; font-size: 0.78rem; color: var(--muted); }
+.alfred-pinned-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 320px), 1fr)); gap: 16px; align-items: start; }
+.alfred-pinned-grid .alfred-chart { margin: 0; max-width: none; }
+.alfred-pinned-remove { margin-left: auto; }
+
+/* The keep button under a chart in chat. */
+.alfred-chart-keep { margin-left: auto; }

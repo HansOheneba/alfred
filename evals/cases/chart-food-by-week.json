@@ -1,0 +1,28 @@
+{
+  "id": "chart-food-by-week",
+  "title": "Charts food spending by week, then lists the payments behind a bar",
+  "source": "2026-11-05: Claude's Personal Finance draws charts on request; Alfred's figures come from the books",
+  "tags": ["charts"],
+  "now": "2026-11-20T12:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "transactions": [
+      { "date": "2026-11-03", "type": "expense", "amount": "50.00", "category": "Food", "description": "Waakye" },
+      { "date": "2026-11-04", "type": "expense", "amount": "30.00", "category": "Food", "description": "Kelewele" },
+      { "date": "2026-11-12", "type": "expense", "amount": "120.00", "category": "Food", "description": "Melcom groceries" },
+      { "date": "2026-11-12", "type": "expense", "amount": "40.00", "category": "Transport", "description": "Uber to work" },
+      { "date": "2026-11-18", "type": "expense", "amount": "25.00", "category": "Food", "description": "Banku and tilapia" },
+      { "date": "2026-10-10", "type": "expense", "amount": "100.00", "category": "Food", "description": "Shoprite" }
+    ]
+  },
+  "steps": [
+    {
+      "say": "chart my food spending by week this month",
+      "expect": { "chart": { "by": "week", "measure": "spending", "total": "225.00" }, "savesNothing": true }
+    },
+    {
+      "say": "Show my Food payments from 9 Nov 2026 to 15 Nov 2026",
+      "expect": { "reply": "Melcom", "notReply": "Waakye", "savesNothing": true }
+    }
+  ]
+}

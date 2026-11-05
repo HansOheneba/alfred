@@ -75,7 +75,7 @@ afterEach(() => { vi.unstubAllEnvs(); vi.useRealTimers(); });
 afterAll(async () => { await db?.close(); });
 
 describe("source-free Accounts primary-payment renewal facts", () => {
-  it.each([[], [bill("Netflix")], [bill("water")], [bill("Water bill")], [bill("Netflix"),bill("Water bill")]])("matches the exact Accounts oracle with fresh saved bills %j", async bills => {
+  it.each([[], [bill("Netflix")], [bill("water")], [bill("Water bill")], [bill("Netflix"),bill("Water bill")]].map(bills => ({ bills })))("matches the exact Accounts oracle with fresh saved bills %j", async ({ bills }) => {
     const actual = await tryLoadDurableSubscriptions(settings, OWNER, "GHS", TODAY, bills);
     expect(actual).toEqual(subscriptionsData({ bills, today: TODAY, currency: "GHS" }, fixture()));
     expect(backend.query).toHaveBeenCalledOnce(); expect(JSON.stringify(actual)).not.toContain("Fictional raw evidence");

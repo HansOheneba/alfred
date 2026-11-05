@@ -191,6 +191,18 @@ export async function runCase(evalCase: EvalCase, settings: StudioSettings, brai
     if (isDeadEnd({ text: result.text, asksToConfirm, choices: result.choices?.flat().length ?? 0 }, savedSomething)) stepProblems.push("dead end: said it couldn't, saved nothing, offered no way forward");
     if (expect.reply && !new RegExp(expect.reply, "i").test(result.text)) stepProblems.push(`reply didn't match /${expect.reply}/`);
     if (expect.notReply && new RegExp(expect.notReply, "i").test(result.text)) stepProblems.push(`reply matched forbidden /${expect.notReply}/`);
+    if (expect.chart) {
+      const shown = result.messages?.findLast((message) => message.role === "assistant")?.chart;
+      const chart = shown?.kind === "chart" ? shown : null;
+      if (!chart) stepProblems.push("expected a chart, got none");
+      else {
+        if (expect.chart.by && chart.by !== expect.chart.by) stepProblems.push(`chart is by ${chart.by}, expected ${expect.chart.by}`);
+        if (expect.chart.measure && chart.measure !== expect.chart.measure) stepProblems.push(`chart measures ${chart.measure}, expected ${expect.chart.measure}`);
+        if (expect.chart.style && chart.style !== expect.chart.style) stepProblems.push(`chart is a ${chart.style}, expected ${expect.chart.style}`);
+        if (expect.chart.compare !== undefined && (chart.previousTotalMinor !== undefined) !== expect.chart.compare) stepProblems.push(expect.chart.compare ? "chart doesn't compare with before" : "chart compares when it shouldn't");
+        if (expect.chart.total && chart.totalMinor !== Math.round(Number(expect.chart.total) * 100)) stepProblems.push(`chart totals ${(chart.totalMinor / 100).toFixed(2)}, expected ${expect.chart.total}`);
+      }
+    }
     steps.push({ said: step.say ?? `[${step.tap}]`, reply: result.text, asksToConfirm, problems: stepProblems });
     problems.push(...stepProblems.map((problem) => `step ${index + 1}: ${problem}`));
   }

@@ -1,0 +1,24 @@
+{
+  "id": "chart-income-vs-spending",
+  "title": "Money in against money out over a few months, as a line",
+  "source": "2026-11-05: charts in chat, net by month",
+  "tags": ["charts"],
+  "now": "2026-11-20T12:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "transactions": [
+      { "date": "2026-09-01", "type": "income", "amount": "2000.00", "category": "Salary", "description": "September salary" },
+      { "date": "2026-09-14", "type": "expense", "amount": "1500.00", "category": "Rent & home", "description": "Rent" },
+      { "date": "2026-10-01", "type": "income", "amount": "2000.00", "category": "Salary", "description": "October salary" },
+      { "date": "2026-10-20", "type": "expense", "amount": "2300.00", "category": "Food", "description": "Party food" },
+      { "date": "2026-11-01", "type": "income", "amount": "2000.00", "category": "Salary", "description": "November salary" },
+      { "date": "2026-11-05", "type": "expense", "amount": "400.00", "category": "Transport", "description": "Car repair" }
+    ]
+  },
+  "steps": [
+    {
+      "say": "plot my income minus spending by month since September as a line",
+      "expect": { "chart": { "by": "month", "measure": "net", "style": "line", "total": "1800.00" }, "savesNothing": true }
+    }
+  ]
+}

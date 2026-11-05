@@ -12,6 +12,9 @@ import type { BankSource } from "@/lib/bank/parse";
 import { loadAccountingReadModel, type AccountingResult } from "@/lib/finance/accounting/persisted-store";
 import { buildAccountingView, projectAccountingTransactions } from "@/lib/finance/accounting/view";
 import { withLedgerReceipts } from "@/lib/finance/accounting/receipts";
+import { drawChart,type DrawnChart } from "@/lib/finance/charts";
+import { createSupabasePinStore } from "@/lib/finance/pins";
+import { logError } from "@/lib/log";
 import { loadLedgerBankMetadata } from "./ledger-bank-metadata";
 
 export type LedgerBudget = {
@@ -78,6 +81,8 @@ export type Ledger = {
   upcomingBills?: UpcomingBill[];
   /** Recurring charges spotted in the ledger that aren't saved as bills yet. */
   renewalSuggestions?: RenewalSuggestion[];
+  /** Charts kept from Chat, recalculated against the current canonical books. */
+  pinned?: {id:string;chart:DrawnChart}[];
   /** Stable financial accounts and source-based reconciliation; never sum provider-level legacy balances. */
   accounting?: { availability:"ready"|"migration-required";revision:number;balances:ReturnType<typeof buildAccountingView>["balances"];loans:ReturnType<typeof buildAccountingView>["loans"];issues:string[] };
 };
@@ -90,13 +95,14 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
 export async function loadLedgerSnapshot(profile: UserProfile, settings: StudioSettings, options: { receipts?: boolean } = {}): Promise<{ ledger: Ledger; accounting: AccountingResult }> {
   const store = createSupabaseFinanceStore(settings.supabase);
   const userId = profile.profileId;
-  const [accounting, budgets, goals, bank, loans, bills] = await Promise.all([
+  const [accounting, budgets, goals, bank, loans, bills,pins] = await Promise.all([
     loadAccountingReadModel(settings.supabase,userId),
     store.listBudgets(userId),
     store.listSavingsGoals(userId),
     loadBank(settings, profile),
     createSupabaseLoanStore(settings.supabase).list(userId),
     createSupabaseBillStore(settings.supabase).list(userId),
+    createSupabasePinStore(settings.supabase).list(userId).catch((error:unknown)=>(logError('pins_list',error),[])),
   ]);
   const transactions=accounting.availability==="ready" ? projectAccountingTransactions(accounting.rawTransactions,accounting.state) : accounting.rawTransactions;
   const accountingView=buildAccountingView(accounting.state,profile.currency);
@@ -147,6 +153,7 @@ export async function loadLedgerSnapshot(profile: UserProfile, settings: StudioS
     bills,
     upcomingBills: upcomingBills(bills, today),
     renewalSuggestions: detectRenewalCandidates(transactions, bills, today, profile.currency),
+    pinned:pins.flatMap(pin=>{const drawn=drawChart({query:pin.query,transactions,userId,currency:profile.currency,today});return drawn.ok?[{id:pin.id,chart:drawn.chart}]:[];}),
     accounting:{availability:accounting.availability,revision:accounting.state.revision,balances:accountingView.balances,loans:accountingView.loans,issues:accountingView.settlementIssues.map((issue) => issue.reason)},
   } };
 }

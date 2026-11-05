@@ -14,6 +14,7 @@ import type { PaymentChatEntry } from "@/app/chat/payment-entry";
 import { capturePaymentChatEntry, chatSubmissionReady, linkedPaymentReplyContext, paymentLinkId } from "@/app/chat/payment-link";
 import { chatReadDeadline } from "@/app/chat/read-deadline";
 import { ReplyChart } from "@/app/chat/reply-chart";
+import { KeepChartButton } from "@/app/chat/keep-chart";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
 import { useRefreshCategories } from "@/app/components/category-catalog";
@@ -603,7 +604,7 @@ export function ChatPanel({
                         <p className="alfred-production-chat-decisionHint">Or tell me what&apos;s different.</p>
                       </section>
                     ) : <MessageText text={message.text} />}
-                    {message.chart ? <ReplyChart chart={message.chart} /> : null}
+                    {message.chart ? <ReplyChart chart={message.chart} onAsk={busy ? undefined : (value) => submitText(value)} footer={message.chart.kind === "chart" ? <KeepChartButton chart={message.chart} /> : undefined} /> : null}
                     {!(message.actionId && !message.settled) && (paymentEntry?.state === "ready" ? isSelectedPaymentMessage(message, paymentEntry) : message === last) && !newTopic && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
                   </div>
                 </article>

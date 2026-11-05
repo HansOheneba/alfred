@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { createHash, randomUUID } from 'node:crypto';
 import { execFileSync } from 'node:child_process';
-import { readFile, writeFile } from 'node:fs/promises';
+import { readFile, readdir, writeFile } from 'node:fs/promises';
 import { performance } from 'node:perf_hooks';
 import { fileURLToPath } from 'node:url';
 import { dirname, resolve } from 'node:path';
@@ -130,10 +130,19 @@ export async function runIntegratedPostgresChecks({ binaryDirectory, output } = 
     report.durability = (await control.query("select current_setting('fsync') as fsync,current_setting('full_page_writes') as full_page_writes,current_setting('synchronous_commit') as synchronous_commit,current_setting('listen_addresses') as listen_addresses")).rows[0];
     assert.equal(report.durability.listen_addresses, '');
     await control.query("create role anon;create role authenticated;create schema auth;create function auth.uid() returns uuid language sql stable as $$select null::uuid$$;create table auth.users(id uuid primary key,raw_user_meta_data jsonb default '{}'::jsonb);");
-    const baselineFiles = execFileSync('git', ['ls-tree', '-r', '--name-only', 'HEAD', '--', 'supabase/migrations'], { cwd: ROOT, encoding: 'utf8' }).trim().split('\n').filter(file => file.endsWith('.sql') && file !== CANDIDATE && file !== COMPACT_CANDIDATE).sort();
-    for (const file of baselineFiles) await control.query(await readFile(resolve(ROOT, file), 'utf8'));
-    const abi = await financialAbi(control);
-    await control.query('begin'); await control.query(sql); await control.query(compactSql); await control.query('commit');
+    const migrationFiles = (await readdir(resolve(ROOT, 'supabase/migrations'))).filter(file => file.endsWith('.sql')).sort().map(file => `supabase/migrations/${file}`);
+    report.baseCommit = execFileSync('git', ['rev-parse', 'HEAD'], { cwd: ROOT, encoding: 'utf8' }).trim();
+    report.migrations = migrationFiles;
+    report.migrationOrder = 'Complete reviewed working-tree SQL files in filename order';
+    let abi;
+    for (const file of migrationFiles) {
+      if (file === CANDIDATE) abi = await financialAbi(control);
+      const body = file === CANDIDATE ? sql : file === COMPACT_CANDIDATE ? compactSql : await readFile(resolve(ROOT, file), 'utf8');
+      await control.query('begin');
+      try { await control.query(body); await control.query('commit'); }
+      catch (error) { await control.query('rollback'); throw error; }
+    }
+    assert.notEqual(abi, undefined);
     assert.equal((await control.query('select alfred_display.readiness() as ready')).rows[0].ready, true);
     assert.deepEqual(await financialAbi(control), abi);
 

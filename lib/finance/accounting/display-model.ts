@@ -15,7 +15,7 @@ export type DurableModelRow = {
   needsAttention?: boolean; groupKey?: string | null; relationId?: string | null;
   payload: unknown;
 };
-export type DurableLedgerPayload = LedgerRow & { transactionOrdinal: number; descriptionKey: string; descriptionLabel: string; descriptionSearch: string; categorySearch: string; paymentLabel: string; renewalGroup?: { id: string; name: string; nameKey: string } | null };
+export type DurableLedgerPayload = LedgerRow & { transactionOrdinal: number; descriptionKey: string; descriptionLabel: string; descriptionSearch: string; categorySearch: string; paymentLabel: string; merchantKey:string;merchantLabelRank:number;renewalGroup?: { id: string; name: string; nameKey: string } | null };
 export type DurableLedgerManifest = { count: number; earliestDate: string | null; currencies: string[] };
 export type AccountingDisplayManifest = {
   kind: "accounting-display"; projectorVersion: typeof ACCOUNTING_DISPLAY_VERSION;

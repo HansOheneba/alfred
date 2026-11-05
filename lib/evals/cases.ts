@@ -45,6 +45,8 @@ const stepSchema = z.object({
     reply: z.string().optional(),
     /** Regex the reply must not match, like a known wrong fallback. */
     notReply: z.string().optional(),
+    /** Alfred drew a chart like this; `total` is what the chart adds up to. */
+    chart: z.object({ by: z.enum(["category", "merchant", "day", "week", "month"]).optional(), measure: z.enum(["spending", "income", "net"]).optional(), style: z.enum(["bar", "line", "donut", "table"]).optional(), compare: z.boolean().optional(), total: z.string().regex(/^-?\d+\.\d{2}$/).optional() }).optional(),
   }).prefault({}),
 }).refine((step) => Boolean(step.say) !== Boolean(step.tap), "A step either says something or taps a button.");
 
