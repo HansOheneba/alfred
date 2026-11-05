@@ -36,8 +36,8 @@ function uniqueIds(rows: { id: string }[], name: string) {
     ids.add(row.id);
   }
 }
-function accountFor(state: AccountingState, id: string): FinancialAccount {
-  const account = state.accounts.find((row) => row.id === id);
+function accountFor(state: AccountingState, id: string, indexed?: Map<string, FinancialAccount>): FinancialAccount {
+  const account = indexed ? indexed.get(id) : state.accounts.find((row) => row.id === id);
   if (!account) throw new AccountingError("Account was not found.", "not_found");
   return account;
 }
@@ -57,15 +57,15 @@ function movementInUse(state: AccountingState, movementId: string) {
 function sameSource(a: CashMovement, b: CashMovement) {
   return a.sourceKind === b.sourceKind && a.sourceId === b.sourceId;
 }
-function validateSnapshot(state: AccountingState, snapshot: BalanceSnapshot) {
+function validateSnapshot(state: AccountingState, snapshot: BalanceSnapshot, accounts?: Map<string, FinancialAccount>, movements?: Map<string, CashMovement>) {
   requireText(snapshot.id, "Snapshot ID");
-  accountFor(state, snapshot.accountId);
+  accountFor(state, snapshot.accountId, accounts);
   integer(snapshot.balanceMinor, "Reported balance");
   instant(snapshot.occurredAt, "Snapshot time");
   requireText(snapshot.sourceId, "Snapshot source ID");
   if (snapshot.sourceFingerprint !== undefined) requireText(snapshot.sourceFingerprint, "Snapshot source fingerprint");
   if (snapshot.sourceMovementId !== null) {
-    const movement = state.movements.find((row) => row.id === snapshot.sourceMovementId);
+    const movement = movements ? movements.get(snapshot.sourceMovementId) : state.movements.find((row) => row.id === snapshot.sourceMovementId);
     if (!movement) throw new AccountingError("Snapshot source movement was not found.", "not_found");
     if (movement.ownerId !== state.ownerId) throw new AccountingError("Snapshot source belongs to another owner.", "ownership");
   }
@@ -112,6 +112,10 @@ export function validateAccountData(state: AccountingState): void {
     if (typeof account.includeInCash !== "boolean") throw new AccountingError("Account cash inclusion must be a boolean.");
     instant(account.createdAt, "Account creation time");
   }
+  // The uniqueness checks above run first, so lookups preserve both validation
+  // order and the exact referenced record without rescanning every history row.
+  const accountsById=new Map(state.accounts.map((account) => [account.id,account]));
+  const movementsById=new Map(state.movements.map((movement) => [movement.id,movement]));
   for (const movement of state.movements) {
     if (movement.ownerId !== state.ownerId) throw new AccountingError("Movement belongs to another owner.", "ownership");
     currency(movement.currency);
@@ -129,10 +133,10 @@ export function validateAccountData(state: AccountingState): void {
     if (movement.occurredAt !== null) instant(movement.occurredAt, "Movement time");
     requireText(movement.sourceId, "Source ID");
     requireText(movement.sourceFingerprint, "Source fingerprint");
-    if (movement.accountId !== null && accountFor(state, movement.accountId).currency !== movement.currency) throw new AccountingError("Movement currency does not match its account.", "conflict");
+    if (movement.accountId !== null && accountFor(state, movement.accountId, accountsById).currency !== movement.currency) throw new AccountingError("Movement currency does not match its account.", "conflict");
     for (const value of [movement.reportedBalanceMinor, movement.reportedBalanceBeforeMinor]) if (value !== undefined && value !== null) integer(value, "Source-reported balance");
   }
-  for (const snapshot of state.snapshots) validateSnapshot(state, snapshot);
+  for (const snapshot of state.snapshots) validateSnapshot(state, snapshot, accountsById, movementsById);
   const linked = new Set<string>();
   for (const transfer of state.transfers) {
     instant(transfer.createdAt, "Transfer creation time");
@@ -145,7 +149,7 @@ export function validateAccountData(state: AccountingState): void {
     }
     for (const reference of [transfer.outgoing, transfer.incoming]) {
       requireText(reference.sourceFingerprint, "Transfer source fingerprint");
-      if (!state.movements.some((row) => row.id === reference.movementId)) throw new AccountingError("Transfer movement was not found.", "not_found");
+      if (!movementsById.has(reference.movementId)) throw new AccountingError("Transfer movement was not found.", "not_found");
       if (linked.has(reference.movementId)) throw new AccountingError("A movement cannot belong to multiple transfer links.", "conflict");
       linked.add(reference.movementId);
     }
@@ -270,9 +274,9 @@ export function applyAccountAction(state: AccountingState, action: AccountingAct
 export type AccountReconciliation = { status: "unavailable" | "incomplete" | "matched" | "mismatch"; expectedMinor: number | null; differenceMinor: number | null; reason: string };
 export type AccountBalanceRow = { account: FinancialAccount; snapshot: BalanceSnapshot | null; reconciliation: AccountReconciliation };
 
-function sourceSnapshotCurrent(state: AccountingState, snapshot: BalanceSnapshot) {
+function sourceSnapshotCurrent(movements: Map<string, CashMovement>, snapshot: BalanceSnapshot) {
   if (snapshot.sourceMovementId === null) return true;
-  const movement = state.movements.find((row) => row.id === snapshot.sourceMovementId);
+  const movement = movements.get(snapshot.sourceMovementId);
   return movement !== undefined && movement.accountId === snapshot.accountId && movement.sourceId === snapshot.sourceId
     && movement.occurredAt === snapshot.occurredAt && (snapshot.sourceFingerprint === undefined || snapshot.sourceFingerprint === movement.sourceFingerprint)
     && (movement.reportedBalanceMinor === undefined || movement.reportedBalanceMinor === null || movement.reportedBalanceMinor === snapshot.balanceMinor);
@@ -321,14 +325,28 @@ function reconcile(state: AccountingState, account: FinancialAccount, snapshots:
 }
 
 /** Reported cash total, not income minus spending and not net worth. Missing snapshots stay unknown. */
-export function accountBalances(state: AccountingState, requestedCurrency: string): { accounts: AccountBalanceRow[]; totalMinor: number | null; knownSubtotalMinor: number | null; count: number; missingCount: number; excludedCount: number } {
-  currency(requestedCurrency);
+export function accountBalanceFacts(state: AccountingState): AccountBalanceRow[] {
   validateAccountData(state);
+  const movementsById=new Map(state.movements.map((movement) => [movement.id,movement]));
+  const snapshotsByAccount=new Map<string,BalanceSnapshot[]>();
+  for (const snapshot of state.snapshots) {
+    if (!sourceSnapshotCurrent(movementsById,snapshot)) continue;
+    const rows=snapshotsByAccount.get(snapshot.accountId) ?? [];
+    rows.push(snapshot);
+    snapshotsByAccount.set(snapshot.accountId,rows);
+  }
   const accounts = state.accounts.map((account) => {
     // Stable sort preserves append order for multiple actual observations at the same instant.
-    const snapshots = state.snapshots.filter((row) => row.accountId === account.id && sourceSnapshotCurrent(state, row)).sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
+    const snapshots = (snapshotsByAccount.get(account.id) ?? []).sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
     return { account, snapshot: snapshots.at(-1) ?? null, reconciliation: reconcile(state, account, snapshots) };
   });
+  return accounts;
+}
+
+/** Reported cash total, retaining unknown balances and requested-currency precision checks. */
+export function accountBalances(state: AccountingState, requestedCurrency: string): { accounts: AccountBalanceRow[]; totalMinor: number | null; knownSubtotalMinor: number | null; count: number; missingCount: number; excludedCount: number } {
+  currency(requestedCurrency);
+  const accounts = accountBalanceFacts(state);
   const included = accounts.filter((row) => row.account.includeInCash && row.account.currency === requestedCurrency);
   const known = included.filter((row) => row.snapshot !== null);
   const missingCount = included.length - known.length;

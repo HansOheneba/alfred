@@ -72,6 +72,42 @@ describe("progressive owner-bound Chat opening", () => {
     expect(publish).not.toHaveBeenCalled();
   });
 
+  it("skips ordinary-thread choices only on an explicit owned history hint and clears old answer buttons", async () => {
+    const publish = vi.fn(), progress = vi.fn();
+    let choicesNeeded = false;
+    const request = vi.fn(async (url: RequestInfo | URL) => {
+      const part = new URL(String(url), "https://fictional.example").searchParams.get("part")!;
+      return Response.json({ ok: true, ownerId, messages: [], ...(part === "history" ? { choicesNeeded } : { choices: [] }) });
+    });
+    const refresh = createOwnedChatThreadRefresh(ownerId, publish, request, null, { progressive: true, onProgress: progress });
+    await refresh.refresh();
+    expect(request.mock.calls.map(call => String(call[0]))).toEqual(["/api/chat?part=history"]);
+    expect(publish).toHaveBeenCalledWith({ messages: [], choices: [], part: "history" });
+    expect(progress).toHaveBeenCalledWith({ part: "choices", state: "ready" });
+    choicesNeeded = true;
+    request.mockClear();
+    await refresh.refresh();
+    expect(request.mock.calls.map(call => String(call[0]))).toEqual(["/api/chat?part=history", "/api/chat?part=choices"]);
+  });
+
+  it.each([undefined, null, "false"])("retains the independent choices read for a missing or invalid hint (%s)", async choicesNeeded => {
+    const request = vi.fn<typeof fetch>(async () => Response.json({ ok: true, ownerId, messages: [], choicesNeeded, choices: [] }));
+    const refresh = createOwnedChatThreadRefresh(ownerId, vi.fn(), request, null, { progressive: true });
+    await refresh.refresh();
+    expect(request.mock.calls.map(call => String(call[0]))).toEqual(["/api/chat?part=history", "/api/chat?part=choices"]);
+  });
+
+  it("keeps selected-payment reads and current choices independent of the ordinary history hint", async () => {
+    const request = vi.fn(async (url: RequestInfo | URL) => {
+      const part = new URL(String(url), "https://fictional.example").searchParams.get("part")!;
+      return Response.json({ ...packet(part), ...(part === "history" ? { choicesNeeded: false } : {}) });
+    });
+    const refresh = createOwnedChatThreadRefresh(ownerId, vi.fn(), request, bank, { progressive: true });
+    await refresh.refresh();
+    expect(request).toHaveBeenCalledTimes(3);
+    expect(request.mock.calls.some(call => String(call[0]).includes("part=choices"))).toBe(true);
+  });
+
   it("bounds a stalled response body as well as a stalled fetch", async () => {
     vi.useFakeTimers(); const progress = vi.fn();
     const request = vi.fn(async () => ({ ok: true, json: () => new Promise(() => undefined) }) as Response);

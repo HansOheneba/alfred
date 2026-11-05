@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { buttonClassName } from "@/app/components/button-styles";
-import { getGettingStartedState } from "@/app/components/getting-started-state";
 import { GettingStartedDashboard } from "./getting-started";
 import { WeeklyComparison } from "@/app/dashboard/weekly-comparison";
 
@@ -25,18 +24,6 @@ import { TransactionsTable } from "@/app/dashboard/transactions-table";
 import { OverviewQuickAction } from "@/app/dashboard/overview-quick-actions";
 import {
   RANGE_LABELS,
-  accountTotals,
-  buildSankeyModel,
-  categoryTotals,
-  dailySeries,
-  inRows,
-  monthlySeries,
-  presetRange,
-  previousRange,
-  sumMinor,
-  topDescriptions,
-  weekdaySeries,
-  weeklyPace,
   type RangePreset,
 } from "@/lib/finance/analytics";
 import { formatDisplayDate } from "@/lib/finance/dates";
@@ -45,17 +32,12 @@ import type { Ledger } from "@/lib/web/ledger";
 import type { OverviewTransactionFilters } from "@/lib/web/activity-handoff";
 import { DEFAULT_OVERVIEW_VIEW, overviewScrollPosition, overviewViewFromParams, overviewViewHref, type OverviewView } from "./overview-view";
 import "./overview-mobile.css";
+import { buildOverviewSummary, type OverviewSummary } from "@/lib/web/overview-summary";
+import type { RemoteOverviewTransactions } from "./overview-transaction-data";
 
 const PRESETS = Object.keys(RANGE_LABELS) as RangePreset[];
 
-function lastTwelveMonths(today: string) {
-  const [year, month] = today.split("-").map(Number);
-  const start = new Date(Date.UTC(year, month - 12, 1)).toISOString().slice(0, 10);
-  const end = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
-  return { start, end };
-}
-
-export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initialView = DEFAULT_OVERVIEW_VIEW, initialTransactionFilters }: { ledger: Ledger; name: string; timeZone?: string; initialView?: OverviewView; initialTransactionFilters?: OverviewTransactionFilters }) {
+export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initialView = DEFAULT_OVERVIEW_VIEW, initialTransactionFilters, overview, transactions }: { ledger: Ledger; name: string; timeZone?: string; initialView?: OverviewView; initialTransactionFilters?: OverviewTransactionFilters; overview?: OverviewSummary; transactions?: RemoteOverviewTransactions }) {
   const { currency, today } = ledger;
   const [view, setView] = useState(initialView);
   const { preset, category: selected, dailyMode, insightsOpen } = view;
@@ -93,43 +75,20 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initi
     if (top !== null) window.history.replaceState({ ...window.history.state, alfredOverviewScrollY: top }, "");
   }
 
-  const rows = useMemo(() => ledger.rows.filter((row) => row.currency === currency), [ledger.rows, currency]);
-  const otherCurrencyCount = ledger.rows.length - rows.length;
-  const range = useMemo(() => presetRange(preset, today, rows), [preset, today, rows]);
-  const previous = useMemo(() => previousRange(range), [range]);
-
-  const expenses = useMemo(() => inRows(rows, range, currency, "expense"), [rows, range, currency]);
-  const income = useMemo(() => inRows(rows, range, currency, "income"), [rows, range, currency]);
-  const spent = sumMinor(expenses);
-  const earned = sumMinor(income);
-  const prevSpent = sumMinor(inRows(rows, previous, currency, "expense"));
-  const prevEarned = sumMinor(inRows(rows, previous, currency, "income"));
-  const elapsedEnd = today < range.end ? today : range.end;
-
-  const categories = useMemo(() => categoryTotals(expenses), [expenses]);
-  const accounts = useMemo(() => accountTotals(expenses), [expenses]);
-  const sankey = useMemo(() => buildSankeyModel(income, expenses), [income, expenses]);
-  const pace = useMemo(() => weeklyPace(rows, today, currency), [rows, today, currency]);
-  const monthly = useMemo(() => monthlySeries(rows, lastTwelveMonths(today), currency), [rows, today, currency]);
-  const dailyData = useMemo(() => dailySeries(rows, { start: range.start, end: elapsedEnd >= range.start ? elapsedEnd : range.end }, currency), [rows, range, elapsedEnd, currency]);
-  const weekdays = useMemo(() => weekdaySeries(expenses), [expenses]);
-
-  const selectedRows = useMemo(() => (selected ? expenses.filter((row) => row.category === selected) : []), [expenses, selected]);
-  const selectedTrend = useMemo(
-    () =>
-      selected
-        ? monthlySeries(rows.filter((row) => row.category === selected), lastTwelveMonths(today), currency)
-            .slice(-6)
-            .map((item) => ({ label: item.label, spent: item.spent }))
-        : [],
-    [rows, selected, today, currency],
-  );
-  const tableRows = useMemo(() => [...expenses, ...income], [expenses, income]);
+  const summary = useMemo(() => overview ?? buildOverviewSummary(ledger), [overview, ledger]);
+  const report = summary.reports[preset];
+  const { range, spent, earned, categories, accounts, sankey, weekdays } = report;
+  const prevSpent = report.previousSpent, prevEarned = report.previousEarned;
+  const pace = summary.pace, monthly = summary.monthly, dailyData = report.daily;
+  const otherCurrencyCount = summary.otherCurrencyCount;
+  const selectedDetails = selected ? report.categoryDetails[selected] : undefined;
+  const selectedMinor = selectedDetails?.minor ?? 0, selectedCount = selectedDetails?.count ?? 0;
+  const selectedTrend = selected ? summary.categoryTrends[selected] ?? [] : [];
 
   const month = today.slice(0, 7);
   const budgets = ledger.budgets.filter((budget) => budget.period === month);
   const goals = ledger.goals;
-  const hasAny = rows.length > 0;
+  const hasAny = summary.currencyRowCount > 0;
   const rangeLabel = RANGE_LABELS[preset].toLowerCase();
 
   function toggle(category: string) {
@@ -141,8 +100,8 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initi
     setPeriodOpen(false);
   }
 
-  const setup = getGettingStartedState(ledger);
-  if (setup.canShowSetup || setup.showBlockedSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} />;
+  const setup = summary.setup;
+  if (setup.canShowSetup || setup.showBlockedSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} setup={setup} />;
 
   return (
     <div className={styles.dashboard} onClickCapture={rememberActivityPosition}>
@@ -191,7 +150,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initi
         <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
       </div>
 
-      {hasAny ? <div id="overview-transactions" tabIndex={-1} className={styles.transactions}><TransactionsTable rows={tableRows} category={selected} onClearCategory={() => updateView({ category: null })} rangeLabel={rangeLabel} range={range} currency={currency} initialFilters={initialTransactionFilters} timeZone={timeZone} /></div> : null}
+      {hasAny ? <div id="overview-transactions" tabIndex={-1} className={styles.transactions}><TransactionsTable rows={transactions ? ledger.rows : ledger.rows.filter(row => row.currency === currency && row.date >= range.start && row.date <= range.end).sort((left, right) => left.type === right.type ? 0 : left.type === "expense" ? -1 : 1)} category={selected} onClearCategory={() => updateView({ category: null })} rangeLabel={rangeLabel} range={range} currency={currency} initialFilters={initialTransactionFilters} timeZone={timeZone} remote={transactions} preset={preset} /></div> : null}
 
       <div className="alfred-ui-planningGrid grid gap-4 lg:grid-cols-2">
         <BillsCard
@@ -363,14 +322,14 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initi
             {selected ? <div className="alfred-ui-categoryDetails rounded-xl border border-line bg-bg p-4">
                 <>
                   <p className="text-xs text-muted">{selected}</p>
-                  <p className="mt-1 text-2xl font-medium tabular-nums">{formatMinor(sumMinor(selectedRows), currency)}</p>
+                  <p className="mt-1 text-2xl font-medium tabular-nums">{formatMinor(selectedMinor, currency)}</p>
                   <p className="text-xs text-muted">
-                    {percent(sumMinor(selectedRows), spent)} of spending · {selectedRows.length} transaction{selectedRows.length === 1 ? "" : "s"}
+                    {percent(selectedMinor, spent)} of spending · {selectedCount} transaction{selectedCount === 1 ? "" : "s"}
                   </p>
                   <a href="#overview-transactions" className={buttonClassName({ variant: "secondary", size: "sm", className: "mt-4" })}>View {selected} transactions <span aria-hidden="true">↑</span></a>
                   <h3 className="mt-5 text-xs font-medium text-muted">Top places and things</h3>
                   <ul className="mt-2 flex flex-col gap-2">
-                    {topDescriptions(selectedRows).map((item) => (
+                    {(selectedDetails?.descriptions ?? []).map((item) => (
                       <li key={item.label} className="flex items-center justify-between gap-3 text-sm">
                         <span className="truncate">
                           {item.label}

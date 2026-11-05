@@ -6,9 +6,13 @@ import { InvestmentsSkeleton } from "@/app/components/page-skeletons";
 import { InvestmentsClient, type InvestmentsData } from "@/app/investments/investments-client";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { zonedYmd } from "@/lib/finance/dates";
-import { loadPortfolio } from "@/lib/investments/actions";
+import { loadPortfolioDetails } from "@/lib/investments/actions";
 import { createSupabaseInvestmentStore } from "@/lib/investments/store";
 import { loadIncludedAccountCash } from "@/lib/web/included-account-cash";
+import { DurableDisplayUpdating } from "@/lib/finance/accounting/durable-read";
+
+/** Slow remote quotes must not hold this read-only page behind their full retry chain. */
+const MISSING_PRICE_WAIT_MS = 2000;
 
 export default function InvestmentsPage() {
   if (!publicAuthConfigured()) return <MissingAuthConfig />;
@@ -44,9 +48,8 @@ async function InvestmentsScreen() {
 
   let data: InvestmentsData;
   try {
-    const [portfolio, contributions, cash] = await Promise.all([
-      loadPortfolio(store, ownerId, zonedYmd(new Date(), account.profile.timezone), { fetchMissing: true }),
-      store.contributions(ownerId),
+    const [{ portfolio, contributions }, cash] = await Promise.all([
+      loadPortfolioDetails(store, ownerId, zonedYmd(new Date(), account.profile.timezone), { fetchMissing: true, missingPriceBudgetMs: MISSING_PRICE_WAIT_MS }),
       loadIncludedAccountCash(account.settings.supabase, ownerId, account.profile.currency),
     ]);
     const names = new Map(portfolio.items.map((item) => [item.investment.id, item.investment.name]));
@@ -61,6 +64,7 @@ async function InvestmentsScreen() {
         .map((item) => ({ ...item, investment: names.get(item.investmentId)! })),
     };
   } catch (error) {
+    if(error instanceof DurableDisplayUpdating)return <AppShell current="investments" ownerId={account.userId} name={name}><div className="mx-auto w-full max-w-5xl px-4 py-8 text-sm text-muted" role="status"><p>{error.message}</p><a href="/investments" className="mt-3 inline-flex underline">Try again</a></div></AppShell>;
     return (
       <AppShell current="investments" ownerId={account.userId} name={name}>
         <p className="mx-auto w-full max-w-5xl px-4 py-8 text-sm text-danger" role="alert">

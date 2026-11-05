@@ -65,10 +65,16 @@ export function sourceMovements(ownerId:string,transactions:TransactionRecord[],
 export function hydrateAccountingSources(saved:AccountingState,fresh:CashMovement[]):AccountingState {
   const prior = new Map(saved.movements.map((row) => [row.id,row]));
   const freshIds=new Set(fresh.map((row) => row.id));
+  const accountCurrencies=new Map<string,Set<string>>();
+  for (const account of saved.accounts) {
+    const currencies=accountCurrencies.get(account.id) ?? new Set<string>();
+    currencies.add(account.currency);
+    accountCurrencies.set(account.id,currencies);
+  }
   const movements = fresh.map((source) => {
     const old=prior.get(source.id);
     if (!old) return source;
-    const accountId=old.accountId && saved.accounts.some((account) => account.id === old.accountId && account.currency === source.currency) ? old.accountId : source.accountId;
+    const accountId=old.accountId && accountCurrencies.get(old.accountId)?.has(source.currency) ? old.accountId : source.accountId;
     return {...source,accountId,...(old.sourceFingerprint===source.sourceFingerprint ? {status:old.status,category:old.category,
       ...(old.categoryOrigin===undefined ? {} : {categoryOrigin:old.categoryOrigin}),
       ...(old.appliedRuleId===undefined ? {} : {appliedRuleId:old.appliedRuleId}),
@@ -76,9 +82,12 @@ export function hydrateAccountingSources(saved:AccountingState,fresh:CashMovemen
   });
   // Removed sources remain visible as stale audit evidence, with no report or snapshot effect.
   for (const old of saved.movements) if (!freshIds.has(old.id)) movements.push({...old,status:"excluded",sourceStatus:"excluded",sourceMissing:true,sourceFingerprint:old.sourceMissing ? old.sourceFingerprint : hash({missing:old.id,previous:old.sourceFingerprint})});
+  // Preserve find()'s first-match behavior even before structural validation.
+  const movementsById=new Map<string,CashMovement>();
+  for (const movement of movements) if (!movementsById.has(movement.id)) movementsById.set(movement.id,movement);
   for (const transfer of saved.transfers) {
     if (!transfer.automatic) continue;
-    const outgoing = movements.find((row) => row.id === transfer.outgoing.movementId), incoming = movements.find((row) => row.id === transfer.incoming.movementId);
+    const outgoing = movementsById.get(transfer.outgoing.movementId), incoming = movementsById.get(transfer.incoming.movementId);
     const current = outgoing && incoming && !outgoing.sourceMissing && !incoming.sourceMissing && outgoing.sourceFingerprint === transfer.outgoing.sourceFingerprint && incoming.sourceFingerprint === transfer.incoming.sourceFingerprint && outgoing.accountId && incoming.accountId && outgoing.accountId !== incoming.accountId && outgoing.direction === "out" && incoming.direction === "in" && outgoing.currency === incoming.currency && outgoing.amountMinor === incoming.amountMinor;
     if (current) continue;
     for (const [movement, previous] of [[outgoing, transfer.automatic.outgoing], [incoming, transfer.automatic.incoming]] as const) {
@@ -90,10 +99,14 @@ export function hydrateAccountingSources(saved:AccountingState,fresh:CashMovemen
     }
   }
   const snapshots=[...saved.snapshots];
+  const snapshotIds=new Set(snapshots.map((snapshot) => snapshot.id));
   for (const movement of movements) {
     if (!movement.accountId || movement.occurredAt===null || movement.reportedBalanceMinor===undefined || movement.reportedBalanceMinor===null || !freshIds.has(movement.id)) continue;
     const id=`source-snapshot:${movement.id}:${movement.sourceFingerprint}:${movement.accountId}`;
-    if (!snapshots.some((snapshot) => snapshot.id===id)) snapshots.push({id,accountId:movement.accountId,balanceMinor:movement.reportedBalanceMinor,occurredAt:movement.occurredAt,sourceId:movement.sourceId,sourceMovementId:movement.id,sourceFingerprint:movement.sourceFingerprint});
+    if (!snapshotIds.has(id)) {
+      snapshots.push({id,accountId:movement.accountId,balanceMinor:movement.reportedBalanceMinor,occurredAt:movement.occurredAt,sourceId:movement.sourceId,sourceMovementId:movement.id,sourceFingerprint:movement.sourceFingerprint});
+      snapshotIds.add(id);
+    }
   }
   return {...saved,movements,snapshots};
 }

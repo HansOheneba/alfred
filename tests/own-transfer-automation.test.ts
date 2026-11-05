@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER, type SupabaseSettings, type UserProfile } from "@/lib/config";
@@ -35,7 +36,7 @@ beforeAll(async () => {
   transport.connect.mockImplementation(async () => {
     const previous = available; let release!: () => void;
     available = new Promise<void>((resolve) => { release = resolve; }); await previous;
-    return { query: async (text: string, values: unknown[] = []) => {
+    return Object.assign(new EventEmitter(), { query: async (text: string, values: unknown[] = []) => {
       statementTrace.push(text);
       if (injectedFailure === "provider-edit" && text === "savepoint alfred_automatic_transfer_pair") {
         injectedFailure = null;
@@ -51,7 +52,7 @@ beforeAll(async () => {
         if (versionReadCount === 2) await db.query("update bank_messages set raw=raw||' Synthetic corrected source' where id=(select id from bank_messages order by occurred_at,id limit 1)");
       }
       return db.query(text, values);
-    }, release };
+    }, release });
   });
   transport.outside.mockImplementation((text: string, values: unknown[] = []) => { statementTrace.push(text); return db.query(text, values); });
 }, 30_000);
@@ -294,7 +295,7 @@ describe("deterministic owner-account transfers through durable ingest", () => {
     expect((await db.query<{ amount: string }>("select amount::text from transactions")).rows).toEqual([{ amount: "0.38" }]);
   });
 
-  it("does not mistake a competitor outside the latest 200 source rows for a unique pair", async () => {
+  it("does not mistake a competitor outside the latest 200 inbox rows for a unique pair", async () => {
     await seedPending(incoming("200.00"), "2026-11-04T12:09:00Z");
     const competitor = await seedPending(outgoing("200.00", "88123457"), "2026-11-04T11:59:00Z");
     await db.query(`insert into bank_messages(owner_id,source,channel,external_id,text_hash,direction,kind,amount,fee,currency,counterparty,balance,occurred_at,status,raw,read_by)
@@ -304,11 +305,12 @@ describe("deterministic owner-account transfers through durable ingest", () => {
     const window = await listBankTransferWindow(settings, OWNER, result.durableMessageIds);
     expect(window.complete).toBe(true); expect(window.messages.map((row) => row.id)).toContain(competitor);
     const loaded = await loadAccountingState(settings, OWNER);
-    expect(loaded.bankMessages?.some((row) => row.id === competitor)).toBe(false);
+    expect(loaded.bankMessages?.some((row) => row.id === competitor)).toBe(true);
+    expect(loaded.state.movements.find((row) => row.id === `bank:${competitor}`)?.sourceMissing).not.toBe(true);
     expect(loaded.bankMessages?.some((row) => row.id === result.durableMessageIds[0])).toBe(true);
     expect((await db.query<{ status: string }>("select status from bank_messages where id=any($1::uuid[])", [[competitor, ...result.durableMessageIds]])).rows.every((row) => row.status === "needs_label")).toBe(true);
     expect(loaded.state).toMatchObject({ revision: 0, transfers: [], audit: [] });
-    expect(await createTransferConversationDeps(settings).inspect(OWNER, result.durableMessageIds[0])).toMatchObject({ status: "unavailable" });
+    expect(await createTransferConversationDeps(settings).inspect(OWNER, result.durableMessageIds[0])).toMatchObject({ status: "ambiguous" });
   });
 
   it("defers an overflowing complete-window check instead of falling back to a truncated set", async () => {

@@ -30,9 +30,10 @@ function linkFrom(row: AccountRow): TelegramLink {
   };
 }
 
+const accountColumns = `p.id, p.preferred_name, p.currency, p.timezone, p.communication_preference,
+         t.telegram_user_id::text, t.chat_id::text, t.locked_at, n.tone_note`;
 const accountSql = `
-  select p.id, p.preferred_name, p.currency, p.timezone, p.communication_preference,
-         t.telegram_user_id::text, t.chat_id::text, t.locked_at, n.tone_note
+  select ${accountColumns}
   from public.profiles p
   join public.telegram_accounts t on t.owner_id = p.id
   left join public.assistant_notes n on n.owner_id = p.id
@@ -40,6 +41,7 @@ const accountSql = `
 
 export function createSupabaseAccountDirectory(settings: SupabaseSettings): AccountDirectory & {
   loadOwner(ownerId: string): Promise<UserProfile | null>;
+  loadOwnerWithReadiness(ownerId: string): Promise<{ profile: UserProfile; ready: boolean } | null>;
   updateTelegramId(ownerId: string, telegramUserId: number): Promise<TelegramIdUpdate>;
 } {
   return {
@@ -62,6 +64,21 @@ export function createSupabaseAccountDirectory(settings: SupabaseSettings): Acco
       const rows = await query<AccountRow>(settings, `${accountSql} where p.id = $1`, [ownerId]);
       const row = rows[0];
       return row ? profileFromLink(linkFrom(row)) : null;
+    },
+    async loadOwnerWithReadiness(ownerId) {
+      // Authentication has already supplied this owner ID. Combine the profile
+      // and companion checks without caching private data between requests.
+      const rows = await query<AccountRow & { telegram_ready: boolean; conversation_ready: boolean; reminders_ready: boolean }>(settings,
+        `select ${accountColumns}, t.owner_id is not null as telegram_ready,
+                c.owner_id is not null as conversation_ready, r.owner_id is not null as reminders_ready
+         from public.profiles p
+         left join public.telegram_accounts t on t.owner_id = p.id
+         left join public.assistant_notes n on n.owner_id = p.id
+         left join public.conversations c on c.owner_id = p.id
+         left join public.reminder_preferences r on r.owner_id = p.id
+         where p.id = $1`, [ownerId]);
+      const row = rows[0];
+      return row ? { profile: profileFromLink(linkFrom(row)), ready: row.telegram_ready && row.conversation_ready && row.reminders_ready } : null;
     },
     async updateTelegramId(ownerId, telegramUserId) {
       if (!Number.isSafeInteger(telegramUserId) || telegramUserId <= 0) return "invalid";

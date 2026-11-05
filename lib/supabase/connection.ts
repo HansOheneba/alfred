@@ -7,19 +7,29 @@ import { DatabaseError } from "@/lib/errors";
 
 types.setTypeParser(1082, (value) => value);
 
-const pools = new Map<string, Pool>();
-let preferred: { address: string; port: number } | null = null;
-type TransactionScope = { client: PoolClient; settings: SupabaseSettings; active: boolean };
+type Candidate = { address: string; port: number };
+type PoolEntry = Candidate & { pool: Pool; settings: SupabaseSettings; retired: boolean };
+const pools = new Map<string, PoolEntry>();
+let preferred: PoolEntry | null = null;
+type TransactionScope = { client: PoolClient; settings: SupabaseSettings; active: boolean; connectionFailed: boolean; failure?: DatabaseError };
 const transactions = new AsyncLocalStorage<TransactionScope>();
 // resolve4 skips the OS cache, so an uncached lookup adds a DNS round trip to every
 // query. The pooler's addresses rarely change; unreachable ones are retried below.
 const DNS_TTL_MS = 60_000;
+// These bounds apply only before SQL is sent. A timed-out query can have committed;
+// never race query execution against a timer or replay it on another connection.
+const ACQUISITION_BUDGET_MS = 8_000;
+const ACQUISITION_ATTEMPT_MS = 2_000;
+const POOL_MAX_CLIENTS = 3;
 let resolved: { host: string; addresses: string[]; at: number } | null = null;
+let dnsGeneration = 0;
 
-async function poolerAddresses(host: string): Promise<string[]> {
+async function poolerAddresses(host: string, deadline: number): Promise<string[]> {
   if (resolved?.host === host && Date.now() - resolved.at < DNS_TTL_MS) return resolved.addresses;
+  const generation = dnsGeneration;
   const addresses = await resolve4(host);
-  resolved = { host, addresses, at: Date.now() };
+  // A late DNS response must not repopulate a cache invalidated by another request.
+  if (generation === dnsGeneration && Date.now() < deadline) resolved = { host, addresses, at: Date.now() };
   return addresses;
 }
 
@@ -28,31 +38,78 @@ function sameDatabase(left: SupabaseSettings, right: SupabaseSettings): boolean 
     && left.projectRef === right.projectRef && left.password === right.password;
 }
 
-function poolFor(settings: SupabaseSettings, address: string, port: number): Pool {
+function invalidatePool(entry: PoolEntry): void {
+  if (entry.retired) return;
+  entry.retired = true;
+  const key = `${entry.address}:${entry.port}`;
+  // An error from an old pool must not evict its healthy replacement.
+  if (pools.get(key) === entry) {
+    pools.delete(key);
+    if (resolved?.host === entry.settings.host) resolved = null;
+    dnsGeneration += 1;
+  }
+  if (preferred === entry) preferred = null;
+  // end() drains checked-out clients; it does not interrupt other requests' SQL.
+  void entry.pool.end().catch(() => undefined);
+}
+
+function poolFor(settings: SupabaseSettings, address: string, port: number): PoolEntry {
   const key = `${address}:${port}`;
   const existing = pools.get(key);
-  if (existing) return existing;
+  if (existing && sameDatabase(existing.settings, settings)) return existing;
+  if (existing) invalidatePool(existing);
   const pool = new Pool({
     host: address,
     port,
     user: settings.user,
     password: settings.password,
     database: settings.database,
-    max: 3,
+    max: POOL_MAX_CLIENTS,
     idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: 8_000,
+    // pg-pool applies this to both connection creation and its FIFO checkout
+    // queue. The outer bound below keeps new connection attempts at two seconds,
+    // while a healthy saturated pool can use the full acquisition budget.
+    connectionTimeoutMillis: ACQUISITION_BUDGET_MS,
     ssl: { rejectUnauthorized: false, servername: settings.host },
   });
-  pool.on("error", () => {
-    pools.delete(key);
-  });
-  pools.set(key, pool);
-  return pool;
+  const entry: PoolEntry = { pool, settings: { ...settings }, address, port, retired: false };
+  pool.on("error", () => invalidatePool(entry));
+  pools.set(key, entry);
+  return entry;
 }
 
 function unreachable(error: unknown): boolean {
   const code = error && typeof error === "object" && "code" in error ? String(error.code) : "";
-  return code === "ENETUNREACH" || code === "EHOSTUNREACH" || code === "ETIMEDOUT" || code === "ECONNREFUSED";
+  const message = error instanceof Error ? error.message : "";
+  return ["ENETUNREACH", "EHOSTUNREACH", "ETIMEDOUT", "ECONNREFUSED", "ECONNRESET", "EPIPE", "08000", "08001", "08003", "08006", "57P01", "57P02", "57P03"].includes(code)
+    || /^(?:timeout exceeded when trying to connect|Connection terminated due to connection timeout|Connection terminated unexpectedly|Connection terminated|timeout expired|Cannot use a pool after calling end on the pool)$/i.test(message);
+}
+
+function checkoutTimeout(error: unknown): boolean {
+  return error instanceof Error && /^(?:timeout exceeded when trying to connect|Connection terminated due to connection timeout)$/i.test(error.message);
+}
+function activeClients(entry: PoolEntry): number {
+  return Number.isFinite(entry.pool.totalCount) && Number.isFinite(entry.pool.idleCount)
+    ? Math.max(0, entry.pool.totalCount - entry.pool.idleCount) : 0;
+}
+
+function boundedAcquisition<T>(operation: Promise<T>, milliseconds: number, late?: (value: T) => void): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let expired = false;
+    const timer = setTimeout(() => {
+      expired = true;
+      reject(new Error("timeout exceeded when trying to connect"));
+    }, milliseconds);
+    operation.then((value) => {
+      if (expired) { late?.(value); return; }
+      clearTimeout(timer);
+      resolve(value);
+    }, (error: unknown) => {
+      if (expired) return;
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
 }
 
 /** The pooler has no room for another client right now; the other port may. */
@@ -71,6 +128,53 @@ function failedQuery(error: unknown): DatabaseError {
   return new DatabaseError(`The ledger query failed: ${detail}`, sqlState);
 }
 
+async function acquireClient(settings: SupabaseSettings): Promise<{ client: PoolClient; entry: PoolEntry }> {
+  const deadline = Date.now() + ACQUISITION_BUDGET_MS;
+  let addresses: string[];
+  try {
+    addresses = await boundedAcquisition(poolerAddresses(settings.host, Date.now() + ACQUISITION_ATTEMPT_MS), ACQUISITION_ATTEMPT_MS);
+  } catch (error) { throw failedQuery(error); }
+  const candidates: Candidate[] = [];
+  const first = preferred && !preferred.retired && sameDatabase(preferred.settings, settings) && addresses.includes(preferred.address) ? preferred : null;
+  if (first) candidates.push(first);
+  // Transaction mode shares server connections; session mode is the fallback.
+  for (const port of [6543, 5432]) for (const address of addresses) {
+    if (first?.address !== address || first.port !== port) candidates.push({ address, port });
+  }
+  let lastError: unknown = new DatabaseError("The ledger database is unreachable.");
+  for (const candidate of candidates) {
+    const remaining = deadline - Date.now();
+    if (remaining <= 0) break;
+    const entry = poolFor(settings, candidate.address, candidate.port);
+    const queued = entry.pool.totalCount >= POOL_MAX_CLIENTS && entry.pool.idleCount === 0;
+    try {
+      const client = await boundedAcquisition(entry.pool.connect(), queued ? remaining : Math.min(remaining, ACQUISITION_ATTEMPT_MS), (lateClient) => {
+        // pg's public API cannot cancel a checkout. Return a late unused client
+        // to a healthy pool, or destroy it when that pool has been retired.
+        lateClient.release(entry.retired);
+      });
+      if (entry.retired) {
+        client.release(true);
+        lastError = new Error("Connection terminated");
+        continue;
+      }
+      preferred = entry;
+      return { client, entry };
+    } catch (error) {
+      lastError = error;
+      // Queue pressure is not proof that this address or its healthy active
+      // clients are unreachable. Preserve the pool, preference and DNS cache.
+      if (checkoutTimeout(error) && (queued || activeClients(entry) > 0)) {
+        if (queued) throw failedQuery(error);
+        continue;
+      }
+      if (!full(error) && !unreachable(error)) throw failedQuery(error);
+      invalidatePool(entry);
+    }
+  }
+  throw failedQuery(lastError);
+}
+
 export async function query<T extends QueryResultRow>(
   settings: SupabaseSettings,
   text: string,
@@ -81,44 +185,44 @@ export async function query<T extends QueryResultRow>(
   }
   const transaction = transactions.getStore();
   if (transaction) {
-    if (!transaction.active || !sameDatabase(transaction.settings, settings)) {
+    if (!sameDatabase(transaction.settings, settings)) {
+      throw new DatabaseError("The ledger transaction scope is no longer valid.");
+    }
+    if (!transaction.active) {
+      if (transaction.connectionFailed && transaction.failure) throw transaction.failure;
       throw new DatabaseError("The ledger transaction scope is no longer valid.");
     }
     try { return (await transaction.client.query<T>(text, values)).rows; }
-    catch (error) { throw failedQuery(error); }
-  }
-  const addresses = await poolerAddresses(settings.host);
-  const candidates: { address: string; port: number }[] = [];
-  if (preferred && addresses.includes(preferred.address)) candidates.push(preferred);
-  // Transaction mode (6543) shares server connections between clients; session mode (5432) caps
-  // clients at the pool size. Queries here are single statements or single-call functions with
-  // transaction-scoped locks, so transaction mode is safe.
-  for (const port of [6543, 5432]) {
-    for (const address of addresses) {
-      if (preferred?.address === address && preferred.port === port) continue;
-      candidates.push({ address, port });
+    catch (error) {
+      const failure = failedQuery(error);
+      if (unreachable(error)) {
+        transaction.connectionFailed = true;
+        transaction.active = false;
+        transaction.failure = failure;
+      }
+      throw failure;
     }
   }
-  let lastError: unknown = new DatabaseError("The ledger database is unreachable.");
-  for (const candidate of candidates) {
-    const pool = poolFor(settings, candidate.address, candidate.port);
-    try {
-      const result = await pool.query<T>(text, values);
-      preferred = candidate;
-      return result.rows;
-    } catch (error) {
-      lastError = error;
-      // A bad query is not a bad connection: other requests share this pool, so only drop it when unreachable.
-      if (full(error)) continue;
-      if (!unreachable(error)) throw failedQuery(error);
-      resolved = null;
-      if (preferred?.address === candidate.address && preferred.port === candidate.port) preferred = null;
-      const key = `${candidate.address}:${candidate.port}`;
-      if (pools.get(key) === pool) pools.delete(key);
-      void pool.end().catch(() => undefined);
-    }
+  const { client, entry } = await acquireClient(settings);
+  let failed = false;
+  let onError!: (error: Error) => void;
+  try {
+    // Match pool.query's checked-out client error handling, with no retry after
+    // client.query is called, even when the response to a write is lost.
+    const result = await new Promise<{ rows: T[] }>((resolve, reject) => {
+      onError = reject;
+      client.on("error", onError);
+      client.query<T>(text, values).then(resolve, reject);
+    });
+    return result.rows;
+  } catch (error) {
+    failed = true;
+    if (unreachable(error)) invalidatePool(entry);
+    throw failedQuery(error);
+  } finally {
+    client.removeListener("error", onError);
+    client.release(failed);
   }
-  throw failedQuery(lastError);
 }
 
 /**
@@ -134,51 +238,49 @@ export async function withBankIngestTransaction<T>(
     throw new DatabaseError("The ledger transaction owner or database is invalid.");
   }
   if (transactions.getStore()) throw new DatabaseError("A ledger transaction is already active.");
-  const addresses = await poolerAddresses(settings.host);
-  const candidates: { address: string; port: number }[] = [];
-  if (preferred && addresses.includes(preferred.address)) candidates.push(preferred);
-  for (const port of [6543, 5432]) for (const address of addresses) {
-    if (preferred?.address !== address || preferred.port !== port) candidates.push({ address, port });
+  const { client, entry } = await acquireClient(settings);
+  const scope: TransactionScope = { client, settings: { ...settings }, active: true, connectionFailed: false };
+  let connectionFailed = false;
+  let committing = false;
+  let clientError: Error | undefined;
+  const connectionError = () => clientError ?? scope.failure ?? new DatabaseError("The ledger transaction connection is no longer available.");
+  const onError = (error: Error) => {
+    clientError = error;
+    scope.connectionFailed = true;
+    scope.failure = failedQuery(error);
+    scope.active = false;
+    invalidatePool(entry);
+  };
+  const transactionQuery = async (text: string, values?: unknown[]) => {
+    if (scope.connectionFailed) throw connectionError();
+    await client.query(text, values);
+    if (scope.connectionFailed) throw connectionError();
+  };
+  client.on("error", onError);
+  try {
+    await transactionQuery("begin");
+    await transactionQuery("set local lock_timeout = '5s'");
+    await transactionQuery("set local statement_timeout = '15s'");
+    await transactionQuery("set local idle_in_transaction_session_timeout = '30s'");
+    // Serializes only automatic ingestion for this owner. Other financial
+    // actions retain their existing validation/locking contracts.
+    await transactionQuery("select pg_advisory_xact_lock(hashtextextended('bank-ingest:' || $1::text, 0))", [ownerId.toLowerCase()]);
+    const result = await transactions.run(scope, work);
+    scope.active = false;
+    if (scope.connectionFailed) throw connectionError();
+    committing = true;
+    await transactionQuery("commit");
+    return result;
+  } catch (error) {
+    scope.active = false;
+    connectionFailed = committing || scope.connectionFailed || unreachable(error);
+    try { await client.query("rollback"); }
+    catch { connectionFailed = true; }
+    if (connectionFailed) invalidatePool(entry);
+    throw error;
+  } finally {
+    scope.active = false;
+    client.removeListener("error", onError);
+    client.release(connectionFailed);
   }
-  let lastError: unknown = new DatabaseError("The ledger database is unreachable.");
-  for (const candidate of candidates) {
-    const pool = poolFor(settings, candidate.address, candidate.port);
-    let client: PoolClient;
-    try {
-      client = await pool.connect();
-    } catch (error) {
-      lastError = error;
-      if (unreachable(error)) resolved = null;
-      if (full(error) || unreachable(error)) continue;
-      throw failedQuery(error);
-    }
-    const scope: TransactionScope = { client, settings: { ...settings }, active: true };
-    let connectionFailed = false;
-    let committing = false;
-    try {
-      await client.query("begin");
-      preferred = candidate;
-      await client.query("set local lock_timeout = '5s'");
-      await client.query("set local statement_timeout = '15s'");
-      await client.query("set local idle_in_transaction_session_timeout = '30s'");
-      // Serializes only automatic ingestion for this owner. Other financial
-      // actions retain their existing validation/locking contracts.
-      await client.query("select pg_advisory_xact_lock(hashtextextended('bank-ingest:' || $1::text, 0))", [ownerId.toLowerCase()]);
-      const result = await transactions.run(scope, work);
-      scope.active = false;
-      committing = true;
-      await client.query("commit");
-      return result;
-    } catch (error) {
-      scope.active = false;
-      connectionFailed = committing || unreachable(error);
-      try { await client.query("rollback"); }
-      catch { connectionFailed = true; }
-      throw error;
-    } finally {
-      scope.active = false;
-      client.release(connectionFailed);
-    }
-  }
-  throw failedQuery(lastError);
 }

@@ -10,12 +10,14 @@ import { AuthForm } from "@/app/auth-form";
 import { GET as contextRoute } from "@/app/api/chat/context/route";
 import type { ThreadMessage } from "@/lib/accounts/thread";
 import type { Ledger } from "@/lib/web/ledger";
+import { buildChatContext } from "@/lib/web/chat-context";
 import { buildAccountingView } from "@/lib/finance/accounting/view";
 import { emptyAccountingState } from "@/lib/finance/accounting/types";
 
 const mocks = vi.hoisted(() => ({
   owner: vi.fn(),
   loadLedger: vi.fn(),
+  loadChatContext: vi.fn(),
   signedIn: vi.fn(),
   listRecent: vi.fn(),
   network: vi.fn(),
@@ -31,6 +33,7 @@ vi.mock("@/lib/web/api", () => ({
   fail: (text: string, status: number) => Response.json({ ok: false, text }, { status }),
 }));
 vi.mock("@/lib/web/ledger", () => ({ loadLedger: mocks.loadLedger }));
+vi.mock("@/lib/web/secondary-read-models", () => ({ loadChatContext: mocks.loadChatContext }));
 vi.mock("@/lib/web/finance-empty", () => ({ financeLooksEmpty: mocks.financeLooksEmpty }));
 vi.mock("@/lib/accounts/supabase-messages", () => ({ createSupabaseMessageLog: () => ({ listRecent: mocks.listRecent }) }));
 vi.mock("@/lib/log", () => ({ logError: vi.fn() }));
@@ -53,6 +56,7 @@ beforeEach(() => {
   mocks.owner.mockResolvedValue(owner);
   mocks.connection.mockResolvedValue(undefined);
   mocks.loadLedger.mockResolvedValue(ledger);
+  mocks.loadChatContext.mockResolvedValue(buildChatContext(ledger));
   mocks.financeLooksEmpty.mockResolvedValue(false);
   mocks.signedIn.mockResolvedValue({ kind: "ready", userId: OWNER, profile, settings });
   mocks.listRecent.mockResolvedValue([]);
@@ -76,10 +80,10 @@ describe("optional Chat finance context", () => {
   it("loads only the authenticated owner's financial summary without accepting owner arguments", async () => {
     const response = await contextRoute();
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ ok: true, ownerId: OWNER, ledger });
+    expect(await response.json()).toEqual({ ok: true, ownerId: OWNER, context: buildChatContext(ledger) });
     expect(mocks.connection).toHaveBeenCalledExactlyOnceWith();
     expect(mocks.owner).toHaveBeenCalledExactlyOnceWith();
-    expect(mocks.loadLedger).toHaveBeenCalledExactlyOnceWith(profile, settings);
+    expect(mocks.loadChatContext).toHaveBeenCalledExactlyOnceWith(profile, settings);
     expect(response.headers.get("cache-control")).toBe("no-store");
   });
 
@@ -92,7 +96,7 @@ describe("optional Chat finance context", () => {
   });
 
   it("reports failed finance loading instead of returning a fake empty ledger", async () => {
-    mocks.loadLedger.mockRejectedValue(new Error("synthetic database timeout: never show internal details"));
+    mocks.loadChatContext.mockRejectedValue(new Error("synthetic database timeout: never show internal details"));
     const response = await contextRoute();
     expect(response.status).toBe(500);
     expect(response.headers.get("cache-control")).toBe("no-store");
