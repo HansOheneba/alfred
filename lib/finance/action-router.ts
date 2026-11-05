@@ -28,6 +28,7 @@ import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } fr
 import type { LearningLog } from "@/lib/learning/log";
 import { fileAndAskNext, type MovementSorter, type SortOutcome } from "@/lib/conversation/sorting";
 import type { Progress } from "@/lib/conversation/steps";
+import { manageProject, type TeamAccess } from "@/lib/team/chat";
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
@@ -108,6 +109,8 @@ export type ActionContext = {
   sorting?: MovementSorter | null;
   /** Hears what Alfred is doing, for the live step shown while a reply is worked out. */
   progress?: Progress | null;
+  /** The team's shared projects, set only for members. */
+  team?: TeamAccess | null;
 };
 
 export type BankAccess = {
@@ -146,6 +149,8 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return incomeSummary(action, ctx);
     case "show_chart":
       return showChart(action, ctx);
+    case "manage_project":
+      return projectAction(action, ctx);
     case "get_financial_overview":
       return overview(action, ctx);
     case "get_insights":
@@ -204,6 +209,10 @@ export async function executeConfirmed(
   if (payload.type === "create_account" || payload.type === "update_account") return executeAccountManagement(payload, ctx);
   if (payload.type === "update_profile_settings" || payload.type === "update_reminder_settings" || payload.type === "update_notification_settings") return executePreferenceManagement(payload, ctx);
   if (payload.type === "offer") return { text: "That offer is settled in the conversation. Nothing was changed." };
+  if (payload.type === "remove_project") {
+    if (!ctx.team) return { text: "I can't help with that here." };
+    return { text: await ctx.team.store.removeProject(ctx.team.memberId, payload.projectId) ? `Removed “${payload.title}” and its notes.` : "That project was already gone. Nothing was changed." };
+  }
   if (payload.type === "file_movements") return { text: await fileGroup(ctx, payload.groupId, payload.status === "confirmed" ? { status: "confirmed", category: payload.category ?? "Misc" } : { status: payload.status }) };
   if (payload.type === "label_payments") {
     if (!ctx.labelPayments) return { text: "I can't file bank payments right now. Nothing was changed." };
@@ -859,6 +868,14 @@ async function recordLoan(action: Extract<FinanceAction, { type: "record_loan" }
     date,
     note: action.note?.trim() ?? "",
   });
+}
+
+/** A change to the team's projects, from chat. Removing one waits for a yes; the rest is done straight away. */
+async function projectAction(action: Extract<FinanceAction, { type: "manage_project" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.team) return { kind: "text", text: "I can't help with that here." };
+  const outcome = await manageProject(action, ctx.team);
+  if ("text" in outcome) return { kind: "text", text: outcome.text };
+  return saveConfirmation(ctx, outcome.confirm.text, { type: "remove_project", originUpdateId: String(ctx.updateId), projectId: outcome.confirm.projectId, title: outcome.confirm.title });
 }
 
 /** Files a Needs attention group the person said yes to, then asks about the next one. */

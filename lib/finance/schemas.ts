@@ -299,6 +299,20 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     skip: z.boolean().nullable().optional(),
   }),
   z.object({
+    /** The team's shared side projects (members only): list, add, update, add a note or link, or remove one. */
+    type: z.literal("manage_project"),
+    op: z.enum(["list", "add", "update", "note", "remove"]),
+    /** Which existing project, by its name. */
+    project: z.string().max(120).nullable().optional(),
+    title: z.string().max(120).nullable().optional(),
+    summary: z.string().max(2000).nullable().optional(),
+    status: z.enum(["idea", "planned", "building", "shipped", "parked"]).nullable().optional(),
+    priority: z.enum(["high", "medium", "low"]).nullable().optional(),
+    lead: z.enum(["me", "other", "both"]).nullable().optional(),
+    link: z.object({ url: z.string().max(500), label: z.string().max(80).nullable().optional() }).nullable().optional(),
+    note: z.string().max(4000).nullable().optional(),
+  }),
+  z.object({
     /** Answer for a group of imported or held payments from the Needs attention list, by its number. */
     type: z.literal("file_movements"),
     group: z.number().int().min(1).max(8),
@@ -399,6 +413,12 @@ export const pendingPayloadSchema = z.discriminatedUnion("type", [
     type: z.literal("label_payments"),
     originUpdateId: z.string().regex(/^\d+$/),
     items: z.array(z.object({ bankMessageId: z.string().min(1).max(80), label: proposedLabelSchema })).min(1).max(4),
+  }),
+  z.object({
+    type: z.literal("remove_project"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    projectId: z.string().uuid(),
+    title: z.string().min(1).max(120),
   }),
   z.object({
     type: z.literal("file_movements"),

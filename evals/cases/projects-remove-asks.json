@@ -1,0 +1,20 @@
+{
+  "id": "projects-remove-asks",
+  "title": "Removing a shared project waits for a yes, and a nickname still means the teammate",
+  "source": "2026-11-06: projects in chat; removing one can't be undone",
+  "tags": ["projects"],
+  "now": "2026-11-06T10:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "team": { "others": ["Kojo"], "projects": [{ "title": "Portfolio site", "status": "idea" }, { "title": "Recipe planner", "status": "building", "lead": "me" }] }
+  },
+  "steps": [
+    { "say": "delete the portfolio site project", "expect": { "asksToConfirm": true, "savesNothing": true } },
+    { "tap": "confirm" },
+    { "say": "give the recipe planner to KJ, he's doing it now" }
+  ],
+  "final": {
+    "noProjects": ["Portfolio"],
+    "projects": [{ "title": "Recipe planner", "lead": "other" }]
+  }
+}

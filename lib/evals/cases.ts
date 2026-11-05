@@ -70,6 +70,8 @@ export const evalCaseSchema = z.object({
     transactions: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), type: z.enum(["income", "expense"]), amount, category: z.string(), description: z.string() })).default([]),
     /** Imported history or card holds on the Accounts page's Needs attention list: `count` alike payments a month apart from `from`. */
     attention: z.array(z.object({ description: z.string().min(1), direction: z.enum(["in", "out"]), status: z.enum(["review", "hold"]).default("review"), amount, count: z.number().int().min(1).max(60).default(1), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })).default([]),
+    /** The person builds side projects with these teammates, in a shared project list. Without it they aren't on a team. */
+    team: z.object({ others: z.array(z.string()).min(1), projects: z.array(z.object({ title: z.string(), status: z.enum(["idea", "planned", "building", "shipped", "parked"]).default("idea"), priority: z.enum(["high", "medium", "low"]).default("medium"), lead: z.enum(["me", "other", "both"]).default("both") })).default([]) }).optional(),
     /** Earlier chat, oldest first. */
     messages: z.array(z.object({ role: z.enum(["user", "assistant"]), body: z.string(), intent: z.string().optional() })).default([]),
   }).prefault({}),
@@ -81,6 +83,10 @@ export const evalCaseSchema = z.object({
     transactions: z.array(z.object({ type: z.enum(["income", "expense"]).optional(), amount, category: z.string().optional() })).optional(),
     /** Money into (+) or out of (-) an investment, like { "investment": "Risevest", "amount": "-1500.00" }. */
     investmentFlows: z.array(z.object({ investment: z.string(), amount: z.string().regex(/^-?\d+\.\d{2}$/) })).optional(),
+    /** Shared projects that must exist by the end; `title` is a regex. */
+    projects: z.array(z.object({ title: z.string(), status: z.enum(["idea", "planned", "building", "shipped", "parked"]).optional(), priority: z.enum(["high", "medium", "low"]).optional(), lead: z.enum(["me", "other", "both"]).optional(), notes: z.number().int().min(0).optional(), links: z.number().int().min(0).optional() })).optional(),
+    /** Project titles (regexes) that must no longer exist. */
+    noProjects: z.array(z.string()).optional(),
     /** How Needs attention payments must end up, by description: every one with that description. */
     sorted: z.array(z.object({ description: z.string(), status: z.enum(["confirmed", "excluded", "duplicate", "review", "hold"]), category: z.string().optional() })).optional(),
     /** Budgets that must exist, like { "category": "Shopping", "amount": "2000.00", "period": "2026-11" }. */
