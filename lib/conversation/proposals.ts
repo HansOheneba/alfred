@@ -65,6 +65,11 @@ export async function proposeLabels(ctx: ActionContext, proposals: Proposal[], p
     return proposedLabelSchema.safeParse(item.label).success;
   }).slice(0, 4);
   if (usable.length === 0 || !ctx.labelPayments) return null;
+  // A newer reading replaces any earlier one for the same payments, so "yes" can only confirm the latest.
+  for (const message of usable) {
+    const earlier = await openLabelProposal(ctx, message.message.id);
+    if (earlier) await ctx.store.updatePendingAction(earlier.actionId, { status: "cancelled" });
+  }
   const lines = usable.map((item) => `• ${waitingLine(item.message, profile)}: ${describeLabel(item.message, item.label)}`);
   const text = [usable.length === 1 ? "Here's how I read that:" : "Here's how I read those:", ...lines, "", "Save this? Nothing changes until you confirm."].join("\n");
   return saveConfirmation(ctx, text, {
