@@ -1,5 +1,6 @@
 import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { createSupabaseBillStore, type BillStore } from "@/lib/finance/bills";
+import { createSupabaseSorter, type MovementSorter } from "@/lib/conversation/sorting";
 import { createSupabaseAccountManagementStore, type AccountManagementStore } from "@/lib/accounts/management";
 import { createSupabasePreferenceManagementStore, type PreferenceManagementStore } from "@/lib/accounts/preference-management";
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
@@ -78,6 +79,8 @@ export type StudioDeps = {
   /** Deterministic, owner-scoped pairing of the two captured bank alerts. */
   transferConversations?: TransferConversationDeps | null;
   paymentResolutions?: PaymentResolutionDeps | null;
+  /** The Accounts page's Needs attention list, for sorting it in chat. */
+  sorting?: MovementSorter | null;
 };
 
 export async function handleStudioTurn(input: StudioTurn, deps: StudioDeps): Promise<StudioResult> {
@@ -163,6 +166,7 @@ export async function handleProfileTurn(
     bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
     notebook: deps.notebook ?? null,
     learning: deps.learning ?? null,
+    sorting: deps.sorting ?? null,
   };
   const labelling = ingestFor(deps, now);
   ctx.labelPayments = labelling ? proposedLabelApplier(labelling, profile) : null;
@@ -388,5 +392,6 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     accountRuleCommands: createAccountRuleBotDeps(settings.supabase),
     transferConversations: createTransferConversationDeps(settings.supabase),
     paymentResolutions: createPaymentResolutionDeps(settings.supabase),
+    sorting: createSupabaseSorter(settings.supabase),
   };
 }

@@ -26,7 +26,11 @@ import { questionFor } from "@/lib/bank/notify";
 import { openThread } from "@/lib/conversation/thread";
 import { welcomeFor } from "@/lib/conversation/welcome";
 import { decidePaymentAnswer, nearbyIds, nearbyPayments, openLabelProposal, proposeLabels, type Proposal } from "@/lib/conversation/proposals";
-import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
+import { handleAction, saveConfirmation, type ActionContext, type Delivery } from "@/lib/finance/action-router";
+import {
+  askedGroupId, describeGroup, fileAndAskNext, groundedOutcome, groupLines, groupQuestion, nextGroup, outcomeWords, SKIP_GROUP, SORT_QUESTION, sortIntent,
+  type MovementSorter, type SortGroup, type SortOutcome,
+} from "@/lib/conversation/sorting";
 import { attentionLine, interpretWithContext, type ChatCue } from "@/lib/finance/context";
 import type { AttentionSummary } from "@/lib/finance/accounting/types";
 import type { LoanStore } from "@/lib/finance/loans";
@@ -44,7 +48,7 @@ import type { InlineButton } from "@/lib/telegram/client";
 import { localGreeting } from "@/lib/telegram/messages";
 import { KIND_LABELS, type InvestmentStore } from "@/lib/investments/store";
 import { canonicalizeAmount, toMinor } from "@/lib/finance/money";
-import { normalizeCategory, readCategories } from "@/lib/finance/categories";
+import { categoryList, normalizeCategory, readCategories } from "@/lib/finance/categories";
 import { isRealDate, zonedYmd } from "@/lib/finance/dates";
 import type { CategoryRecord, PendingActionRecord } from "@/lib/finance/types";
 
@@ -160,6 +164,9 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     aboutForPrompt(deps.notebook, ctx.profile.profileId),
     investmentsForPrompt(deps.investments, ctx.profile.profileId),
   ]);
+  // Going through the Accounts page's Needs attention list: the group Alfred just asked about, and the rest.
+  const sort = noticeFocus === undefined && !options.newTopic ? await openSortGroups(ctx.sorting, deps.messages, ctx.profile.profileId, options.excludeClientId) : null;
+  if (sort && SKIP_GROUP.test(text.trim())) return ordinaryReply(await askSortGroup(ctx, sort, true));
   const acknowledgement = !waiting?.current ? closedNoticeAcknowledgement(text) : null;
   if (noticeFocus !== undefined && acknowledgement) {
     return keepNoticeFocus({ kind: "text", text: acknowledgement, intent: "chat:other" }, true);
@@ -195,9 +202,10 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     people,
     about,
     investments,
-    model: waiting || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
+    model: waiting || sort || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
     open: (history) => {
       open = openThread({ history: noticeFocus === undefined ? history : [], waiting, pending, now: ctx.now });
+      if (sort) open.push(sortGuidance(sort));
       if (noticeFocus !== undefined || askedAbout) {
         const nearby = waiting?.current ? nearbyPayments(waiting.current, waiting.listed, ctx.profile) : [];
         open.push(waiting?.currentNumber
@@ -226,7 +234,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     if (asked) ({ action, context, cue, unread, lookedUp, found } = await interpretWithContext(request(`Yes, go ahead with what you asked: "${asked}"${text.trim().length > 12 ? ` (${text.trim()})` : ""}`)));
   }
   seen.actions = [...Array.from({ length: lookedUp ?? 0 }, () => "look_up"), ...actionsOf(action).map((item) => item.type)];
-  seen.model = waiting || actionsMayNeedCare(text) ? LABEL_MODEL : "default";
+  seen.model = waiting || sort || actionsMayNeedCare(text) ? LABEL_MODEL : "default";
   logInfo("interpreted", { userId: ctx.profile.profileId, action: action.type === "several" ? action.actions.map((item) => item.type).join("+") : action.type });
 
   // A reply that couldn't be read, or that came while the model was down, most likely answers the
@@ -294,7 +302,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   const parts: TurnReply[] = [];
   for (const item of actions) {
     const confirmed = allowedIndependent && item.type === "create_transaction" ? { ...item, explicit: false } : item;
-    parts.push(await perform(confirmed, { text, ctx, deps, ingest, waiting, pending: pending?.actionId ?? null, context, cue, open, channel: options.channel, purposeDetail, lookedUp, found }));
+    parts.push(await perform(confirmed, { text, ctx, deps, ingest, waiting, pending: pending?.actionId ?? null, context, cue, open, channel: options.channel, purposeDetail, lookedUp, found, sort }));
   }
   return keepNoticeFocus(combine(parts, action));
 }
@@ -535,7 +543,75 @@ type Turn = {
   /** The model looked records up this turn, so its reply rests on results the voice never sees. */
   lookedUp?: number;
   found?: { query: string; lines: string[] }[];
+  /** The Needs attention groups, while Alfred is going through them. */
+  sort?: SortState | null;
 };
+
+type SortState = { groups: SortGroup[]; asked: SortGroup | null; numbered: SortGroup[]; lines: string[] };
+
+/** The Needs attention groups, when Alfred's last few replies were going through them. */
+async function openSortGroups(sorter: MovementSorter | null | undefined, messages: MessageLog | null | undefined, ownerId: string, excludeClientId?: string | null): Promise<SortState | null> {
+  if (!sorter || !messages) return null;
+  const replies = (await messages.listRecent(ownerId, 8)).filter((item) => (!excludeClientId || item.clientId !== excludeClientId) && item.role === "assistant").slice(-3);
+  const at = replies.findLastIndex((item) => (item.intent ?? "").startsWith("sort:") || SORT_QUESTION.test(item.body));
+  if (at === -1 || replies.slice(at + 1).some((item) => item.newTopic || item.paymentNotice)) return null;
+  const groups = await sorter.groups(ownerId);
+  if (!groups.length) return null;
+  const said = replies[at];
+  const byIntent = askedGroupId(said.intent);
+  // A question shown after a confirmation has no intent of its own; the group it quotes is the one asked.
+  const quoted = groups.map((group) => ({ group, at: said.body.lastIndexOf(`“${group.description}”`) })).filter((item) => item.at !== -1).sort((left, right) => right.at - left.at)[0]?.group;
+  const asked = groups.find((group) => group.id === byIntent) ?? quoted ?? null;
+  return { groups, asked, ...groupLines(groups, asked) };
+}
+
+function sortGuidance(sort: SortState): string {
+  return [
+    "Alfred is going through the Needs attention list from the Accounts page with them, one group of same-merchant payments at a time (imported history and card holds, not bank texts).",
+    `The groups: ${sort.lines.join("; ")}.`,
+    sort.asked ? "Alfred just asked about group 1." : "",
+    "Answer for a group with file_movements and its number: outcome category with the category it was (an expense category for money out, an income category for money in; their word like \"netflix\" or \"groceries\" implies one), own_money when it's their own money moving between their accounts, wallets or cards, not_charged when card holds were cancelled, released or never charged, duplicate for repeats of the same payment.",
+    "If they want to skip or don't know, use ask_next with skip true. If they ask a question about the payments, answer it and the group stays open. Never send them to the Accounts page to do this.",
+  ].filter(Boolean).join(" ");
+}
+
+/** Alfred's question about the next group, or the one still open. */
+async function askSortGroup(ctx: ActionContext, sort: SortState | null, skip: boolean): Promise<TurnReply> {
+  const groups = sort?.groups ?? (ctx.sorting ? await ctx.sorting.groups(ctx.profile.profileId) : []);
+  const current = sort?.asked ?? null;
+  const group = skip ? nextGroup(groups, current?.id ?? null) : current ?? groups[0];
+  if (!group) return { kind: "text", text: "There's nothing left on the Needs attention list to sort.", intent: "sort:done" };
+  if (skip && group.id === current?.id) return { kind: "text", text: "That's the last group left. It stays on the Needs attention list until you tell me what it was.", intent: "sort:done" };
+  const intro = sort ? "" : groups.length > 1 ? `Let's go through them here, a merchant at a time, biggest first. ` : "";
+  return { kind: "text", text: `${intro}${groupQuestion(group, groups.length)}`, intent: sortIntent(group) };
+}
+
+/** Files the person's answer for a group: straight away when their words say it, after a yes when Alfred inferred it. */
+async function fileMovements(action: Extract<FinanceAction, { type: "file_movements" }>, turn: Turn): Promise<TurnReply> {
+  const { ctx } = turn;
+  const group = turn.sort?.numbered[action.group - 1];
+  if (!ctx.sorting || !group) return askSortGroup(ctx, turn.sort ?? null, false);
+  const categories = await readCategories(ctx.store, ctx.profile.profileId);
+  const type = group.direction === "in" ? "income" : "expense";
+  let outcome: SortOutcome;
+  if (action.outcome === "category") {
+    const category = action.category ? normalizeCategory(action.category, type, categories) : null;
+    if (!category) {
+      return { kind: "text", intent: sortIntent(group),
+        text: `Which ${type} category should ${group.count === 1 ? "it" : "they"} go under: ${categoryList(type, categories).join(", ")}? Or say a new one and I'll create it.` };
+    }
+    outcome = { status: "confirmed", category };
+  } else {
+    outcome = { status: action.outcome === "duplicate" ? "duplicate" : "excluded" };
+  }
+  if (groundedOutcome(turn.text, group, outcome, categories)) {
+    const filed = await fileAndAskNext(ctx.sorting, ctx.profile.profileId, turn.sort?.groups ?? null, group.id, outcome, `chat-sort-${ctx.updateId}-${group.id}`);
+    return { kind: "text", text: filed.text, intent: filed.next ? sortIntent(filed.next) : "sort:done" };
+  }
+  return { ...(await saveConfirmation(ctx, `File ${describeGroup(group)} ${outcomeWords(outcome, group)}?`, {
+    type: "file_movements", originUpdateId: String(ctx.updateId), groupId: group.id, status: outcome.status, category: outcome.status === "confirmed" ? outcome.category : null,
+  })), intent: "file_movements" };
+}
 
 /**
  * No bank text is waiting for a label, but the Accounts page can still list
@@ -563,11 +639,16 @@ async function perform(action: FinanceAction, turn: Turn): Promise<TurnReply> {
     return { kind: "text", text: labelled?.text ?? UNMATCHED_LABEL, intent: "bank:label", buttons: labelled?.buttons };
   }
   if (action.type === "ask_next") {
-    const asked = ingest ? await askNextReply(ingest, ctx.profile) : null;
-    return asked
-      ? { kind: "text", text: asked.text, intent: "bank:label", buttons: asked.buttons }
-      : { kind: "text", text: nothingWaiting(turn.cue.attention), intent: "ask_next" };
+    // Bank texts first; then the Needs attention list, sorted right here in chat.
+    const asked = ingest && !(action.skip && turn.sort) ? await askNextReply(ingest, ctx.profile) : null;
+    if (asked) return { kind: "text", text: asked.text, intent: "bank:label", buttons: asked.buttons };
+    if (ctx.sorting) {
+      const sorted = await askSortGroup(ctx, turn.sort ?? null, Boolean(action.skip));
+      if (sorted.intent !== "sort:done" || turn.sort) return sorted;
+    }
+    return { kind: "text", text: nothingWaiting(turn.cue.attention), intent: "ask_next" };
   }
+  if (action.type === "file_movements") return fileMovements(action, turn);
   if (action.type === "answer_confirmation") {
     if (!turn.pending) return { kind: "text", text: "There's nothing waiting for a yes or no right now. What would you like me to do?", intent: "answer_confirmation" };
     const decided = await decidePending({ decision: action.decision, actionId: turn.pending, chatId: null }, ctx);

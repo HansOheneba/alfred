@@ -66,6 +66,8 @@ export const evalCaseSchema = z.object({
     budgets: z.array(z.object({ category: z.string(), amount })).default([]),
     /** Earlier transactions on the books, so questions about older spending have something to find. */
     transactions: z.array(z.object({ date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), type: z.enum(["income", "expense"]), amount, category: z.string(), description: z.string() })).default([]),
+    /** Imported history or card holds on the Accounts page's Needs attention list: `count` alike payments a month apart from `from`. */
+    attention: z.array(z.object({ description: z.string().min(1), direction: z.enum(["in", "out"]), status: z.enum(["review", "hold"]).default("review"), amount, count: z.number().int().min(1).max(60).default(1), from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/) })).default([]),
     /** Earlier chat, oldest first. */
     messages: z.array(z.object({ role: z.enum(["user", "assistant"]), body: z.string(), intent: z.string().optional() })).default([]),
   }).prefault({}),
@@ -77,6 +79,8 @@ export const evalCaseSchema = z.object({
     transactions: z.array(z.object({ type: z.enum(["income", "expense"]).optional(), amount, category: z.string().optional() })).optional(),
     /** Money into (+) or out of (-) an investment, like { "investment": "Risevest", "amount": "-1500.00" }. */
     investmentFlows: z.array(z.object({ investment: z.string(), amount: z.string().regex(/^-?\d+\.\d{2}$/) })).optional(),
+    /** How Needs attention payments must end up, by description: every one with that description. */
+    sorted: z.array(z.object({ description: z.string(), status: z.enum(["confirmed", "excluded", "duplicate", "review", "hold"]), category: z.string().optional() })).optional(),
     /** Budgets that must exist, like { "category": "Shopping", "amount": "2000.00", "period": "2026-11" }. */
     budgets: z.array(z.object({ category: z.string(), amount, period: z.string().regex(/^\d{4}-\d{2}$/).optional() })).optional(),
     /** Regexes the person's notebook must contain, for facts Alfred should remember. */

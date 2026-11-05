@@ -1,0 +1,29 @@
+{
+  "id": "sort-inferred-asks-first",
+  "title": "A group whose category Alfred inferred is shown for a yes before filing",
+  "source": "2026-11-05: sorting Needs attention in chat; unclear answers get a Yes/No card",
+  "tags": ["conversation", "sorting"],
+  "now": "2026-11-05T17:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "attention": [
+      { "description": "SHOPRITE ACHIMOTA MALL", "direction": "out", "status": "review", "amount": "310.00", "count": 4, "from": "2026-05-06" }
+    ]
+  },
+  "steps": [
+    {
+      "say": "can you go through the payments that need attention with me?",
+      "expect": { "reply": "SHOPRITE", "savesNothing": true }
+    },
+    {
+      "say": "that's where I do my weekly shop for the house",
+      "expect": { "savesNothing": true }
+    },
+    { "tap": "confirm", "ifAsked": true }
+  ],
+  "final": {
+    "sorted": [
+      { "description": "SHOPRITE ACHIMOTA MALL", "status": "confirmed", "category": "Food" }
+    ]
+  }
+}
