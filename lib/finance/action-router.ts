@@ -836,11 +836,13 @@ async function recordLoan(action: Extract<FinanceAction, { type: "record_loan" }
   });
 }
 
-function budgetDetailsQuestion(currency: string | null | undefined, period: string | null | undefined): string | null {
-  if (!currency && !period) return "Which currency and month should this budget use?";
-  if (!currency) return "Which currency should this budget use?";
-  if (!period) return "Which month should this budget use?";
-  return null;
+/**
+ * A budget the person didn't give a currency or month for is in their own
+ * currency for this month. The confirmation names both, so a wrong guess is
+ * one "no, December" away instead of a question before every budget.
+ */
+function budgetDefaults(currency: string | null | undefined, period: string | null | undefined, ctx: ActionContext): { currency: string; period: string } {
+  return { currency: currency || ctx.profile.currency, period: period || zonedYmd(ctx.now, ctx.profile.timezone).slice(0, 7) };
 }
 
 async function getCategories(action: Extract<FinanceAction, { type: "get_categories" }>, ctx: ActionContext): Promise<Delivery> {
@@ -855,13 +857,9 @@ async function createCategory(action: Extract<FinanceAction, { type: "create_cat
   const checked = validateCategoryName(action.name, action.transaction_type, custom);
   if (!checked.ok) return { kind: "text", text: checked.message };
   if (action.budget && action.transaction_type !== "expense") return { kind: "text", text: "Budgets need an expense category. Should this be an expense category?" };
-  if (action.budget) {
-    const missing = budgetDetailsQuestion(action.budget.currency, action.budget.period);
-    if (missing) return { kind: "text", text: missing };
-  }
   const exists = custom.some(item => item.type === action.transaction_type && item.name.toLowerCase() === checked.name.toLowerCase());
   if (exists && !action.budget) return { kind: "text", text: `${checked.name} is already one of your ${action.transaction_type} categories.` };
-  const budget = action.budget ? { amount: action.budget.amount, currency: action.budget.currency!, period: action.budget.period! } : null;
+  const budget = action.budget ? { amount: action.budget.amount, ...budgetDefaults(action.budget.currency, action.budget.period, ctx) } : null;
   const existingBudget = budget ? (await ctx.store.listBudgets(ctx.profile.profileId)).find(item => item.category === checked.name && item.currency === budget.currency && item.period === budget.period) : null;
   if (existingBudget) return { kind: "text", text: `Your ${checked.name} budget for ${monthName(existingBudget.period)} is already ${formatMoneyAmount(existingBudget.amount, existingBudget.currency)}. Ask me to change that budget if you want a different amount.` };
   const line = budget
@@ -897,15 +895,14 @@ async function setBudget(
   action: Extract<FinanceAction, { type: "set_budget" }>,
   ctx: ActionContext,
 ): Promise<Delivery> {
-  const missing = budgetDetailsQuestion(action.currency, action.period);
-  if (missing) return { kind: "text", text: missing };
+  const { currency, period } = budgetDefaults(action.currency, action.period, ctx);
   const category = await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "expense");
-  if (!category) return { kind: "text", text: `You don't have an expense category named "${action.category}". Would you like to create it and use it for this budget?` };
-  const period = action.period!;
+  // A budget for a category they don't have yet: offer to make it, in the same card.
+  if (!category) return createCategory({ type: "create_category", name: action.category, transaction_type: "expense", budget: { amount: action.amount, currency, period } }, ctx);
   const existing = (await ctx.store.listBudgets(ctx.profile.profileId)).find(
-    (budget) => budget.period === period && budget.category === category && budget.currency === action.currency,
+    (budget) => budget.period === period && budget.category === category && budget.currency === currency,
   );
-  const amount = formatMoneyAmount(action.amount, action.currency!);
+  const amount = formatMoneyAmount(action.amount, currency);
   const lines = existing
     ? [`Change your ${category} budget for ${monthName(period)}?`, `${formatMoneyAmount(existing.amount, existing.currency)} → ${amount}`]
     : [`Set a ${category} budget of ${amount} for ${monthName(period)}?`];
@@ -914,7 +911,7 @@ async function setBudget(
     originUpdateId: String(ctx.updateId),
     category,
     amount: action.amount,
-    currency: action.currency!,
+    currency,
     period,
   });
 }

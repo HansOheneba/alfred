@@ -1,0 +1,18 @@
+{
+  "id": "budget-new-category",
+  "title": "A budget for a category they don't have yet is one card, not a refusal",
+  "source": "2026-11-05: a budget for a missing category was refused, then asked for currency and month",
+  "tags": ["conversation", "budgets"],
+  "now": "2026-11-05T16:30:00.000Z",
+  "name": "Ama",
+  "steps": [
+    {
+      "say": "Set a budget for gadgets for 1,200",
+      "expect": { "asksToConfirm": true, "savesNothing": true, "notReply": "which currency|which month|closest fit|can't create" }
+    },
+    { "tap": "confirm" }
+  ],
+  "final": {
+    "budgets": [{ "category": "Gadgets", "amount": "1200.00", "period": "2026-11" }]
+  }
+}

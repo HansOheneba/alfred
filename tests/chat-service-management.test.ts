@@ -35,14 +35,10 @@ async function confirm(action: FinanceAction, ctx: ActionContext) {
 }
 
 describe("conversational category and budget management", () => {
-  it("completes the screenshot conversation across turns without guessing budget details", async () => {
+  it("offers to create a missing category with the budget in one card, in their currency for this month", async () => {
     const { store, ctx } = setup();
     const messages = new MemoryMessageLog();
-    const interpret = vi.fn(async (request: InterpretRequest): Promise<FinanceAction> => {
-      if (request.text === "Set a budget for shopping for 2,000") return { type: "set_budget", category: "Shopping", amount: "2000.00", currency: null, period: null };
-      expect(request.history?.some(item => item.role === "user" && item.body.includes("shopping for 2,000"))).toBe(true);
-      return combined({ amount: "2000.00", currency: request.text === "GHS for December 2026" ? "GHS" : null, period: request.text === "GHS for December 2026" ? "2026-12" : null });
-    });
+    const interpret = vi.fn(async (): Promise<FinanceAction> => ({ type: "set_budget", category: "Shopping", amount: "2000.00", currency: null, period: null }));
     const deps = { store, messages, interpret, createId: ctx.createId };
     async function turn(text: string) {
       const reply = await converse(text, ctx, deps, { channel: "web" });
@@ -50,19 +46,29 @@ describe("conversational category and budget management", () => {
       await messages.append({ ownerId: "42", role: "assistant", body: reply.text, channel: "web", intent: reply.intent });
       return reply;
     }
-    expect((await turn("Set a budget for shopping for 2,000")).text).toContain("Which currency and month");
-    expect((await turn("Create a category and add it under that")).text).toContain("Which currency and month");
+    const confirmation = await turn("Set a budget for shopping for 2,000");
+    expect(confirmation.kind).toBe("confirm");
+    expect(confirmation.text).toContain("Create the Shopping expense category");
+    expect(confirmation.text).toContain("GH₵2,000.00 for November 2026");
     expect(await store.listCategories("42")).toEqual([]);
     expect(await store.listBudgets("42")).toEqual([]);
-    const confirmation = await turn("GHS for December 2026");
-    expect(confirmation.kind).toBe("confirm");
-    expect(confirmation.text).toContain("Shopping expense category");
-    expect(confirmation.text).toContain("GH₵2,000.00 for December 2026");
-    expect(await store.listPendingActions("42")).toHaveLength(1);
     expect((await turn("yes")).text).toContain("Shopping is an expense category");
     expect(await store.listCategories("42")).toHaveLength(1);
-    expect(await store.listBudgets("42")).toMatchObject([{ category: "Shopping", amount: "2000.00", currency: "GHS", period: "2026-12" }]);
-    expect(interpret).toHaveBeenCalledTimes(3);
+    expect(await store.listBudgets("42")).toMatchObject([{ category: "Shopping", amount: "2000.00", currency: "GHS", period: "2026-11" }]);
+    expect(interpret).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a Yes that failed to save open, so tapping it again works", async () => {
+    const { store, ctx } = setup();
+    const question = await handleAction(combined({ amount: "2000.00" }), ctx);
+    if (question.kind !== "confirm") throw new Error(question.text);
+    const create = store.createCategory.bind(store);
+    store.createCategory = async () => { throw new Error("Custom categories are not ready. Nothing was changed."); };
+    await expect(decidePending({ decision: "confirm", actionId: question.actionId, chatId: "100" }, ctx)).rejects.toThrow("not ready");
+    expect((await store.getPendingAction(question.actionId))?.status).toBe("pending");
+    store.createCategory = create;
+    expect((await decidePending({ decision: "confirm", actionId: question.actionId, chatId: "100" }, ctx)).text).toContain("Shopping is an expense category");
+    expect(await store.listBudgets("42")).toHaveLength(1);
   });
 
   it("retains named custom categories in follow-up summaries with punctuation", () => {
@@ -88,21 +94,20 @@ describe("conversational category and budget management", () => {
     expect((await store.listBudgets("42"))[0].amount).toBe("900.00");
     expect((await handleAction(combined({ amount: "2000.00", currency: "GHS", period: "2026-12" }), ctx)).text).toContain("already GH₵900.00");
   });
-  it("preserves the screenshot's category and amount while asking for missing currency and month", async () => {
+  it("keeps the category and amount and shows the default currency and month for a yes", async () => {
     const { store, ctx } = setup();
     const action = parseModelOutput(JSON.stringify({ type: "create_category", name: "Shopping", transaction_type: "expense", budget: { amount: "2,000", currency: null, period: null } }));
     expect(action.success).toBe(true);
     if (!action.success || action.data.type === "several") throw new Error("Invalid test action");
     const answer = await handleAction(action.data, ctx);
-    expect(answer).toEqual({ kind: "text", text: "Which currency and month should this budget use?" });
+    expect(answer.kind).toBe("confirm");
+    expect(answer.text).toContain("GH₵2,000.00 for November 2026");
     expect(await store.listCategories("42")).toEqual([]);
     expect(await store.listBudgets("42")).toEqual([]);
-    expect(await store.listPendingActions("42")).toEqual([]);
     const prompt = buildSystemPrompt({ today: "2026-11-05", timezone: "Africa/Accra", currency: "GHS", recent: [] });
     expect(prompt).toContain("Alfred can create custom categories");
-    expect(prompt).toContain("name and amount from their earlier request");
-    expect(prompt).toContain("do not split it into several actions");
-    expect(prompt).toContain("Do not guess the month from today");
+    expect(prompt).toContain("not several actions");
+    expect(prompt).toContain("Never refuse, ask which existing category");
   });
 
   it("creates a category and its budget only after one explicit confirmation", async () => {
@@ -153,15 +158,17 @@ describe("conversational category and budget management", () => {
     const status = await handleAction({ type: "get_budget_status", category: "shopping", period: "2026-11" }, ctx);
     expect(status.text).toContain("GH₵1,975.00");
     const other = await handleAction({ type: "set_budget", category: "Shopping", amount: "2000.00", currency: "GHS", period: "2026-11" }, { ...ctx, profile: profile(43) });
-    expect(other.kind).toBe("text");
+    // Someone else's category isn't theirs: they're offered their own, and nothing is saved yet.
+    expect(other.text).toContain("Create the Shopping expense category");
     expect(await store.listBudgets("43")).toEqual([]);
+    expect(await store.listCategories("43")).toEqual([]);
   });
 
-  it("does not substitute profile defaults for missing budget write details", async () => {
+  it("fills a missing budget currency or month from their profile and today, and says so before saving", async () => {
     const { store, ctx } = setup();
-    expect((await handleAction({ type: "set_budget", category: "Food", amount: "2000.00", period: "2026-12" }, ctx)).text).toContain("Which currency");
-    expect((await handleAction({ type: "set_budget", category: "Food", amount: "2000.00", currency: "GHS" }, ctx)).text).toContain("Which month");
-    expect(await store.listPendingActions("42")).toEqual([]);
+    expect((await handleAction({ type: "set_budget", category: "Food", amount: "2000.00", period: "2026-12" }, ctx)).text).toContain("GH₵2,000.00 for December 2026");
+    expect((await handleAction({ type: "set_budget", category: "Food", amount: "2000.00", currency: "USD" }, ctx)).text).toContain("for November 2026");
+    expect(await store.listBudgets("42")).toEqual([]);
   });
 
   it("refuses alias collisions and income-category budgets without writes", async () => {

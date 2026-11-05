@@ -77,6 +77,8 @@ export const evalCaseSchema = z.object({
     transactions: z.array(z.object({ type: z.enum(["income", "expense"]).optional(), amount, category: z.string().optional() })).optional(),
     /** Money into (+) or out of (-) an investment, like { "investment": "Risevest", "amount": "-1500.00" }. */
     investmentFlows: z.array(z.object({ investment: z.string(), amount: z.string().regex(/^-?\d+\.\d{2}$/) })).optional(),
+    /** Budgets that must exist, like { "category": "Shopping", "amount": "2000.00", "period": "2026-11" }. */
+    budgets: z.array(z.object({ category: z.string(), amount, period: z.string().regex(/^\d{4}-\d{2}$/).optional() })).optional(),
     /** Regexes the person's notebook must contain, for facts Alfred should remember. */
     remembers: z.array(z.string()).optional(),
   }).prefault({}),

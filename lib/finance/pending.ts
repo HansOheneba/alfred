@@ -69,14 +69,24 @@ export async function decidePending(
     return { text: "That confirmation is no longer valid. Nothing was changed." };
   }
   await ctx.store.updatePendingAction(pending.actionId, { status: "processing" });
-  if (payload.data.type === "offer") {
-    const done = await doOffer(offeredActions(payload.data.actions), ctx, String(pending.chatId));
+  try {
+    if (payload.data.type === "offer") {
+      const done = await doOffer(offeredActions(payload.data.actions), ctx, String(pending.chatId));
+      await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
+      return done;
+    }
+    const confirmed = await executeConfirmed(payload.data, ctx);
     await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
-    return done;
+    return { text: confirmed.text, context: confirmed.context };
+  } catch (error) {
+    // A failed save mustn't leave the confirmation stuck half-done, where a second
+    // Yes finds nothing. One write that failed saved nothing, so its Yes can be
+    // tried again. An offer's own confirmation is the one left open instead, and
+    // filing several payments may have saved some, so those are closed.
+    const retry = payload.data.type !== "offer" && payload.data.type !== "label_payments";
+    await ctx.store.updatePendingAction(pending.actionId, { status: retry ? "pending" : "cancelled" }).catch(() => undefined);
+    throw error;
   }
-  const confirmed = await executeConfirmed(payload.data, ctx);
-  await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
-  return { text: confirmed.text, context: confirmed.context };
 }
 
 /**

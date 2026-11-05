@@ -213,6 +213,14 @@ async function checkFinal(evalCase: EvalCase, deps: StudioDeps, refs: Map<string
       }
     }
   }
+  if (final.budgets) {
+    const budgets = await deps.store.listBudgets(OWNER_ID);
+    for (const expected of final.budgets) {
+      if (!budgets.some((item) => item.category.toLowerCase() === expected.category.toLowerCase() && canonicalizeAmount(item.amount) === expected.amount && (!expected.period || item.period === expected.period))) {
+        problems.push(`no ${expected.amount} ${expected.category} budget${expected.period ? ` for ${expected.period}` : ""} (have ${JSON.stringify(budgets.map((item) => [item.category, item.amount, item.period]))})`);
+      }
+    }
+  }
   if (final.remembers) {
     const notes = (await deps.notebook!.list(OWNER_ID)).map((item) => item.note).join("\n");
     for (const pattern of final.remembers) if (!new RegExp(pattern, "i").test(notes)) problems.push(`notebook doesn't remember /${pattern}/`);
