@@ -59,6 +59,8 @@ export async function interpretMessage(
   settings: DeepSeekSettings,
   request: InterpretRequest,
   fetchImpl: typeof fetch = fetch,
+  /** Which model answers. DeepSeek unless the evals compare another one. */
+  complete: Completion = chatCompletion,
 ): Promise<InterpretedAction> {
   const today = zonedYmd(request.now, request.timezone);
   const system = buildSystemPrompt({
@@ -87,7 +89,7 @@ export async function interpretMessage(
   const messages: ChatMessage[] = [{ role: "system", content: system }, ...conversationTurns(request.history ?? []), { role: "user", content: userText }];
   let first = "";
   try {
-    first = await chatCompletion(turnSettings, messages, {}, fetchImpl);
+    first = await complete(turnSettings, messages, {}, fetchImpl);
   } catch (error) {
     if (outage(error)) return afterOutage(error, settings, turnSettings, messages, today, fetchImpl);
     if (!(error instanceof AiError) || error.code !== "invalid") throw error;
@@ -106,11 +108,11 @@ export async function interpretMessage(
     : messages;
   // JSON mode now and then returns nothing at all; the identical request at temperature 0
   // tends to come back empty again, so an empty retry is nudged off that path.
-  const retry = await attempt(turnSettings, retryMessages, { temperature: first ? 0 : 0.3 }, today, fetchImpl);
+  const retry = await attempt(turnSettings, retryMessages, { temperature: first ? 0 : 0.3 }, today, fetchImpl, complete);
   if (retry.success) return retry.data;
   // A last try on the everyday model, when this turn asked for a different one.
   if (turnSettings.model !== settings.model) {
-    const fallback = await attempt(settings, messages, {}, today, fetchImpl);
+    const fallback = await attempt(settings, messages, {}, today, fetchImpl, complete);
     if (fallback.success) return fallback.data;
   }
   // The schema issue (field paths and messages, never the user's words) is what the logs need to explain a fallback.
@@ -157,10 +159,11 @@ async function attempt(
   options: { temperature?: number; timeoutMs?: number },
   today: string,
   fetchImpl: typeof fetch,
+  complete: Completion = chatCompletion,
 ): Promise<{ success: true; data: InterpretedAction } | { success: false; issue: string }> {
   let content: string;
   try {
-    content = await chatCompletion(settings, messages, options, fetchImpl);
+    content = await complete(settings, messages, options, fetchImpl);
   } catch (error) {
     if (error instanceof AiError && error.code === "invalid") return { success: false, issue: error.message };
     throw error;
@@ -192,6 +195,9 @@ export function conversationTurns(history: { role: "user" | "assistant"; body: s
   while (turns.at(-1)?.role === "user") turns.pop();
   return turns;
 }
+
+/** One model call returning the reply text; chatCompletion is DeepSeek's. */
+export type Completion = typeof chatCompletion;
 
 export async function chatCompletion(
   settings: DeepSeekSettings,
