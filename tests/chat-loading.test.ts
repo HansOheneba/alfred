@@ -107,7 +107,7 @@ describe("optional Chat finance context", () => {
     expect(markup).toContain("Your existing conversation is still here.");
     expect(markup).toContain('id="alfred-message"');
     expect(markup).toContain('aria-label="Send"');
-    expect(markup).toContain('aria-haspopup="menu"');
+    expect(markup).toContain('aria-label="Show conversation context" aria-haspopup="dialog"');
     expect(markup).not.toContain("Start with an expense or income, or");
     expect(markup).not.toContain("GH₵0.00");
     expect(markup).not.toContain("No transactions");
@@ -127,7 +127,7 @@ describe("optional Chat finance context", () => {
     const markup = renderPanel({ ownerId: OWNER, name: "Fictional reviewer", initialMessages: [], ledger: null });
     expect(markup).toContain("A purchase, a payday, a plan. Where shall we start?");
     expect(markup).toContain('id="alfred-message"');
-    expect(markup).toContain('aria-haspopup="menu"');
+    expect(markup).toContain('aria-label="Show conversation context" aria-haspopup="dialog"');
     expect(markup).not.toContain("GH₵0.00");
     expect(markup).not.toContain("Start with an expense or income, or");
   });
@@ -135,7 +135,7 @@ describe("optional Chat finance context", () => {
   it("shows Get Started from the server's empty-account check without loading the summary", () => {
     const markup = renderToStaticMarkup(createElement(ChatPanel, { ownerId: OWNER, name: "Fictional reviewer", initialMessages: history, financialsEmpty: true }));
     expect(markup).toContain("Start with an expense or income, or");
-    expect(markup).not.toContain('aria-label="Show context"');
+    expect(markup).not.toContain('aria-label="Show conversation context"');
     expect(mocks.loadLedger).not.toHaveBeenCalled();
   });
 });

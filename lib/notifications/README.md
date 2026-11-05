@@ -1,5 +1,70 @@
 # Notification recovery contract
 
+## Message visibility (local review draft)
+
+The message-notification changes are prepared locally for review. Nothing in this
+work registers a device or scheduler, changes a live preference, sends a test or
+replay, or applies a database migration.
+
+Authenticated pages show an owner-scoped unread badge on Chat and a discreet
+“Alfred sent you a message” alert while another Alfred section is open. Realtime
+updates have a bounded polling fallback. Counts contain no message text or
+financial copy. A message is marked read only after the actual Chat thread is
+loaded, focused, visible and following its latest messages. Loading shells,
+hidden tabs and a thread scrolled away from the bottom do not mark it read.
+Presence leases are per browser tab and expire after 30 seconds; a hidden tab
+cannot clear another visible tab’s lease. Metadata polling that discovers a
+message missing from the rendered thread withholds its visible lease and asks
+the owned thread to refresh, at most once per 15 seconds for that message. Failed
+thread reads stay inactive. The server also refuses to renew a visible lease for
+an older assistant marker while a newer owned assistant message exists.
+
+Device delivery for ordinary Alfred replies uses a separate **Messages from
+Alfred** opt-in. It defaults off. Its separate **Show message previews** consent
+also defaults off and warns that lock screens can show financial message text.
+Without that consent, the payload remains generic. Previews are bounded plain
+text, never arbitrary links or notification actions. Tapping opens Chat; replies
+from the notification are not implemented. Existing payment previews keep their
+separate setting.
+
+Only durable owned assistant messages created after both opt-in and device
+activation are eligible. Read messages and visible Chat suppress message pushes.
+Recovered bank Chat notices also require the underlying bank source to be newer
+than message opt-in and device activation; card activity additionally respects
+its rollout cutoff. A new Chat row cannot make a historical bank alert eligible.
+The outbox stores opaque source IDs, not message text. Ownership, consent epoch,
+device validity, source readiness, read state and latest preview consent are
+checked again before a provider call. Eligible or already attempted bank-payment
+notifications cover their matching Chat notice, avoiding a second generic
+message push. Unknown connection outcomes remain terminal `unconfirmed` and are
+not automatically sent again.
+
+The authenticated dispatcher recovers missed message work independently of page
+visits. Web replies and bank Chat notices also make a bounded post-response
+delivery attempt. Provider acceptance still does not prove device display.
+Visible-Chat leases, scheduler cadence, OS settings and provider delays mean this
+is best effort, not an instantaneous-delivery promise.
+
+After review and publication approval, prepare the database in this order:
+
+1. `20261105093000_card_activity_push.sql` establishes the new card-activity
+   rollout cutoff. Existing payment opt-ins are unchanged; historical holds are
+   not replayed. Hold previews explicitly say “Card hold” or “Card settlement
+   alert”. Older workers fall back to discreet copy.
+2. `20261105100000_message_notifications.sql` creates the separate preference,
+   read/presence and message-outbox tables. Client roles cannot read device keys
+   or mutate those tables directly.
+
+These migrations have **not** been applied by this local work. Deploy matching
+application code only with the reviewed schema. Actual iPhone/background delivery
+and OS lock-screen presentation still need authorized device verification.
+
+For an application rollback, restore the prior reviewed code and retain the
+additive schema and delivery history. Dropping or resetting delivery rows would
+erase deduplication and ambiguous-send evidence. A later rollout must preserve
+the original source cutoffs and terminal attempted/accepted/unconfirmed history;
+it must not reset opt-ins or replay old alerts. No rollback has been executed.
+
 This code does not register a scheduler, generate credentials, or enable delivery.
 Apply the reviewed notification migrations before using the API. All preferences
 start off; private in-app payment mentions are independent of browser push.

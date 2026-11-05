@@ -49,7 +49,7 @@ async function DashboardScreen({ searchParams }: { searchParams?: DashboardSearc
     ledger = await loadLedger(account.profile, account.settings);
   } catch (error) {
     return (
-      <AppShell current="dashboard" name={name}>
+      <AppShell current="dashboard" ownerId={account.userId} name={name}>
         <p className="alfred-ui-dashboard text-sm text-danger" role="alert">
           {error instanceof Error ? error.message : "Alfred could not load your finances."}
         </p>
@@ -58,7 +58,7 @@ async function DashboardScreen({ searchParams }: { searchParams?: DashboardSearc
   }
 
   return (
-    <AppShell current="dashboard" name={name}>
+    <AppShell current="dashboard" ownerId={account.userId} name={name}>
       <DashboardClient ledger={ledger} name={name} timeZone={account.profile.timezone} initialView={overviewViewFromParams(params)} initialTransactionFilters={parseOverviewTransactionFilters(params.toString())} />
     </AppShell>
   );

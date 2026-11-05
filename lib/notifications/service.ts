@@ -34,8 +34,9 @@ export async function recoverPaymentNotifications(settings:SupabaseSettings,owne
   if(Date.now()>=deadline)return 0;
   const missing=await query<{id:string}>(settings,`select b.id::text from public.bank_messages b join public.notification_preferences p on p.owner_id=b.owner_id
     where b.owner_id=$1::uuid and p.payment_push and b.channel in ('mac','shortcut') and b.amount>0
-      and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer'))
+      and ((b.kind='payment' and b.status in ('needs_label','recorded')) or (b.kind='transfer_own' and b.status='transfer') or (b.direction='out' and b.kind in ('card_hold','hold_settle') and b.status in ('needs_label','recorded','matched')))
       and b.created_at>=p.payment_push_since and b.occurred_at>=p.payment_push_since
+      and (b.kind not in ('card_hold','hold_settle') or (b.created_at>=p.card_activity_push_since and b.occurred_at>=p.card_activity_push_since))
       and exists(select 1 from public.alfred_bank_notice_readiness(b.owner_id,b.id,now()) n where n.state='ready')
       and exists(select 1 from public.push_subscriptions s where s.owner_id=b.owner_id and s.created_at<=b.occurred_at
         and (s.expires_at is null or s.expires_at>now()) and not exists(select 1 from public.notification_deliveries d
@@ -122,13 +123,13 @@ async function recentAcceptedAlert(settings:SupabaseSettings,ownerId:string,now:
   const rows=await query<{fresh:boolean}>(settings,`select exists(select 1 from public.bank_messages where owner_id=$1::uuid and channel in ('mac','shortcut') and created_at>$2::timestamptz-interval '48 hours') as fresh`,[ownerId,now.toISOString()]);
   return rows[0]?.fresh===true;
 }
-export async function dispatchScheduledNotifications(settings:SupabaseSettings,now=new Date(),options:{delivery?:DeliveryOptions}={}):Promise<{enabled:boolean;queued:number;owners:number}> {
+export async function dispatchScheduledNotifications(settings:SupabaseSettings,now=new Date(),options:{delivery?:DeliveryOptions;timeBudgetMs?:number}={}):Promise<{enabled:boolean;queued:number;owners:number}> {
   if(!recoveryConfiguration().configured)return {enabled:false,queued:0,owners:0};
   const owners=await query<{owner_id:string;timezone:string;bill_reminders:boolean;weekly_overview:boolean}>(settings,`select p.owner_id::text,r.timezone,p.bill_reminders,p.weekly_overview from public.notification_preferences p join public.profiles r on r.id=p.owner_id
     where (p.bill_reminders or p.weekly_overview or p.payment_push or exists(select 1 from public.notification_deliveries d where d.owner_id=p.owner_id and d.status='queued' and d.next_attempt_at<=$1::timestamptz))
       and exists(select 1 from public.push_subscriptions s where s.owner_id=p.owner_id and (s.expires_at is null or s.expires_at>$1::timestamptz))
     order by exists(select 1 from public.notification_deliveries d where d.owner_id=p.owner_id and d.status='queued' and d.next_attempt_at<=$1::timestamptz) desc,p.last_dispatch_at nulls first,p.owner_id limit 10`,[now.toISOString()]);
-  const store=createNotificationStore(settings),deadline=Date.now()+45_000;let queued=0,processed=0;
+  const store=createNotificationStore(settings),deadline=Date.now()+Math.min(45_000,Math.max(0,options.timeBudgetMs??45_000));let queued=0,processed=0;
   for(const owner of owners){
     if(Date.now()+20_000>deadline)break;
     let clock:ReturnType<typeof localClock>;try{clock=localClock(now,owner.timezone);}catch{continue;}

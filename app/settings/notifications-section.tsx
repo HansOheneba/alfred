@@ -5,6 +5,7 @@ import { useEffect, useRef, useState } from "react";
 import { Button, Card } from "@/app/components/ui";
 import { Spinner } from "@/app/components/status";
 import type { NotificationPreferences } from "@/lib/notifications/store";
+import { MessageNotificationSettings } from "./message-notifications";
 
 export const EMPTY_NOTIFICATION_PREFERENCES: NotificationPreferences = {
   paymentMentions: false, outgoingMentions: false, paymentPush: false, paymentPreview: false, billReminders: false, weeklyOverview: false,
@@ -176,6 +177,7 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
   const [attempt, setAttempt] = useState(0);
   const [deviceUnknown, setDeviceUnknown] = useState(false);
   const [busyLabel, setBusyLabel] = useState("Saving…");
+  const [messagePreviewRevision, setMessagePreviewRevision] = useState(0);
   const session = useRef({ generation: 0, owner: ownerId ?? initial?.ownerId, active: true, busy: false });
   const visibleData = data && (!ownerId || data.ownerId === ownerId) ? data : null;
   const preferences = visibleData?.preferences ?? EMPTY_NOTIFICATION_PREFERENCES;
@@ -330,6 +332,7 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
     if (!preview || !visibleData) return;
     setData({ ...visibleData, preferences: { ...EMPTY_NOTIFICATION_PREFERENCES }, devices: [] });
     setCurrentDevice(null); setReconnectNeeded(false); setError(""); setNotice("Sample choices reset. Nothing will be sent.");
+    setMessagePreviewRevision(value => value + 1);
   }
 
   return <div className="flex flex-col gap-5">
@@ -354,6 +357,7 @@ export function NotificationsSection({ ownerId, preview = false, initial }: { ow
       {currentLinked ? <details className="mt-3 border-t border-line pt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted">Notification preview</summary><DiscreetNotificationPreview showAmounts={preferences.paymentPreview} /></details> : null}
       {visibleData && visibleData.devices.some(device => device.id !== currentDevice) ? <details className="mt-3 border-t border-line pt-3"><summary className="min-h-11 cursor-pointer py-3 text-xs font-medium text-muted">Other connected devices</summary><ul className="space-y-2 pb-2">{visibleData.devices.filter(device => device.id !== currentDevice).map((device, index) => <li key={device.id} className="flex items-center justify-between gap-3 text-sm"><span>Device {index + 1}</span><Button size="sm" variant="ghost" onClick={() => void removeDevice(device.id)} disabled={busy}>Remove</Button></li>)}</ul></details> : null}
     </Card>
+    {visibleData ? <MessageNotificationSettings key={`${visibleData.ownerId}:${messagePreviewRevision}`} ownerId={visibleData.ownerId} ready={pushReady} connected={preview || visibleData.devices.length > 0} preview={preview} /> : null}
     <details className="rounded-xl border border-line bg-surface px-5 py-1 sm:px-6">
       <summary className="min-h-11 cursor-pointer py-4 text-sm font-medium text-ink">Reminders</summary>
       {visibleData ? <div className="divide-y divide-line pb-2"><NotificationChoice id="bill-reminders" title="Bill reminders" description="The day before a confirmed bill, at 9am." checked={preferences.billReminders} disabled={busy || (!preferences.billReminders && !pushReady)} onChange={value => void savePreference("billReminders", value)} /><NotificationChoice id="weekly-overview" title="Weekly overview" description="Sunday at 6pm, in your timezone." checked={preferences.weeklyOverview} disabled={busy || (!preferences.weeklyOverview && !pushReady)} onChange={value => void savePreference("weeklyOverview", value)} /></div> : <p className="pb-4 text-xs text-muted">Load your notification choices to manage reminders.</p>}

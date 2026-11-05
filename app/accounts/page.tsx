@@ -34,5 +34,5 @@ async function AccountsScreen({ searchParams }: PageProps = {}) {
     // that have no accounting source version yet. Nothing is cached between owners.
     version = crypto.randomUUID();
   } catch { /* A failed read is an error, never an empty financial state. */ }
-  return <AppShell current="accounts" name={account.profile.preferredName.trim()}><AccountsClient key={`${account.profile.profileId}:${version}`} defaultCurrency={account.profile.currency} initialPayload={initialPayload} initialError={initialPayload ? "" : "Your account records could not be loaded. Try again shortly."} paymentRequest={paymentRequest} expectedOwnerId={account.profile.profileId} /></AppShell>;
+  return <AppShell current="accounts" ownerId={account.userId} name={account.profile.preferredName.trim()}><AccountsClient key={`${account.profile.profileId}:${version}`} defaultCurrency={account.profile.currency} initialPayload={initialPayload} initialError={initialPayload ? "" : "Your account records could not be loaded. Try again shortly."} paymentRequest={paymentRequest} expectedOwnerId={account.profile.profileId} /></AppShell>;
 }

@@ -26,19 +26,19 @@ beforeEach(() => {
 afterEach(() => { runtime.direct = false; vi.unstubAllGlobals(); });
 
 describe("compact header display controls", () => {
-  it("keeps loading Chat navigation as a closed submenu without adding a header control or chat bar", () => {
+  it("keeps the direct Context control disabled while Chat loads, without another chat bar", () => {
     const markup = renderToStaticMarkup(createElement(ChatShell, { name: "" }, "Loading sample conversation"));
     const header = markup.match(/<header[\s\S]*?<\/header>/)?.[0];
-    expect(header).toContain('aria-current="page" aria-haspopup="menu" aria-expanded="false"');
-    expect(header).not.toContain('aria-label="Show context"');
-    expect(header).not.toContain("alfred-headerContext");
+    expect(header).toContain('aria-label="Show conversation context" aria-haspopup="dialog" aria-expanded="false" aria-busy="true" disabled=""');
+    expect(header).not.toContain('aria-haspopup="menu"');
+    expect(header).not.toContain('aria-controls="alfred-production-chat-contextSheet"');
     expect(markup).not.toContain("alfred-production-chat-toolbar");
   });
 
   it("does not add a context action to other sections even inside a Chat provider", () => {
     const props: Parameters<typeof AppShell>[0] = { current: "dashboard", name: "Sample", children: "Sample overview" };
     const markup = renderToStaticMarkup(createElement(ChatContextProvider, { initiallyAvailable: true }, createElement(AppShell, props)));
-    expect(markup).not.toContain('aria-label="Show context"');
+    expect(markup).not.toContain('aria-label="Show conversation context"');
     expect(markup.match(/href="\/chat"/g)).toHaveLength(2);
     expect(markup).not.toContain("alfred-chatNav-trigger");
   });

@@ -3,6 +3,7 @@ import { logError } from '@/lib/log';
 import { recoverIncomingPaymentMentions } from './notices';
 import { recoverPaymentNotifications,drainOwnerNotifications } from '@/lib/notifications/service';
 import { loadNotificationPreferences } from '@/lib/notifications/store';
+import { deliverOwnerMessageNotifications } from '@/lib/notifications/messages';
 
 /** Bookkeeping is already committed. Independent delivery errors never revoke its acknowledgement. */
 export async function deliverBankAutomation(settings:SupabaseSettings,profile:UserProfile,deadlineAt=Date.now()+25_000):Promise<void>{
@@ -13,6 +14,7 @@ export async function deliverBankAutomation(settings:SupabaseSettings,profile:Us
   // A slow chat query must not spend the push transport's completion budget.
   const mentions=async()=>{
     if(prefs.paymentMentions||prefs.outgoingMentions)await recoverIncomingPaymentMentions(settings,profile.profileId,new Date(),Math.min(deadlineAt,Date.now()+10_000),{ownerId:profile.profileId,preferences:prefs}).catch(()=>logError('bank_private_notice',new Error('Private payment notice recovery could not complete.')));
+    if(Date.now()+17_000<=deadlineAt)await deliverOwnerMessageNotifications(settings,profile.profileId,{timeBudgetMs:Math.max(0,deadlineAt-Date.now())}).catch(()=>logError('bank_message_push',new Error('Message notification recovery could not complete.')));
   };
   const devices=async()=>{
     // Bill/weekly recovery belongs to the scheduled dispatcher.

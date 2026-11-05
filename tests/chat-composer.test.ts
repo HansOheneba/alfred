@@ -6,15 +6,16 @@ import { ChatPanel, resizeChatComposer } from "@/app/chat/chat-panel";
 import { ChatShell } from "@/app/chat/chat-shell";
 
 describe("compact Chat composer", () => {
-  it("puts a submenu under active Chat navigation and keeps the composer together without a second toolbar", () => {
+  it("opens context directly from the main header and keeps Chat navigation and the composer independent", () => {
     const markup = renderToStaticMarkup(createElement(ChatShell, { name: "Sample", contextAvailable: true }, createElement(ChatPanel, { ownerId: "fictional-owner", name: "Sample", initialMessages: [] })));
     const header = markup.match(/<header class="alfred-ui-header alfred-ui-chatHeader">([\s\S]*?)<\/header>/)?.[1];
     const composer = markup.match(/<form class="alfred-production-chat-composer"[\s\S]*?<\/form>/)?.[0];
-    expect(header).toContain('class="alfred-chatNav alfred-chatNav--header"');
-    expect(header).toContain('aria-current="page" aria-haspopup="menu" aria-expanded="false"');
-    expect(markup).toContain('class="alfred-chatNav alfred-chatNav--dock"');
-    expect(markup.match(/class="alfred-chatNav-trigger"/g)).toHaveLength(2);
-    expect(header).not.toContain("alfred-headerContext");
+    expect(header).toContain('aria-label="Show conversation context" aria-haspopup="dialog" aria-expanded="false"');
+    expect(header).toContain('aria-controls="alfred-production-chat-contextSheet"');
+    expect(markup.match(/aria-label="Show conversation context"/g)).toHaveLength(1);
+    expect(markup.match(/<a(?=[^>]*href="\/chat")(?=[^>]*aria-current="page")[^>]*>/g)).toHaveLength(2);
+    expect(markup).not.toContain('aria-haspopup="menu"');
+    expect(markup).not.toContain("alfred-chatNav-trigger");
     expect(markup).toContain('<h1 class="sr-only">Chat</h1>');
     expect(markup).not.toContain("alfred-production-chat-toolbar");
     expect(markup).not.toContain('role="menuitem"');
@@ -23,7 +24,7 @@ describe("compact Chat composer", () => {
     expect(composer).toContain('enterKeyHint="send"');
     expect(composer).toContain('aria-label="Send"');
     expect(composer).toContain("Enter to send · Shift + Enter for a new line");
-    expect(composer).not.toContain("Show context");
+    expect(composer).not.toContain("Show conversation context");
   });
 
   it("retains an available context sheet destination and preserves a supplied draft", () => {

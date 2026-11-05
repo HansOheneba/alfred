@@ -6,7 +6,8 @@ import { useEffect, useRef, useSyncExternalStore, type ReactNode } from "react";
 import { useChatViewport } from "./chat-viewport";
 import { buttonClassName } from "./button-styles";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
-import { ChatNavigationItem } from "@/app/chat/chat-context-control";
+import { ChatContextButton } from "@/app/chat/chat-context-control";
+import { ChatMessageAlert, ChatUnreadBadge, useMessageAlerts } from "@/app/chat/message-alerts";
 import { getMutationRecoveryServerSnapshot, getMutationRecoverySnapshot, MUTATION_UNCONFIRMED_MESSAGE, subscribeMutationRecovery } from "./mutation-request";
 import { serializeBrowserPreferenceWrite } from "@/lib/portability/browser-preferences-lock";
 import "./app-ui.css";
@@ -175,16 +176,19 @@ function MutationRecoveryScreen() {
 }
 
 /** Authenticated application frame: top bar navigation on wider screens, a bottom tab bar on phones. */
-export function AppShell({ current, fill = false, headerAction, children }: {
+export function AppShell({ current, fill = false, headerAction, children, ownerId }: {
   current: Section;
   name: string;
   fill?: boolean;
   headerAction?: ReactNode;
   children: ReactNode;
+  ownerId?: string;
 }) {
   const chat = current === "chat";
   const viewport = useChatViewport(chat);
   const recoveryRequired = useSyncExternalStore(subscribeMutationRecovery, getMutationRecoverySnapshot, getMutationRecoveryServerSnapshot);
+  const messages = useMessageAlerts(ownerId, current);
+  const navIcon = (item: typeof NAV[number], size: string) => <span className="alfred-chatNavIcon"><Icon className={size}>{item.icon}</Icon>{item.section === "chat" ? <ChatUnreadBadge count={messages.count} /> : null}</span>;
   return <div ref={viewport} className={`alfred-app${chat ? " alfred-app-chat alfred-chat-viewport" : ""}`}>
     <div className={`alfred-ui-pageShell${fill || chat ? " alfred-ui-fill" : ""}`}>
       <a className="alfred-ui-skip" href="#app-content">Skip to content</a>
@@ -193,17 +197,19 @@ export function AppShell({ current, fill = false, headerAction, children }: {
           <Link href="/" className="alfred-ui-brand"><span>Alfred</span></Link>
           {/* Wider screens navigate from the top bar; phones use the bottom tab bar below. */}
           <nav className="alfred-ui-topNav" aria-label="Main">
-            {NAV.map((item) => chat && item.section === "chat" ? <ChatNavigationItem key={item.section} placement="header" icon={<Icon className="size-4">{item.icon}</Icon>} /> : <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-4">{item.icon}</Icon><span>{item.label}</span></Link>)}
+            {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}>{navIcon(item, "size-4")}<span>{item.label}</span></Link>)}
           </nav>
           <div className="alfred-ui-headerActions">
+            {chat ? <ChatContextButton /> : null}
             <div className="alfred-headerControls" role="group" aria-label="Display controls"><PrivacyToggle/><AppearanceToggle/></div>
             {headerAction}
           </div>
         </div>
       </header>
       <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{recoveryRequired ? <MutationRecoveryScreen /> : children}</main>
+      {messages.announced && !recoveryRequired ? <ChatMessageAlert count={messages.count} dismiss={messages.dismiss} /> : null}
       <nav className="alfred-ui-dock" aria-label="Main (mobile)">
-        {NAV.map((item) => chat && item.section === "chat" ? <ChatNavigationItem key={item.section} placement="dock" icon={<Icon className="size-5">{item.icon}</Icon>} /> : <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-5">{item.icon}</Icon><span>{item.label}</span></Link>)}
+        {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}>{navIcon(item, "size-5")}<span>{item.label}</span></Link>)}
       </nav>
     </div>
   </div>;

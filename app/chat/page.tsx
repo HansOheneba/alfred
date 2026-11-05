@@ -57,7 +57,7 @@ async function SignedInHome({ searchParams }: { searchParams: ChatSearchParams }
   const question = typeof params.question === "string" ? params.question.trim().slice(0, 2000) : "";
   const name = account.profile.preferredName.trim();
   return (
-    <ChatShell key={`${account.userId}:${chatDraftScope(params.question, params.payment)}`} name={name} contextAvailable>
+    <ChatShell key={`${account.userId}:${chatDraftScope(params.question, params.payment)}`} name={name} ownerId={account.userId} contextAvailable>
       <ChatPanel key={`${account.userId}:${paymentId || question || "conversation"}`} draftScope={chatDraftScope(params.question, params.payment)} initialQuestion={question} ownerId={account.userId} name={name} initialMessages={[]} initialPaymentEntry={params.payment !== undefined && !paymentId ? { state: "unavailable" } : null} initialPaymentTarget={paymentId} financialsEmpty={null} loadInitialThread />
     </ChatShell>
   );
