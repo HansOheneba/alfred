@@ -24,7 +24,7 @@ import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
 import type { FinanceAction, PendingPayload, ProposedLabel } from "@/lib/finance/schemas";
-import { pendingPayloadSchema } from "@/lib/finance/schemas";
+import { offeredActions, pendingPayloadSchema } from "@/lib/finance/schemas";
 import {
   inRange,
   largestExpenses,
@@ -105,8 +105,13 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
   switch (action.type) {
     case "help":
       return { kind: "text", text: helpText() };
-    case "clarify":
-      return { kind: "text", text: safeClarification(action.question) };
+    case "clarify": {
+      // A question that offers something specific carries it, so a yes does exactly that.
+      const offered = offeredActions(action.offer);
+      const question = safeClarification(action.question);
+      if (offered.length === 0) return { kind: "text", text: question };
+      return saveConfirmation(ctx, question, { type: "offer", originUpdateId: String(ctx.updateId), actions: offered });
+    }
     case "chat":
       return { kind: "text", text: safeChatReply(action.message) };
     case "create_transaction":
@@ -163,6 +168,7 @@ export async function executeConfirmed(
   ctx: ActionContext,
 ): Promise<{ text: string; context?: ConversationContext }> {
   const userId = ctx.profile.profileId;
+  if (payload.type === "offer") return { text: "That offer is settled in the conversation. Nothing was changed." };
   if (payload.type === "label_payments") {
     if (!ctx.labelPayments) return { text: "I can't file bank payments right now. Nothing was changed." };
     return { text: await ctx.labelPayments(payload.items) };

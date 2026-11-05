@@ -154,7 +154,7 @@ export async function voiceDelivery(
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
       const reply = await voice({ ...request, state, draft: delivery.text, intent: action.type, topic: chat ? (action.topic ?? "other") : undefined });
-      if (keepsFacts(reply, source)) return { ...delivery, text: reply };
+      if (keepsFacts(reply, source) && !inventsClaims(reply, delivery.text, chat)) return { ...delivery, text: reply };
       logInfo("voice_rejected", { intent: action.type, attempt });
     } catch (error) {
       logError("voice", error);
@@ -175,6 +175,22 @@ export function keepsFacts(reply: string, source: string): boolean {
   if (!(reply.match(NUMBER) ?? []).every((value) => allowed.has(normalizeNumber(value)))) return false;
   const host = new URL(DASHBOARD_URL).host;
   return (reply.match(LINK) ?? []).every((link) => link.replace(/^https?:\/\//, "").replace(/[/.,!?)]+$/, "") === host);
+}
+
+/** Words that say where money came from or what happened to it. */
+const CLAIMS = /\b(?:investments?|savings|risevest|loans?|lent|lend|borrow\w*|owes?|owed|transferr?\w*|refund\w*|withdr[ae]w\w*|taken out|took out|moved)\b/gi;
+/** A chat reply saying Alfred saved or changed something; chat never does. */
+const CHAT_WRITE = /\b(?:I(?:'ve| have)?|I've just) (?:saved|recorded|logged|filed|added|moved|updated|deleted|removed|taken|withdrawn|noted down)\b|\b(?:is|was|has been) (?:now )?(?:saved|recorded|logged|filed)\b/i;
+
+/**
+ * True when the reworded reply claims something the server's facts don't:
+ * money from an investment, a loan, a transfer, a withdrawal. The facts are
+ * the draft alone, not the person's words, which only say what they asked for.
+ */
+export function inventsClaims(reply: string, draft: string, chat: boolean): boolean {
+  if (chat) return CHAT_WRITE.test(reply);
+  const facts = draft.toLowerCase();
+  return (reply.match(CLAIMS) ?? []).some((word) => !facts.includes(word.toLowerCase().replace(/s$/, "")));
 }
 
 function normalizeNumber(value: string): string {

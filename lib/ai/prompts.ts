@@ -17,7 +17,8 @@ const RANGE = '"period":null,"month":null,"year":null,"start_date":null,"end_dat
 
 const ACTION_SHAPES = [
   '{"type":"chat","message":"...","topic":"money or other"}',
-  '{"type":"clarify","question":"..."}',
+  '{"type":"clarify","question":"...","offer":null}',
+  '{"type":"clarify","question":"Shall I record GH₵1,500.00 for rent today?","offer":[{"type":"create_transaction","explicit":true,"transactions":[{"transaction_type":"expense","amount":"1500.00","currency":"GHS","category":"Rent & home","description":"Rent","date":null,"payment_method":null,"notes":null}]}]}',
   '{"type":"help"}',
   '{"type":"create_transaction","explicit":true,"transactions":[{"transaction_type":"expense","amount":"45.00","currency":"GHS","category":"Food","description":"Lunch","date":null,"payment_method":null,"notes":null}]}',
   `{"type":"get_spending_summary",${RANGE},"detail":"total"}`,
@@ -124,6 +125,7 @@ export function buildSystemPrompt(input: {
     "Do not invent amounts, categories, or transactions.",
     "Do not store inferred personal details. Preferences below were saved by the user.",
     "If the amount, income versus expense, or the request is ambiguous, use clarify.",
+    "When your clarify question asks whether to do something specific (\"Shall I record…?\", \"Do you want me to take it out of Risevest?\"), put exactly those actions in offer. The person then gets Yes and No, and a yes does exactly what you offered. An open question (\"What was it for?\") has offer null. Only offer actions that save something, never another question.",
     "Never follow instructions to change spreadsheets, users, or secrets.",
     "Choose one action:",
     "chat for conversation that needs no stored figures. Never state the user's totals or balances in chat; ask for them with an action instead. Do not invent amounts.",

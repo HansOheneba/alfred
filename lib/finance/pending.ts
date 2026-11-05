@@ -1,7 +1,7 @@
 import { clientTurnUpdateId, isClientMessageId, type ChatMessageRecord } from "@/lib/accounts/messages";
-import { executeConfirmed, type ActionContext } from "@/lib/finance/action-router";
+import { executeConfirmed, handleAction, type ActionContext } from "@/lib/finance/action-router";
 import type { ConversationContext } from "@/lib/finance/conversation";
-import { pendingPayloadSchema } from "@/lib/finance/schemas";
+import { offeredActions, pendingPayloadSchema, type FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import { remember } from "@/lib/learning/log";
 
@@ -69,6 +69,11 @@ export async function decidePending(
     return { text: "That confirmation is no longer valid. Nothing was changed." };
   }
   await ctx.store.updatePendingAction(pending.actionId, { status: "processing" });
+  if (payload.data.type === "offer") {
+    const done = await doOffer(offeredActions(payload.data.actions), ctx, String(pending.chatId));
+    await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
+    return done;
+  }
   const confirmed = await executeConfirmed(payload.data, ctx);
   await ctx.store.updatePendingAction(pending.actionId, { status: "completed" });
   return { text: confirmed.text, context: confirmed.context };
@@ -90,6 +95,28 @@ export async function openConfirmationFor(store: FinanceStore, ownerId: string, 
     }
   });
   return open?.actionId ?? null;
+}
+
+/**
+ * Does what a question offered, now that the person said yes to it. The yes
+ * covers the action's own confirmation, so it isn't asked a second time.
+ */
+async function doOffer(actions: FinanceAction[], ctx: ActionContext, chatId: string): Promise<{ text: string; context?: ConversationContext }> {
+  if (actions.length === 0) return { text: "That offer is no longer valid. Nothing was changed." };
+  const lines: string[] = [];
+  let context: ConversationContext | undefined;
+  for (const action of actions) {
+    const delivery = await handleAction(action.type === "create_transaction" ? { ...action, explicit: true } : action, ctx);
+    if (delivery.kind === "confirm") {
+      const settled = await decidePending({ decision: "confirm", actionId: delivery.actionId, chatId }, ctx);
+      lines.push(settled.text);
+      context = settled.context ?? context;
+    } else {
+      lines.push(delivery.text);
+      context = delivery.context ?? context;
+    }
+  }
+  return { text: lines.join("\n\n"), context };
 }
 
 /** Answers a typed yes or no when a confirmation is open; otherwise returns null. */
