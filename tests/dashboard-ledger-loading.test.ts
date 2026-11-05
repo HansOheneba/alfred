@@ -76,7 +76,7 @@ describe("dashboard ledger critical path on fictional SQL data", () => {
     expect(JSON.stringify(result)).not.toContain("Other fixture");
     expect(calls.every(call => /^\s*select\b/i.test(call.sql))).toBe(true);
     expect(calls.filter(call => call.values.length).every(call => call.values[0] === OWNER)).toBe(true);
-    // The books use fifteen reads, plus one for charts kept from Chat.
+    // 15 for the books, plus one for the charts kept from chat.
     expect(calls.length).toBe(16);
   });
 

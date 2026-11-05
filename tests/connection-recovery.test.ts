@@ -10,7 +10,18 @@ vi.mock("pg", async (importOriginal) => {
   class Pool extends EventEmitter {
     end = vi.fn(async () => undefined);
     constructor(readonly config: Record<string, unknown>) { super(); fixture.pools.push(this); }
-    connect() { return fixture.connect(this.config, this); }
+    connect() {
+      return Promise.resolve(fixture.connect(this.config, this)).then((client) => {
+        // Match the public lifecycle signals emitted by pg-pool after handshake.
+        this.emit("connect", client);
+        this.emit("acquire", client);
+        client.release.mockImplementation((error?: boolean) => {
+          this.emit("release", error, client);
+          if (error) this.emit("remove", client);
+        });
+        return client;
+      });
+    }
     async query(sql: string, values: unknown[]) {
       const client = await this.connect();
       try { return await client.query(sql, values); } finally { client.release(); }
@@ -30,6 +41,14 @@ function deferred<T>() {
   const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
   return { promise, resolve, reject };
 }
+function occupyPool(pool: EventEmitter, count: number) {
+  Object.assign(pool, { totalCount: count, idleCount: 0 });
+  for (let index = 0; index < count; index += 1) {
+    const checked = client(`active-${index}`);
+    pool.emit("connect", checked);
+    pool.emit("acquire", checked);
+  }
+}
 let api: typeof import("@/lib/supabase/connection");
 beforeEach(async () => {
   vi.resetModules(); fixture.connect.mockReset(); fixture.resolve4.mockReset(); fixture.pools.length = 0;
@@ -43,8 +62,8 @@ describe("connection acquisition recovery", () => {
   it("lets a healthy saturated pool wait beyond the connection-attempt timeout", async () => {
     vi.useFakeTimers();
     await api.query(settings, "select warm");
-    const pool = fixture.pools[0] as { totalCount: number; idleCount: number; end: ReturnType<typeof vi.fn>; config: Record<string, unknown> };
-    Object.assign(pool, { totalCount: 3, idleCount: 0 });
+    const pool = fixture.pools[0] as EventEmitter & { totalCount: number; idleCount: number; end: ReturnType<typeof vi.fn>; config: Record<string, unknown> };
+    occupyPool(pool, 3);
     const available = client("after-existing-work");
     fixture.connect.mockImplementationOnce(() => new Promise(resolve => setTimeout(() => resolve(available), 3_000)));
     const result = api.query(settings, "select queued");
@@ -61,8 +80,8 @@ describe("connection acquisition recovery", () => {
   it("bounds a busy queue without retiring its pool or losing the next healthy checkout", async () => {
     vi.useFakeTimers();
     await api.query(settings, "select warm");
-    const pool = fixture.pools[0] as { totalCount: number; idleCount: number; end: ReturnType<typeof vi.fn> };
-    Object.assign(pool, { totalCount: 3, idleCount: 0 });
+    const pool = fixture.pools[0] as EventEmitter & { totalCount: number; idleCount: number; end: ReturnType<typeof vi.fn> };
+    occupyPool(pool, 3);
     const waiting = deferred<ReturnType<typeof client>>(), late = client("late-unused");
     fixture.connect.mockReturnValueOnce(waiting.promise);
     const result = api.query(settings, "select must-not-run").catch((error: unknown) => error);
@@ -83,8 +102,8 @@ describe("connection acquisition recovery", () => {
   it("preserves other active clients when one additional connection attempt times out", async () => {
     vi.useFakeTimers();
     await api.query(settings, "select warm");
-    const pool = fixture.pools[0] as { totalCount: number; idleCount: number; end: ReturnType<typeof vi.fn> };
-    Object.assign(pool, { totalCount: 2, idleCount: 0 });
+    const pool = fixture.pools[0] as EventEmitter & { totalCount: number; idleCount: number; end: ReturnType<typeof vi.fn> };
+    occupyPool(pool, 2);
     const waiting = deferred<ReturnType<typeof client>>(), recovered = client("fallback"), late = client("late-unused");
     fixture.connect.mockReturnValueOnce(waiting.promise).mockResolvedValueOnce(recovered);
     const result = api.query(settings, "select safe-fallback");
@@ -96,6 +115,51 @@ describe("connection acquisition recovery", () => {
     expect(late.release).toHaveBeenCalledExactlyOnceWith(false);
     expect(late.query).not.toHaveBeenCalled();
     expect(fixture.resolve4).toHaveBeenCalledOnce();
+  });
+
+  it("falls back promptly when three real pg-pool handshakes stall and a fourth checkout queues", async () => {
+    vi.useFakeTimers();
+    const { Pool } = await vi.importActual<typeof import("pg")>("pg");
+    class StalledClient extends EventEmitter {
+      _queryable = true;
+      _ending = false;
+      private connected?: (error?: Error) => void;
+      connect(callback: (error?: Error) => void) { this.connected = callback; }
+      isConnected() { return false; }
+      end(callback?: () => void) {
+        const connected = this.connected;
+        this.connected = undefined;
+        connected?.(new Error("Connection terminated"));
+        callback?.();
+      }
+    }
+    let stalled: InstanceType<typeof Pool> | undefined;
+    fixture.connect.mockImplementation((config, wrapper) => {
+      if (config.port !== 6543) return client("healthy-fallback");
+      if (!stalled) {
+        stalled = new Pool({ ...config, Client: StalledClient } as never);
+        Object.defineProperties(wrapper, {
+          totalCount: { get: () => stalled!.totalCount },
+          idleCount: { get: () => stalled!.idleCount },
+        });
+        wrapper.end.mockImplementation(() => stalled!.end());
+      }
+      return stalled.connect();
+    });
+    const settled: unknown[] = [];
+    const attempts = Array.from({ length: 4 }, (_, index) => api.query(settings, "select fictional", [index])
+      .then((rows) => { settled.push(rows); return rows; }, (error: unknown) => { settled.push(error); return error; }));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(stalled!.totalCount).toBe(3);
+    expect(stalled!.waitingCount).toBe(1);
+    await vi.advanceTimersByTimeAsync(2_000);
+    expect(settled).toHaveLength(4);
+    expect(await Promise.all(attempts)).toEqual(Array.from({ length: 4 }, () => [{ label: "healthy-fallback" }]));
+    expect(fixture.connect).toHaveBeenCalledTimes(8);
+    const fallbacks = fixture.connect.mock.results.slice(4).map(result => result.value);
+    expect(fallbacks.every(value => value.query.mock.calls.length === 1)).toBe(true);
+    // Let the real driver's pending handshake timeouts finish and drain its pool.
+    await vi.advanceTimersByTimeAsync(6_000);
   });
 
   it("recovers the exact uncoded pg-pool checkout timeout before executing SQL", async () => {

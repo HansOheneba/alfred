@@ -96,7 +96,7 @@ describe("durable display worker orchestration", () => {
     const h = harness({ publish: "stale" });
     expect((await runDisplayWorker(settings, {}, h.deps)).stale).toBe(1);
     expect(calls(h, ".publish")).toHaveLength(1);
-    expect((calls(h, ".fail")[0] as unknown[])[2]).toEqual([OWNER, LEASE, "changed"]);
+    expect((calls(h, ".fail")[0] as unknown[])[2]).toEqual([OWNER, LEASE, "source_changed"]);
   });
 
   it("does not replay an uncertain publication or include source/error details in failure metadata", async () => {
@@ -104,7 +104,7 @@ describe("durable display worker orchestration", () => {
     h.execute.mockImplementation(async (cfg, sql) => { if (sql.includes(".publish")) throw new Error("Sensitive fictional financial error"); return original(cfg, sql); });
     expect((await runDisplayWorker(settings, {}, h.deps)).failed).toBe(1);
     expect(calls(h, ".publish")).toHaveLength(1);
-    expect((calls(h, ".fail")[0] as unknown[])[2]).toEqual([OWNER, LEASE, "publication_failed"]);
+    expect((calls(h, ".fail")[0] as unknown[])[2]).toEqual([OWNER, LEASE, "publish_failed"]);
   });
 
   it("does not publish a result once its invocation budget is exhausted", async () => {

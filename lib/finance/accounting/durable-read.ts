@@ -30,7 +30,6 @@ export async function readDurableBundle<T>(settings: SupabaseSettings, ownerId: 
   const parameters=[ownerId,ACCOUNTING_DISPLAY_DEFINITION,...values];
   let [row] = await query<{ bundle: unknown }>(settings, sql, parameters);
   if (!row?.bundle) {
-    await query(settings, "select alfred_display.enqueue($1::uuid,$2::text)", [ownerId, ACCOUNTING_DISPLAY_DEFINITION]);
     const { ensureFreshDisplay }=await import('./display-worker');
     await ensureFreshDisplay(settings,ownerId);
     [row]=await query<{bundle:unknown}>(settings,sql,parameters);

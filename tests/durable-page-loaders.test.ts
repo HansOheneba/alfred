@@ -101,4 +101,17 @@ describe('actual canonical source → worker → durable page resources',()=>{
   expect(next.budgets.find(row=>row.budgetId==='current')!.budgetMinor).toBe(previous.budgets.find(row=>row.budgetId==='current')!.budgetMinor+5000);
   expect(io.query.mock.calls.some(([,sql])=>sql.includes('claim_owner')||sql.includes('alfred_accounting_source_version'))).toBe(false);
  });
+ it('recalculates newly kept charts from the same durable books with one fresh pin-list query',async()=>{
+  await db.query("insert into pinned_charts(owner_id,title,query)values($1::uuid,'Fictional kept comparison',$2::jsonb)",[OWNER,JSON.stringify({measure:'spending',by:'merchant',period:'this_month',compare:true})]);
+  const canonical=(await loadLedgerSnapshot(profile,settings,{receipts:false})).ledger;
+  expect(canonical.pinned).toHaveLength(1);
+  await db.exec('begin');
+  try{
+   await db.exec(`create or replace function public.alfred_accounting_source_version(owner uuid)returns text language plpgsql stable as $$begin raise exception 'Full source reconstruction is forbidden on a pinned durable hit';end$$;`);
+   io.query.mockClear();const next=await loadOverview(profile,settings,query);
+   expect(next.ledger.pinned).toEqual(canonical.pinned);
+   expect(io.query.mock.calls.filter(([,sql])=>/from public\.pinned_charts/i.test(sql))).toHaveLength(1);
+   expect(io.query.mock.calls.some(([,sql])=>sql.includes('claim_owner')||sql.includes('alfred_accounting_source_version'))).toBe(false);
+  }finally{await db.exec('rollback');}
+ });
 });

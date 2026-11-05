@@ -14,6 +14,8 @@ import { readDurableOverview, readDurableOverviewPage, overviewSummaryFromFacts,
 import { loadDurablePlanning, durablePlanningLedger } from "./durable-planning";
 import { readDurableInsightFacts } from "./durable-insight-query";
 import { getGettingStartedState } from "@/app/components/getting-started-state";
+import { createSupabasePinStore } from "@/lib/finance/pins";
+import { logError } from "@/lib/log";
 
 const querySchema = z.strictObject({
   preset: z.enum(["this_month", "last_month", "last_3_months", "last_6_months", "this_year", "all"]),
@@ -80,11 +82,17 @@ export async function loadOverview(profile: UserProfile, settings: StudioSetting
   query=querySchema.parse(query);
   if(durableDisplayEnabled()){
     const today=zonedYmd(new Date(),profile.timezone);
-    const [bundle,resources]=await Promise.all([readDurableOverview(settings.supabase,profile,today,query),loadDurablePlanning(profile,settings)]);
+    const [bundle,resources,pins]=await Promise.all([readDurableOverview(settings.supabase,profile,today,query),loadDurablePlanning(profile,settings),createSupabasePinStore(settings.supabase).list(profile.profileId).catch((error:unknown)=>(logError('pins_list',error),[]))]);
     if(bundle){
       const facts=await readDurableInsightFacts(settings.supabase,profile,today,resources.bills,resources.held.map(row=>`bank:${row.id}`));
       if(!facts||facts.token!==bundle.token)throw new DurableDisplayUpdating();
       const ledger=durablePlanningLedger(profile,today,bundle.manifest,resources,facts.data);
+      if(pins.length){
+        const { readDurablePinnedCharts }=await import('./durable-pinned-charts');
+        const pinned=await readDurablePinnedCharts(settings.supabase,profile,today,pins);
+        if(!pinned||pinned.token!==bundle.token)throw new DurableDisplayUpdating();
+        ledger.pinned=pinned.data;
+      }
       const setup=getGettingStartedState(ledger,{hasTransaction:bundle.manifest.ledger.count>0});
       return {ledger,summary:overviewSummaryFromFacts(bundle,today,profile.currency,setup),firstPage:durableOverviewPage(profile,today,query,{...bundle,data:bundle.data.page})};
     }

@@ -118,11 +118,22 @@ describe("actual normalized insight/renewal SQL and publication", () => {
   it("uses the complete real source-coherent loader before building and publishing", async () => {
     await db.query(`insert into transactions(owner_id,transaction_id,created_at,transaction_date,user_id,type,amount,currency,category,description,status,updated_at,source_update_id)
       select $1::uuid,('10000000-0000-4000-8000-'||lpad(n::text,12,'0'))::uuid,$2::timestamptz,'2026-11-01',$1::text,'expense',n,'GHS','Food','Fictional loaded source '||n,'active',$2::timestamptz,'fixture:'||n from generate_series(1,3) n`, [OWNER, AT]);
-    // Capture finishes before the complete uncached canonical loader starts, as in the worker.
-    const result = await publish(() => loadAccountingProjectionSource(settings, OWNER));
-    expect(result.state.movements).toHaveLength(3); forbidSources = true; backend.query.mockClear();
-    const bundle = await assertParity(result);
-    expect(bundle.data.insights).toMatchObject({ expenseCount: 3, spentMinor: 600 }); expect(backend.query).toHaveBeenCalledOnce();
+    // Source writes commit before a worker may claim them. Capture then finishes
+    // before the complete uncached canonical loader starts, as in the real worker.
+    await db.exec("commit;begin");
+    try {
+      const result = await publish(() => loadAccountingProjectionSource(settings, OWNER));
+      expect(result.state.movements).toHaveLength(3); forbidSources = true; backend.query.mockClear();
+      const bundle = await assertParity(result);
+      expect(bundle.data.insights).toMatchObject({ expenseCount: 3, spentMinor: 600 }); expect(backend.query).toHaveBeenCalledOnce();
+    } finally {
+      // Reset only this fictional source fixture; the surrounding tests otherwise
+      // use rollback isolation and do not store financial sources in SQL.
+      await db.exec("rollback");
+      await db.query("delete from public.transactions where owner_id=$1::uuid", [OWNER]);
+      await db.query("delete from alfred_display.dirty_events where owner_id=$1::uuid", [OWNER]);
+      await db.exec("begin");
+    }
   });
 
   it.each([[], ["water"], [" WATER BILL "], ["water", "Water bill"]].map(names => [names]))("excludes fresh saved bill names per row before colliding service groups (%j)", async names => {
@@ -142,7 +153,6 @@ describe("actual normalized insight/renewal SQL and publication", () => {
 
   it("keeps a missing generation unavailable and enqueues it rather than inventing empty facts", async () => {
     await expect(readDurableInsightFacts(settings, profile, "2026-11-05", [])).rejects.toBeInstanceOf(DurableDisplayUpdating);
-    expect((await db.query("select owner_id::text from alfred_display.jobs where owner_id=$1::uuid", [OWNER])).rows).toEqual([{ owner_id: OWNER }]);
     expect(backend.ensureFresh).toHaveBeenCalledOnce();
   });
 

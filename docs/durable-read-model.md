@@ -119,7 +119,9 @@ Obtain the owner's explicit approval before applying either reviewed migration.
    The CLI does not load `.env` files or migrate. Continuous mode polls every five
    seconds and requires a supervisor. Alternatively an authenticated scheduler can
    call `GET /api/cron/display` with the configured `CRON_SECRET`; each invocation
-   awaits one bounded rebuild. This PR does not add a cron schedule.
+   awaits one rebuild with a soft work budget and a 60-second route duration.
+   Individual database calls are awaited, not cancelled or replayed by a timer;
+   the work budget is not a hard wall-clock guarantee. This PR adds no cron schedule.
 4. Monitor `alfred_display.status()` for readiness, dirty/queued/leased/failed
    owner counts, backlog age and worker/publication timestamps. Expired leases
    allow crash recovery. Failure metadata contains generic codes, not financial
@@ -144,11 +146,39 @@ behavior. Large fictional fixtures exercise fresh stored reads while source-tabl
 SELECT is denied and the old full-history hash raises. Local SQL/CPU measurements
 are distinct from browser navigation and production network latency.
 
+The coherent Accounts fixture contains 2,315 movements, 2,277 snapshots, eight
+accounts, 200 transfer links and four audit before-copies, backed by matching SQL
+sources. Its returned 27,038-byte Accounts DTO is exactly equal on both paths.
+
+| Same fictional SQL dataset | PR58 display path | Stored rows |
+| --- | ---: | ---: |
+| Three cold-wrapper median, local ms | 113.143 | 3.924 |
+| Seven cache-warm/repeated reads, local median ms | 39.957 | 3.480 |
+| Cold read SQL calls | 8 | 1 |
+| Cold SQL response compact JSON bytes | 4,900,123 | 27,520 |
+
+Old cold wrappers reset the process display cache; old warm reads prime it once
+outside timing. New wrappers use no accounting process cache. Database/module
+caches are warm, and wrappers are objects in one process, not new OS processes.
+The source-coherent rebuild plus publication took 632.254 ms locally. Results are
+reproducible with `tests/durable-canonical-performance.test.ts` and the optional
+`ALFRED_DURABLE_CANONICAL_PERFORMANCE_OUTPUT` artifact setting.
+
+On the separate 2,315/2,277 display-publication fixture, local persisted resource
+SQL medians were Overview 96.3 ms, Insights 13.3 ms, account cash 0.6 ms and
+Accounts 3.6 ms. This fixture tests actual SQL publication/read contracts but
+does not seed its complete source history into SQL. Its test explicitly labels
+that distinction. The compact-save fixture with eight audit before-copies reduced
+the normal state read from 37,423,661 to 4,161,213 bytes; write input fell from
+41,581,885 to 8,319,437 bytes and its response to 4,161,631 bytes. These are
+fictional compact JSON measurements, not compressed production transfer sizes.
+
 The real PostgreSQL harness creates only a new temporary local cluster: private
 Unix sockets, TCP disabled, durable WAL settings, no database URL or application
 configuration. It covers multi-session source commits, lease expiry, concurrent
 publication, rollback, actual import/Undo, permanent request IDs, process death and
-crash recovery. With PostgreSQL binaries installed:
+crash recovery. All 20 checks passed on PostgreSQL 17.11, with the complete current
+migration chain, and the fixture server was stopped. With PostgreSQL binaries installed:
 
 ```sh
 node scripts/test-durable-postgres.mjs --bin-dir /path/to/postgresql/bin --output /tmp/alfred-durable-real-pg.json

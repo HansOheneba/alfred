@@ -13,15 +13,15 @@ describe('durable read repair and fallback boundary',()=>{
   io.query.mockResolvedValue([{bundle}]);await expect(tryReadDurableBundle(settings,OWNER,SQL,['fictional-filter'])).resolves.toEqual(bundle);
   expect(io.query).toHaveBeenCalledExactlyOnceWith(settings,SQL,[OWNER,'accounting-display-v1','fictional-filter']);expect(io.fresh).not.toHaveBeenCalled();
  });
- it.each([true,false])('enqueues and awaits owner repair, then rechecks exactly once (worker result %s)',async result=>{
-  io.query.mockResolvedValueOnce([{bundle:null}]).mockResolvedValueOnce([]).mockResolvedValueOnce([{bundle}]);io.fresh.mockResolvedValue(result);
+ it.each([true,false])('awaits nonblocking owner repair, then rechecks exactly once (worker result %s)',async result=>{
+  io.query.mockResolvedValueOnce([{bundle:null}]).mockResolvedValueOnce([{bundle}]);io.fresh.mockResolvedValue(result);
   await expect(tryReadDurableBundle(settings,OWNER,SQL,['fictional-filter'])).resolves.toEqual(bundle);
-  expect(io.fresh).toHaveBeenCalledExactlyOnceWith(settings,OWNER);expect(io.query).toHaveBeenCalledTimes(3);
-  expect(io.query.mock.calls[0]).toEqual(io.query.mock.calls[2]);expect(io.query.mock.calls[1][1]).toContain('alfred_display.enqueue');
+  expect(io.fresh).toHaveBeenCalledExactlyOnceWith(settings,OWNER);expect(io.query).toHaveBeenCalledTimes(2);
+  expect(io.query.mock.calls[0]).toEqual(io.query.mock.calls[1]);expect(io.query.mock.calls.some(([,sql])=>sql.includes('enqueue'))).toBe(false);
  });
  it('reports updating after one unsuccessful recheck without returning stale or empty data',async()=>{
   io.query.mockResolvedValue([{bundle:null}]);await expect(tryReadDurableBundle(settings,OWNER,SQL)).rejects.toBeInstanceOf(DurableDisplayUpdating);
-  expect(io.query).toHaveBeenCalledTimes(3);expect(io.fresh).toHaveBeenCalledOnce();
+  expect(io.query).toHaveBeenCalledTimes(2);expect(io.fresh).toHaveBeenCalledOnce();
  });
  it('does not query or repair when disabled',async()=>{
   vi.stubEnv('ALFRED_DURABLE_DISPLAY','false');await expect(tryReadDurableBundle(settings,OWNER,SQL)).resolves.toBeNull();expect(io.query).not.toHaveBeenCalled();expect(io.fresh).not.toHaveBeenCalled();

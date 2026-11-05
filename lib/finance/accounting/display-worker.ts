@@ -56,14 +56,14 @@ export async function runDisplayWorker(settings: SupabaseSettings, options: { ma
     const job = claimSchema.parse(claimed.result);
     if (job.leaseToken !== requestedToken || (options.ownerId !== undefined && job.ownerId !== options.ownerId)) throw new Error("The display worker lease could not be verified.");
     report.claimed += 1;
-    const fail = async (code: "changed" | "build_failed" | "publication_failed") => {
+    const fail = async (code: "source_changed" | "build_failed" | "publish_failed") => {
       // Error text can contain financial details; only bounded generic codes are stored.
       try { await deps.execute(settings, "select alfred_display.fail($1::uuid,$2::uuid,$3::text) as result", [job.ownerId, job.leaseToken, code]); } catch { /* The lease expires if the database cannot record this attempt. */ }
     };
-    let phase: "build_failed" | "publication_failed" = "build_failed";
+    let phase: "build_failed" | "publish_failed" = "build_failed";
     try {
       const [captured] = await deps.execute<{ result: unknown }>(settings, "select alfred_display.capture($1::uuid,$2::text,$3::uuid) as result", [job.ownerId, job.definition, job.leaseToken]);
-      if (!captured?.result) { report.stale += 1; await fail("changed"); continue; }
+      if (!captured?.result) { report.stale += 1; await fail("source_changed"); continue; }
       const baseline = baselineSchema.parse(captured.result);
       // This await must finish after capture. Parallel capture/loading can consume
       // invalidation evidence for source versions the canonical builder never read.
@@ -71,16 +71,16 @@ export async function runDisplayWorker(settings: SupabaseSettings, options: { ma
       if (source.availability !== "ready" || source.sourceVersion === null || source.state.ownerId !== job.ownerId) throw new Error("The canonical source could not be verified.");
       const model = deps.build(source);
       if (model.definition !== job.definition || model.manifest.ownerId !== job.ownerId || model.manifest.revision !== source.state.revision || model.manifest.sourceVersion !== source.sourceVersion) throw new Error("The display publication did not match its canonical source.");
-      if (deps.now() - started >= budgetMs) { report.stale += 1; await fail("changed"); continue; }
+      if (deps.now() - started >= budgetMs) { report.stale += 1; await fail("source_changed"); continue; }
       const rows = displayRowsForPublication(model.rows), manifest = JSON.stringify(model.manifest), payload = JSON.stringify(rows);
       // Wire names change the byte count; validate the actual SQL payload too.
       if (Buffer.byteLength(manifest) + Buffer.byteLength(payload) > ACCOUNTING_DISPLAY_LIMITS.maxBytes) throw new Error("The complete display publication exceeds its size limit.");
-      phase = "publication_failed";
+      phase = "publish_failed";
       const [published] = await deps.execute<{ result: { status?: string } | null }>(settings,
         "select alfred_display.publish($1::uuid,$2::text,$3::uuid,$4::jsonb,$5::jsonb,$6::jsonb) as result",
         [job.ownerId, job.definition, job.leaseToken, JSON.stringify(baseline), manifest, payload]);
       if (published?.result?.status === "saved") report.published += 1;
-      else if (["stale", "lease_lost", "changed"].includes(published?.result?.status ?? "")) { report.stale += 1; await fail("changed"); }
+      else if (["stale", "lease_lost", "changed"].includes(published?.result?.status ?? "")) { report.stale += 1; await fail("source_changed"); }
       else throw new Error("The database did not confirm display publication.");
     } catch {
       report.failed += 1;

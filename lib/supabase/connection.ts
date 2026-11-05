@@ -8,7 +8,7 @@ import { DatabaseError } from "@/lib/errors";
 types.setTypeParser(1082, (value) => value);
 
 type Candidate = { address: string; port: number };
-type PoolEntry = Candidate & { pool: Pool; settings: SupabaseSettings; retired: boolean };
+type PoolEntry = Candidate & { pool: Pool; settings: SupabaseSettings; retired: boolean; acquiredClients: Set<PoolClient> };
 const pools = new Map<string, PoolEntry>();
 let preferred: PoolEntry | null = null;
 type TransactionScope = { client: PoolClient; settings: SupabaseSettings; active: boolean; connectionFailed: boolean; failure?: DatabaseError };
@@ -72,7 +72,12 @@ function poolFor(settings: SupabaseSettings, address: string, port: number): Poo
     connectionTimeoutMillis: ACQUISITION_BUDGET_MS,
     ssl: { rejectUnauthorized: false, servername: settings.host },
   });
-  const entry: PoolEntry = { pool, settings: { ...settings }, address, port, retired: false };
+  const entry: PoolEntry = { pool, settings: { ...settings }, address, port, retired: false, acquiredClients: new Set() };
+  // totalCount includes clients whose handshake has not finished. Only acquire
+  // proves a connected client is doing work; release/remove ends that checkout.
+  pool.on("acquire", (client: PoolClient) => entry.acquiredClients.add(client));
+  pool.on("release", (_error: Error | undefined, client: PoolClient) => entry.acquiredClients.delete(client));
+  pool.on("remove", (client: PoolClient) => entry.acquiredClients.delete(client));
   pool.on("error", () => invalidatePool(entry));
   pools.set(key, entry);
   return entry;
@@ -89,8 +94,7 @@ function checkoutTimeout(error: unknown): boolean {
   return error instanceof Error && /^(?:timeout exceeded when trying to connect|Connection terminated due to connection timeout)$/i.test(error.message);
 }
 function activeClients(entry: PoolEntry): number {
-  return Number.isFinite(entry.pool.totalCount) && Number.isFinite(entry.pool.idleCount)
-    ? Math.max(0, entry.pool.totalCount - entry.pool.idleCount) : 0;
+  return entry.acquiredClients.size;
 }
 
 function boundedAcquisition<T>(operation: Promise<T>, milliseconds: number, late?: (value: T) => void): Promise<T> {
@@ -146,7 +150,7 @@ async function acquireClient(settings: SupabaseSettings): Promise<{ client: Pool
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     const entry = poolFor(settings, candidate.address, candidate.port);
-    const queued = entry.pool.totalCount >= POOL_MAX_CLIENTS && entry.pool.idleCount === 0;
+    const queued = entry.pool.totalCount >= POOL_MAX_CLIENTS && entry.pool.idleCount === 0 && activeClients(entry) > 0;
     try {
       const client = await boundedAcquisition(entry.pool.connect(), queued ? remaining : Math.min(remaining, ACQUISITION_ATTEMPT_MS), (lateClient) => {
         // pg's public API cannot cancel a checkout. Return a late unused client
