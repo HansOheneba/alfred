@@ -1,4 +1,7 @@
 import { LIMITS, type AppSettings } from "@/lib/config";
+import { createSupabaseBillStore, type BillStore } from "@/lib/finance/bills";
+import { createSupabaseAccountManagementStore, type AccountManagementStore } from "@/lib/accounts/management";
+import { createSupabasePreferenceManagementStore, type PreferenceManagementStore } from "@/lib/accounts/preference-management";
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
 import { ConfigError } from "@/lib/errors";
 import { logError } from "@/lib/log";
@@ -40,6 +43,9 @@ import { createSupabaseInvestmentStore, type InvestmentStore } from "@/lib/inves
 import { ACCOUNT_RULE_INTENT_GUIDANCE, createAccountRuleBotDeps, handleAccountRuleBotCommand, isScopedAccountRuleIntent, type AccountRuleBotDeps } from "@/lib/account-rules/bot-command";
 
 export type HandlerDeps = {
+  bills?: BillStore | null;
+  accountManagement?: AccountManagementStore | null;
+  preferences?: PreferenceManagementStore | null;
   settings: AppSettings;
   store: FinanceStore | null;
   telegram: TelegramSender;
@@ -352,6 +358,9 @@ function actionContext(
   updateId: number,
 ): ActionContext {
   return {
+    bills: deps.bills ?? null,
+    accountManagement: deps.accountManagement ?? null,
+    preferences: deps.preferences ?? null,
     profile,
     store: deps.store as FinanceStore,
     now: deps.now(),
@@ -410,6 +419,9 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
         communicationPreference: "concise",
       });
   return {
+    bills: settings.supabase ? createSupabaseBillStore(settings.supabase) : null,
+    accountManagement: settings.supabase ? createSupabaseAccountManagementStore(settings.supabase) : null,
+    preferences: settings.supabase ? createSupabasePreferenceManagementStore(settings.supabase) : null,
     settings,
     store: settings.supabase
       ? createSupabaseFinanceStore(settings.supabase)

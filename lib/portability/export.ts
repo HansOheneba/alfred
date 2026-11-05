@@ -89,6 +89,12 @@ const TABLES = {
   },
 } as const;
 
+// Additive category storage is optional: older installations still export all
+// their existing finance records without requiring the category migration.
+const CUSTOM_CATEGORIES = {
+  customCategories: { table: "custom_categories", columns: "id::text, category_id, name, type, created_at", order: "type, name, category_id" },
+} as const;
+
 const REQUIRED_TABLES = [...new Set([
   "profiles", "reminder_preferences", "finance_import_native_origins", ...Object.values(TABLES).map((entry) => entry.table),
 ])];
@@ -107,10 +113,11 @@ function rowsSql(table: string, columns: string, order: string): string {
     (select ${columns} from public.${table} where owner_id = $1::uuid order by ${order}) export_row)`;
 }
 
-export const ALFRED_EXPORT_SNAPSHOT_SQL = `select jsonb_build_object(
+function exportSnapshotSql(tables: Record<string, { table: string; columns: string; order: string }>): string {
+  return `select jsonb_build_object(
   'schema', 1,
   'tables', jsonb_build_object(
-    ${Object.entries(TABLES).map(([name, entry]) => `'${name}', ${rowsSql(entry.table, entry.columns, entry.order)}`).join(",\n    ")}
+    ${Object.entries(tables).map(([name, entry]) => `'${name}', ${rowsSql(entry.table, entry.columns, entry.order)}`).join(",\n    ")}
   ),
   'settings', jsonb_build_object(
     'profile', (select to_jsonb(export_profile) from
@@ -123,6 +130,12 @@ export const ALFRED_EXPORT_SNAPSHOT_SQL = `select jsonb_build_object(
   'retainedArchives', (select coalesce(jsonb_agg(jsonb_build_object('archiveId',archive_id,'archive',archive) order by archive_id),'[]'::jsonb)
     from public.finance_import_receipts where owner_id = $1::uuid)
 ) as native`;
+}
+
+export const ALFRED_EXPORT_SNAPSHOT_SQL = exportSnapshotSql(TABLES);
+export const ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL = exportSnapshotSql({ ...TABLES, ...CUSTOM_CATEGORIES });
+
+export const CUSTOM_CATEGORY_PRESERVATION_REASON = "Custom category definitions are retained as native evidence. Automatic category restoration is unsupported; recreate these categories manually in the destination to use them.";
 
 const EXCLUSIONS: ExportCoverage[] = [
   { dataset: "authentication-and-connections", status: "excluded", reason: "Passwords, tokens, OTPs, sessions, SMS forwarding credentials, Telegram account bindings, push subscription endpoints/keys and machine-specific connection settings are never exported." },
@@ -180,6 +193,7 @@ const RESTORED_NATIVE: Record<string, string> = {
 };
 
 const PRESERVED_NATIVE: Record<string, string> = {
+  customCategories: CUSTOM_CATEGORY_PRESERVATION_REASON,
   bankPaymentResolutions: "Explicit no-money-moved reasons and returned-principal links, including immutable source evidence and audit fingerprints, remain lossless native evidence. The shared accounting core restores the resulting excluded movements and valid refund links; historical bank-message IDs and executable resolution actions are never replayed into destination ingestion records.",
 };
 
@@ -206,12 +220,13 @@ function nativeCoverage(native: AlfredNativeExport): ExportCoverage[] {
 export async function buildAlfredExport(settings: SupabaseSettings, ownerId: string) {
   const availability = await query<{ table_name: string; ready: boolean }>(settings,
     "select table_name, to_regclass('public.' || table_name) is not null as ready from unnest($1::text[]) as requested(table_name)",
-    [REQUIRED_TABLES],
+    [[...REQUIRED_TABLES, CUSTOM_CATEGORIES.customCategories.table]],
   );
   const ready = new Set(availability.filter((row) => row.ready).map((row) => row.table_name));
   const missing = REQUIRED_TABLES.filter((name) => !ready.has(name));
   if (missing.length) throw new Error(`Data export requires the reviewed finance and portability migrations. Missing tables: ${missing.join(", ")}.`);
-  const rows = await query<{ native: AlfredNativeExport }>(settings, ALFRED_EXPORT_SNAPSHOT_SQL, [ownerId]);
+  const snapshotSql = ready.has(CUSTOM_CATEGORIES.customCategories.table) ? ALFRED_EXPORT_WITH_CATEGORIES_SNAPSHOT_SQL : ALFRED_EXPORT_SNAPSHOT_SQL;
+  const rows = await query<{ native: AlfredNativeExport }>(settings, snapshotSql, [ownerId]);
   const raw = rows[0]?.native;
   if (!raw?.settings.profile) throw new Error("This signed-in profile has no exportable finance settings.");
   const native = exportNativeSnapshot(raw);

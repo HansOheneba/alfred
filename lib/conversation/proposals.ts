@@ -3,7 +3,8 @@ import { waitingLine } from "@/lib/bank/reply";
 import type { BankMessage } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
 import { saveConfirmation, type ActionContext, type Delivery } from "@/lib/finance/action-router";
-import { normalizeCategory } from "@/lib/finance/categories";
+import { normalizeCategory, readCategories } from "@/lib/finance/categories";
+import type { CategoryRecord } from "@/lib/finance/types";
 import { proposedLabelSchema } from "@/lib/finance/schemas";
 import { remember } from "@/lib/learning/log";
 
@@ -51,6 +52,7 @@ export function decidePaymentAnswer(input: {
   text: string;
   asked: BankMessage;
   proposals: Proposal[];
+  categories?: readonly CategoryRecord[];
   nearby: Set<string>;
   grounded: (text: string, message: BankMessage, label: Label) => boolean;
   proposable: (text: string, message: BankMessage, label: Label) => boolean;
@@ -58,8 +60,8 @@ export function decidePaymentAnswer(input: {
   const { text, asked, nearby } = input;
   const relevant = input.proposals.filter((item) => item.message.id === asked.id || nearby.has(item.message.id));
   if (relevant.length === 0) return input.proposals.length > 0 ? { kind: "file" } : { kind: "ask" };
-  if (relevant.every((item) => item.message.id === asked.id && fitsDirection(item.message, item.label) && input.grounded(text, item.message, item.label))) return { kind: "file" };
-  const fit = relevant.filter((item) => fitsDirection(item.message, item.label) && (input.grounded(text, item.message, item.label) || input.proposable(text, item.message, item.label)));
+  if (relevant.every((item) => item.message.id === asked.id && fitsDirection(item.message, item.label, input.categories) && input.grounded(text, item.message, item.label))) return { kind: "file" };
+  const fit = relevant.filter((item) => fitsDirection(item.message, item.label, input.categories) && (input.grounded(text, item.message, item.label) || input.proposable(text, item.message, item.label)));
   if (fit.length === relevant.length && fit.some((item) => item.message.id === asked.id)) return { kind: "propose", items: fit };
   return { kind: "ask" };
 }
@@ -69,10 +71,11 @@ function timeOf(message: BankMessage, profile: UserProfile): string {
 }
 
 /** Labels that can't apply to a payment going this way, like lending money that came in. */
-export function fitsDirection(message: BankMessage, label: Label): boolean {
+export function fitsDirection(message: BankMessage, label: Label, categories: readonly CategoryRecord[] = []): boolean {
+  const custom = categories.filter(category => category.userId === message.ownerId);
   if (label.kind === "lent" || label.kind === "paid_back") return message.direction === "out";
   if (label.kind === "repaid" || label.kind === "borrowed" || label.kind === "refund") return message.direction === "in";
-  if (label.kind === "category") return Boolean(normalizeCategory(label.category, message.direction === "in" ? "income" : "expense"));
+  if (label.kind === "category") return Boolean(normalizeCategory(label.category, message.direction === "in" ? "income" : "expense", custom));
   return true;
 }
 
@@ -99,9 +102,10 @@ export function describeLabel(message: BankMessage, label: Label): string {
  * when none of the readings can apply, so the caller asks the question again.
  */
 export async function proposeLabels(ctx: ActionContext, proposals: Proposal[], profile: UserProfile, said: string | null = null): Promise<Delivery | null> {
+  const categories = await readCategories(ctx.store, profile.profileId);
   const seen = new Set<string>();
   const usable = proposals.filter((item) => {
-    if (seen.has(item.message.id) || item.message.ownerId !== profile.profileId || item.message.status !== "needs_label" || !fitsDirection(item.message, item.label)) return false;
+    if (seen.has(item.message.id) || item.message.ownerId !== profile.profileId || item.message.status !== "needs_label" || !fitsDirection(item.message, item.label, categories)) return false;
     seen.add(item.message.id);
     return proposedLabelSchema.safeParse(item.label).success;
   }).slice(0, 4);

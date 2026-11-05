@@ -8,7 +8,9 @@ import { Select } from "@/app/components/select";
 import { TemporalInput } from "@/app/components/temporal-input";
 import { Spinner } from "@/app/components/status";
 import { Button, Dialog, DialogActions, Field, inputClass, sendJson } from "@/app/components/ui";
-import { EXPENSE_CATEGORIES, normalizeCategory } from "@/lib/finance/categories";
+import { EXPENSE_CATEGORIES, categoryList, normalizeCategory } from "@/lib/finance/categories";
+import type { CategoryRecord } from "@/lib/finance/types";
+import { useCustomCategories } from "@/app/components/category-catalog";
 import { formatDisplayDate } from "@/lib/finance/dates";
 import { canonicalizeAmount, formatAmount } from "@/lib/finance/money";
 import { amountSchema, isoDateSchema, nonNegativeAmountSchema, yearMonthSchema } from "@/lib/finance/schemas";
@@ -23,9 +25,9 @@ export type OverviewPlanReview =
   | { kind: "goal"; payload: { name: string; targetAmount: string; currentAmount: string; targetDate: string } };
 
 /** Validate a proposed change without saving. Owner and currency remain server-derived in the existing APIs. */
-export function prepareOverviewPlan(draft: OverviewPlanDraft, currency: string, budgets: LedgerBudget[] = []): { ok: true; review: OverviewPlanReview } | { ok: false; error: string } {
+export function prepareOverviewPlan(draft: OverviewPlanDraft, currency: string, budgets: LedgerBudget[] = [], custom: readonly CategoryRecord[] = []): { ok: true; review: OverviewPlanReview } | { ok: false; error: string } {
   if (draft.kind === "budget") {
-    const category = normalizeCategory(draft.category, "expense");
+    const category = normalizeCategory(draft.category, "expense", custom);
     const amount = canonicalizeAmount(draft.amount);
     if (!category) return { ok: false, error: "Choose an expense category." };
     if (!amount || !amountSchema.safeParse(amount).success) return { ok: false, error: "Enter a positive amount with up to two decimals." };
@@ -52,6 +54,8 @@ export function OverviewQuickAction({ kind, currency, today, budgets = [] }: { k
 
 function OverviewPlanAction({ kind, currency, today, budgets }: { kind: "budget" | "goal"; currency: string; today: string; budgets: LedgerBudget[] }) {
   const router = useRouter();
+  const custom = useCustomCategories();
+  const categories = categoryList("expense", custom);
   const [open, setOpen] = useState(false);
   const [draft, setDraft] = useState<OverviewPlanDraft>(() => initialDraft(kind, today));
   const [review, setReview] = useState<OverviewPlanReview | null>(null);
@@ -63,7 +67,7 @@ function OverviewPlanAction({ kind, currency, today, budgets }: { kind: "budget"
   function begin() { setDraft(initialDraft(kind, today)); setReview(null); setError(""); setNotice(""); setOpen(true); }
   function prepare(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const result = prepareOverviewPlan(draft, currency, budgets);
+    const result = prepareOverviewPlan(draft, currency, budgets, custom);
     if (!result.ok) { setError(result.error); return; }
     setError(""); setReview(result.review);
   }
@@ -89,7 +93,7 @@ function OverviewPlanAction({ kind, currency, today, budgets }: { kind: "budget"
         <DialogActions><Button onClick={() => { setReview(null); setError(""); }} disabled={busy}>Back</Button><Button variant="primary" onClick={() => void save()} disabled={busy} aria-busy={busy}>{busy ? <><Spinner />Saving…</> : kind === "goal" ? "Create goal" : updateBudget ? "Update budget" : "Set budget"}</Button></DialogActions>
       </div> : <form className="alfred-overview-quickForm" onSubmit={prepare}>
         {draft.kind === "budget" ? <>
-          <Field label="Category"><Select value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value })}>{EXPENSE_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}</Select></Field>
+          <Field label="Category"><Select value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value })}>{categories.map(category => <option key={category} value={category}>{category}</option>)}</Select></Field>
           <Field label={`Monthly amount (${currency})`}><input className={inputClass} autoFocus inputMode="decimal" required value={draft.amount} onChange={event => setDraft({ ...draft, amount: event.target.value })} placeholder="0.00" /></Field>
           <Field label="Month"><TemporalInput type="month" required value={draft.period} onChange={event => setDraft({ ...draft, period: event.target.value })} /></Field>
         </> : <>

@@ -31,7 +31,7 @@ import { attentionLine, interpretWithContext, type ChatCue } from "@/lib/finance
 import type { AttentionSummary } from "@/lib/finance/accounting/types";
 import type { LoanStore } from "@/lib/finance/loans";
 import { answerTypedDecision, decidePending, latestOpenPending, typedDecision } from "@/lib/finance/pending";
-import { actionsOf, type FinanceAction, type InterpretedAction } from "@/lib/finance/schemas";
+import { actionsOf, offeredActions, type FinanceAction, type InterpretedAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { createLookup } from "@/lib/conversation/lookups";
@@ -44,9 +44,9 @@ import type { InlineButton } from "@/lib/telegram/client";
 import { localGreeting } from "@/lib/telegram/messages";
 import { KIND_LABELS, type InvestmentStore } from "@/lib/investments/store";
 import { canonicalizeAmount, toMinor } from "@/lib/finance/money";
-import { normalizeCategory } from "@/lib/finance/categories";
+import { normalizeCategory, readCategories } from "@/lib/finance/categories";
 import { isRealDate, zonedYmd } from "@/lib/finance/dates";
-import type { PendingActionRecord } from "@/lib/finance/types";
+import type { CategoryRecord, PendingActionRecord } from "@/lib/finance/types";
 
 /** What a conversation turn needs, from Telegram or the website. */
 export type TurnDeps = {
@@ -134,7 +134,8 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
         buttons: question.buttons, paymentNotice: { bankMessageId: source.id, requiresPurpose: true } };
     }
   }
-  const separateExpense = noticeFocus && !noticeFocus.requiresPurpose && independentExpenseAllowed ? independentExpenseRequest(text, ctx.profile.currency) : null;
+  const categories = await readCategories(ctx.store, ctx.profile.profileId);
+  const separateExpense = noticeFocus && !noticeFocus.requiresPurpose && independentExpenseAllowed ? independentExpenseRequest(text, ctx.profile.currency, categories) : null;
   if (separateExpense) {
     // This is a new, explicit request rather than a purpose answer. The exact
     // user words supply one expense, and it always gets its own confirmation.
@@ -165,7 +166,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   }
   // A vague answer isn't permission to invent a purpose, even if a model could
   // produce a plausible category. Keep the exact question open without a write.
-  if (noticeFocus !== undefined && paymentPurposeUnclear(text, waiting?.current?.direction ?? "in")) {
+  if (noticeFocus !== undefined && paymentPurposeUnclear(text, waiting?.current?.direction ?? "in", categories)) {
     if (ingest && waiting?.current) {
       const again = await askAgain(ingest, ctx.profile, waiting.current, purposeQuestionIntro(waiting.current, "I'll leave this uncategorised until you tell me what it was for."));
       return keepNoticeFocus({ kind: "text", text: again.text, intent: "bank:label", buttons: again.buttons });
@@ -180,6 +181,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   const earlier = noticeFocus?.requiresPurpose ? await saidAboutPayment(deps.messages, ctx.profile.profileId, noticeFocus.bankMessageId, options.excludeClientId) : [];
   const lookup = createLookup({ store: ctx.store, bank: deps.bank, loans: deps.loans, investments: deps.investments, notebook: deps.notebook, people: deps.people }, ctx.profile);
   const request = (said: string): Parameters<typeof interpretWithContext>[0] => ({
+    services: [ctx.bills && "bills", ctx.accountManagement && "accounts", ctx.preferences && "settings"].filter((value): value is string => Boolean(value)),
     text: said,
     lookup,
     profile: ctx.profile,
@@ -242,7 +244,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   const mutations = actions.filter((item) => NOTICE_FINANCIAL_MUTATIONS.has(item.type) || closedNotice && item.type === "label_payments");
   const independent = closedNotice ? await Promise.all(mutations.map(async (item) => {
     if (ownedOutgoing && item.type === "create_transaction" && item.transactions[0]?.transaction_type === "income") return groundedIndependentIncome(item, text, ctx);
-    if (!groundedIndependentMutation(item, text, ctx)) return false;
+    if (!groundedIndependentMutation(item, text, ctx, categories)) return false;
     return item.type !== "create_transaction" || independentExpenseAllowed || Boolean(ownedOutgoing && await separateOutgoingExpense(item, ownedOutgoing, text, ctx));
   })) : [];
   const allowedIndependent = closedNotice && actions.length === 1 && mutations.length === 1 && independent.every(Boolean);
@@ -253,6 +255,13 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     }
     return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Nothing was changed. For a separate transaction, choose Ask something else or give its different amount, currency and date.", intent: "chat:other" }, true);
   }
+  // Each managed service change has its own exact review. The existing pending
+  // store binds a confirmation to one turn, so never imply multiple writes share it.
+  if (actions.some(item => SERVICE_MANAGEMENT_WRITES.has(item.type)) && actions.filter(item => NOTICE_FINANCIAL_MUTATIONS.has(item.type) || item.type === "label_payments"
+    || item.type === "remember_person" || item.type === "forget_person" || item.type === "remember_about_me"
+    || item.type === "clarify" && offeredActions(item.offer).length > 0).length > 1) {
+    return keepNoticeFocus({ kind: "text", text: "Let's review one change at a time. Which change should I prepare first? Nothing was changed.", intent: "clarify" });
+  }
   const focused = askedAbout;
   if (ingest && focused && actions.some((item) => item.type === "label_payments")) {
     const proposals = actions.flatMap((item) => item.type === "label_payments" ? resolvedFrom(item.answers, waiting!.listed) : [])
@@ -260,12 +269,13 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
       .filter((item): item is Proposal => Boolean(item.message));
     // Their recent messages are their own words too: "I told you the 1300 was …" still counts on the next turn.
     const said = [text, ...(people ?? []), ...remembered, ...(await recentlySaid(deps.messages, ctx.profile.profileId, options.excludeClientId))];
-    const fits = (item: Proposal) => groundedPaymentLabel(text, item.message, item.label) || proposableLabel(text, item.message, item.label, said);
+    const fits = (item: Proposal) => groundedPaymentLabel(text, item.message, item.label, categories) || proposableLabel(text, item.message, item.label, said, categories);
     // A right reading with an embellished note ("Mtcgame purchase on my card") keeps the reading and drops the note.
     const cleaned = proposals.map((item) => fits(item) ? item : fits({ ...item, label: withoutDetails(item.label) }) ? { ...item, label: withoutDetails(item.label) } : item);
     const decision = decidePaymentAnswer({
       text, asked: focused, proposals: cleaned, nearby: nearbyIds(focused, waiting!.listed),
-      grounded: groundedPaymentLabel, proposable: (words, message, label) => proposableLabel(words, message, label, said),
+      categories,
+      grounded: (words, message, label) => groundedPaymentLabel(words, message, label, categories), proposable: (words, message, label) => proposableLabel(words, message, label, said, categories),
     });
     // Filing goes through the model's own labels, so a reading that only fits once its note is dropped is confirmed instead.
     const nearby = nearbyIds(focused, waiting!.listed);
@@ -280,7 +290,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
       return keepNoticeFocus({ kind: "text", text: purposeQuestionIntro(focused, `I haven't changed this payment. You said “${purpose}”, and I couldn't turn that into a label I'm sure of. Was it a gift, a repayment, your own money, or another type? Choose below, or tell me in other words.`), intent: "bank:label", buttons: again.buttons });
     }
   }
-  const purposeDetail = focused ? await earlierFocusedPurpose(deps.messages, ctx.profile.profileId, focused, text, options.excludeClientId) : null;
+  const purposeDetail = focused ? await earlierFocusedPurpose(deps.messages, ctx.profile.profileId, focused, text, options.excludeClientId, categories) : null;
   const parts: TurnReply[] = [];
   for (const item of actions) {
     const confirmed = allowedIndependent && item.type === "create_transaction" ? { ...item, explicit: false } : item;
@@ -387,8 +397,8 @@ function groundedIndependentIncome(action: Extract<FinanceAction, { type: "creat
 }
 
 /** Closed notices allow only a separate, evidenced expense/budget request, always confirmed. */
-function groundedIndependentMutation(action: FinanceAction, text: string, ctx: ActionContext): boolean {
-  if ((action.type !== "create_transaction" && action.type !== "set_budget") || /[?\n;]/.test(text) || paymentPurposeUnclear(text, "out")) return false;
+function groundedIndependentMutation(action: FinanceAction, text: string, ctx: ActionContext, categories: readonly CategoryRecord[] = []): boolean {
+  if ((action.type !== "create_transaction" && action.type !== "set_budget") || /[?\n;]/.test(text) || paymentPurposeUnclear(text, "out", categories)) return false;
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const period = /\b\d{4}-(?:0[1-9]|1[0-2])\b/.exec(text)?.[0] ?? today.slice(0, 7);
   const prose = text.replace(/\b\d{4}-\d{2}(?:-\d{2})?\b/g, "");
@@ -401,18 +411,18 @@ function groundedIndependentMutation(action: FinanceAction, text: string, ctx: A
   }
   if (currencies.size > 1) return false;
   const currency = [...currencies][0] ?? ctx.profile.currency;
-  const category = explicitExpenseCategory(prose);
+  const category = explicitExpenseCategory(prose, categories);
   if (!category) return false;
   if (action.type === "set_budget") {
     const requested = /\b(?:set|change|update|make|create|limit)\b.*\bbudget\b|^\s*budget\b/i.test(text);
     return requested && amounts.has(canonicalizeAmount(action.amount)) && action.currency === currency
-      && normalizeCategory(action.category, "expense") === category && (action.period ?? today.slice(0, 7)) === period;
+      && normalizeCategory(action.category, "expense", categories) === category && action.period === period;
   }
   if (action.transactions.length !== 1 || /\b(?:budget|income|salary|gift|loan|lent|borrowed|repaid|repayment|refund|received|that was|this was)\b/i.test(text)) return false;
   const entry = prose.replace(/\b(?:GHS|USD|EUR|GBP)\b|GH₵|₵|\d[\d,]*(?:\.\d{1,2})?/gi, "").trim().replace(/[.!]+$/g, "").trim().replace(/^(?:a|an|my)\s+/i, "");
-  if (!/\b(?:spent|paid|bought|cost|purchase|purchased)\b/i.test(text) && !normalizeCategory(entry, "expense")) return false;
+  if (!/\b(?:spent|paid|bought|cost|purchase|purchased)\b/i.test(text) && !normalizeCategory(entry, "expense", categories)) return false;
   const draft = action.transactions[0];
-  if (draft.transaction_type !== "expense" || !amounts.has(canonicalizeAmount(draft.amount)) || draft.currency !== currency || normalizeCategory(draft.category, "expense") !== category || draft.date && draft.date !== today && !text.includes(draft.date)) return false;
+  if (draft.transaction_type !== "expense" || !amounts.has(canonicalizeAmount(draft.amount)) || draft.currency !== currency || normalizeCategory(draft.category, "expense", categories) !== category || draft.date && draft.date !== today && !text.includes(draft.date)) return false;
   const words = new Set(text.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []);
   const grounded = (value: string | null | undefined) => !value || (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).length > 0 && (value.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []).every(word => words.has(word) || ["a", "an", "the", "for", "on", "expense"].includes(word) || normalizeCategory(word, "expense") === category);
   return grounded(draft.description) && grounded(draft.payment_method) && grounded(draft.notes);
@@ -440,7 +450,7 @@ function closedNoticeAcknowledgement(text: string): string | null {
   return /^(?:ok|okay|got it|alright|all right|yes|yeah|yep|sure)$/.test(said) ? "Got it." : null;
 }
 
-function independentExpenseRequest(text: string, defaultCurrency: string): Extract<FinanceAction, { type: "create_transaction" }> | null {
+function independentExpenseRequest(text: string, defaultCurrency: string, categories: readonly CategoryRecord[] = []): Extract<FinanceAction, { type: "create_transaction" }> | null {
   const match = /^i\s+(?:just\s+)?spent\s+(?:(GHS|GH₵|₵|[A-Z]{3})\s*)?([0-9][0-9,]*(?:\.[0-9]{1,2})?)\s*(?:(GHS|GH₵|₵|[A-Z]{3})\s+)?(?:on|for)\s+(.+?)[.!]?$/i.exec(text.trim());
   if (!match || /[\n;?]|\b(?:and|or|then|also|but|maybe|perhaps)\b/i.test(match[4])) return null;
   const amount = canonicalizeAmount(match[2]);
@@ -448,19 +458,19 @@ function independentExpenseRequest(text: string, defaultCurrency: string): Extra
   const currencyOf = (value: string | undefined) => value === "GH₵" || value === "₵" ? "GHS" : value;
   if (prefix && suffix && currencyOf(prefix) !== currencyOf(suffix)) return null;
   const currency = currencyOf(prefix ?? suffix) ?? defaultCurrency;
-  const category = explicitExpenseCategory(match[4]);
+  const category = explicitExpenseCategory(match[4], categories);
   if (!amount || !category || !/^[A-Z]{3}$/.test(currency) || match[4].length > 200) return null;
   return { type: "create_transaction", explicit: false, transactions: [{ transaction_type: "expense", amount, currency, category, description: match[4], payment_method: "", notes: "" }] };
 }
 
 /** Recover only the person's own earlier purpose for this exact open alert. Never model history. */
-async function earlierFocusedPurpose(messages: MessageLog | null | undefined, ownerId: string, message: BankMessage, text: string, excludeClientId?: string | null): Promise<string | null> {
+async function earlierFocusedPurpose(messages: MessageLog | null | undefined, ownerId: string, message: BankMessage, text: string, excludeClientId?: string | null, categories: readonly CategoryRecord[] = []): Promise<string | null> {
   if (!messages) return null;
   const classification = text.trim().replace(/[.!]+$/g, "").replace(/^(?:(?:it was|it's|a|an)\s+)+/i, "");
-  if (!normalizeCategory(classification, message.direction === "in" ? "income" : "expense")) return null;
+  if (!normalizeCategory(classification, message.direction === "in" ? "income" : "expense", categories)) return null;
   const history = await messages.listRecent(ownerId, 20);
   const previous = [...history].reverse().find(item => item.role === "user" && item.paymentNotice?.bankMessageId === message.id && item.paymentNotice.requiresPurpose && (!excludeClientId || item.clientId !== excludeClientId)
-    && item.body.trim().split(/\s+/).length > 1 && paymentPurposeNeedsClassification(item.body, message.direction));
+    && item.body.trim().split(/\s+/).length > 1 && paymentPurposeNeedsClassification(item.body, message.direction, categories));
   return previous?.body.replace(/\s+/g, " ").trim().slice(0, 200) ?? null;
 }
 
@@ -471,10 +481,18 @@ function purposeQuestionIntro(message: BankMessage, intro: string): string {
 }
 
 const NOTICE_FINANCIAL_MUTATIONS = new Set<FinanceAction["type"]>([
+  "create_bill", "update_bill", "set_bill_active", "delete_bill", "create_account", "update_account",
+  "update_profile_settings", "update_reminder_settings", "update_notification_settings",
   "create_transaction", "record_loan", "add_investment", "update_investment", "invest_money",
-  "set_budget", "create_savings_goal", "update_savings_goal", "correct_transaction", "delete_transaction",
+  "set_budget", "create_category", "delete_budget", "create_savings_goal", "update_savings_goal", "correct_transaction", "delete_transaction",
   "ignore_account", "answer_confirmation",
   "ask_next",
+]);
+
+const SERVICE_MANAGEMENT_WRITES = new Set<FinanceAction["type"]>([
+  "create_category", "delete_budget",
+  "create_bill", "update_bill", "set_bill_active", "delete_bill", "create_account", "update_account",
+  "update_profile_settings", "update_reminder_settings", "update_notification_settings",
 ]);
 
 /**

@@ -11,7 +11,8 @@ import { Select } from "@/app/components/select";
 import { TemporalInput } from "@/app/components/temporal-input";
 import { Button, Card, ConfirmDialog, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerRow } from "@/lib/finance/analytics";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
+import { categoryList } from "@/lib/finance/categories";
+import { useCustomCategories } from "@/app/components/category-catalog";
 import { formatDisplayDate } from "@/lib/finance/dates";
 import type { DateRange } from "@/lib/finance/dates";
 import { formatMinor } from "@/lib/finance/money";
@@ -354,6 +355,7 @@ function TransactionChanges({ review }: { review: TransactionEditReview }) {
 }
 
 function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => void; onSaved: (updated: LedgerRow, review: TransactionEditReview) => void }) {
+  const custom = useCustomCategories();
   const [type, setType] = useState(row.type);
   const [amount, setAmount] = useState(row.amount);
   const [description, setDescription] = useState(row.description);
@@ -364,11 +366,11 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
   const [error, setError] = useState("");
   const [review, setReview] = useState<TransactionEditReview | null>(null);
   const saving = useRef(false);
-  const options: readonly string[] = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+  const options: readonly string[] = categoryList(type, custom);
 
   function close() { if (!saving.current) onClose(); }
   function prepare() {
-    const result = prepareTransactionEdit(row, { type, amount, description, category, date, includedFee });
+    const result = prepareTransactionEdit(row, { type, amount, description, category, date, includedFee }, custom);
     if (!result.ok) { setError(result.error); return; }
     if (!Object.keys(result.review.changes).length) { onClose(); return; }
     setError(""); setReview(result.review);
@@ -413,7 +415,7 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
             onChange={(event) => {
               const next = event.target.value as LedgerRow["type"];
               setType(next);
-              const list: readonly string[] = next === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
+              const list: readonly string[] = categoryList(next, custom);
               if (!list.includes(category)) setCategory(list[0]);
             }}
           >

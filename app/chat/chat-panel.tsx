@@ -16,6 +16,7 @@ import { chatReadDeadline } from "@/app/chat/read-deadline";
 import { ReplyChart } from "@/app/chat/reply-chart";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { AlfredMark } from "@/app/components/app-shell";
+import { useRefreshCategories } from "@/app/components/category-catalog";
 import { getGettingStartedState } from "@/app/components/getting-started-state";
 import type { ChatChoice } from "@/lib/accounts/chat-choices";
 import type { ChatChart, ChatMessageRecord } from "@/lib/accounts/messages";
@@ -92,6 +93,7 @@ export function ChatPanel({
   /** Explicit transport seam for the guarded, fictional local preview. */
   requestData?: typeof fetch;
 }) {
+  const refreshCategories = useRefreshCategories();
   const [text, setText] = useChatDraft(initialQuestion, ownerId, draftScope);
   const { restore: restoreDraftFocus } = useChatDraftFocus(draftScope);
   const [messages, setMessages] = useState<ThreadMessage[]>(initialMessages);
@@ -197,9 +199,9 @@ export function ChatPanel({
 
   // Writes can add or remove the last record; recheck the cheap server rule in either case.
   const afterOutcome = useCallback((ledgerChanged: boolean | undefined) => {
-    invalidateAfterChatOutcome(ledgerChanged, invalidateContext);
+    invalidateAfterChatOutcome(ledgerChanged, invalidateContext, refreshCategories);
     void emptyStatus.refresh(ledgerChanged);
-  }, [invalidateContext, emptyStatus]);
+  }, [invalidateContext, emptyStatus, refreshCategories]);
 
   const publishThread = useCallback((payload: ThreadRefreshPayload) => {
     if (payload.paymentEntry !== undefined) publishPaymentEntry(payload.paymentEntry);

@@ -3,7 +3,7 @@ import { normalizeCategory, categoryList } from "@/lib/finance/categories";
 import { isSaneTransactionDate } from "@/lib/finance/dates";
 import type { FinanceAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
-import type { TransactionDraft, TransactionRecord } from "@/lib/finance/types";
+import type { CategoryRecord, TransactionDraft, TransactionRecord } from "@/lib/finance/types";
 import { userFacingError } from "@/lib/telegram/messages";
 
 type AiDraft = Extract<FinanceAction, { type: "create_transaction" }>["transactions"][number];
@@ -12,14 +12,16 @@ export function normalizeDrafts(
   drafts: AiDraft[],
   profile: UserProfile,
   today: string,
+  custom: readonly CategoryRecord[] = [],
 ): { ok: true; drafts: TransactionDraft[] } | { ok: false; message: string } {
   const normalized: TransactionDraft[] = [];
   for (const draft of drafts) {
-    const category = normalizeCategory(draft.category, draft.transaction_type);
+    const owned = custom.filter(item => item.userId === profile.profileId);
+    const category = normalizeCategory(draft.category, draft.transaction_type, owned);
     if (!category) {
       return {
         ok: false,
-        message: `I don't know the category "${draft.category}". Use one of: ${categoryList(draft.transaction_type).join(", ")}.`,
+        message: `I don't know the category "${draft.category}". Use one of: ${categoryList(draft.transaction_type, owned).join(", ")}.`,
       };
     }
     const date = draft.date ?? today;

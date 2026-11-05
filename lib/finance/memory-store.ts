@@ -1,7 +1,9 @@
-import { AuthError, SheetsError } from "@/lib/errors";
-import type { FinanceStore, NewBudget, NewPendingAction, NewProcessedUpdate, NewSavingsGoal, NewTransaction } from "@/lib/finance/store";
+import { AuthError, DatabaseError, SheetsError } from "@/lib/errors";
+import { validCategoryBudget, validateCategoryName } from "@/lib/finance/categories";
+import type { BudgetSnapshot, FinanceStore, NewBudget, NewCategory, NewPendingAction, NewProcessedUpdate, NewSavingsGoal, NewTransaction } from "@/lib/finance/store";
 import type {
   BudgetRecord,
+  CategoryRecord,
   PendingActionRecord,
   ProcessedUpdateRecord,
   SavingsGoalRecord,
@@ -16,6 +18,7 @@ export class MemoryFinanceStore implements FinanceStore {
   private processed: ProcessedUpdateRecord[] = [];
   private transactions: TransactionRecord[] = [];
   private budgets: BudgetRecord[] = [];
+  private categories: CategoryRecord[] = [];
   private goals: SavingsGoalRecord[] = [];
   private pending: PendingActionRecord[] = [];
   private nextRow = 2;
@@ -111,8 +114,30 @@ export class MemoryFinanceStore implements FinanceStore {
     return this.budgets.filter((item) => item.userId === userId).map(clone);
   }
 
-  async deleteBudget(userId: string, budgetId: string): Promise<boolean> {
-    const index = this.budgets.findIndex((item) => item.userId === userId && item.budgetId === budgetId);
+  async listCategories(userId: string): Promise<CategoryRecord[]> {
+    return this.categories.filter((item) => item.userId === userId).map(clone);
+  }
+
+  async createCategory(row: NewCategory, budget?: NewBudget): Promise<CategoryRecord> {
+    const validated = validateCategoryName(row.name, row.type, this.categories.filter((item) => item.userId === row.userId));
+    if (!validated.ok) throw new SheetsError("verify", validated.message);
+    if (budget && !validCategoryBudget(row, validated.name, budget)) throw new AuthError("The category budget is invalid. Nothing was changed.");
+    const existing = this.categories.find((item) => item.userId === row.userId && item.type === row.type && item.name.toLowerCase() === validated.name.toLowerCase());
+    if (!existing && this.categories.some((item) => item.categoryId === row.categoryId)) throw new DatabaseError("That category identity is already in use.", "23505");
+    const category = existing ?? { ...row, name: validated.name, rowNumber: this.nextRow };
+    // Validate and stage every value before committing either half. No await or externally overridden write can split this commit.
+    const currentBudget = budget && this.budgets.find((item) => item.userId === row.userId && item.period === budget.period && item.category === category.name && item.currency === budget.currency);
+    if (currentBudget) throw new DatabaseError("A budget already exists for that category, month and currency. Nothing was changed.", "23505");
+    if (!existing) { this.nextRow++; this.categories.push(category); }
+    if (budget) {
+      this.budgets.push({ ...budget, category: category.name, rowNumber: this.nextRow++ });
+    }
+    return clone(category);
+  }
+
+  async deleteBudget(userId: string, budgetId: string, expected?: BudgetSnapshot): Promise<boolean> {
+    const index = this.budgets.findIndex((item) => item.userId === userId && item.budgetId === budgetId
+      && (!expected || (["period", "category", "amount", "currency", "updatedAt"] as const).every((field) => item[field] === expected[field])));
     if (index < 0) return false;
     this.budgets.splice(index, 1);
     return true;

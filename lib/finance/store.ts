@@ -1,5 +1,6 @@
 import type {
   BudgetRecord,
+  CategoryRecord,
   PendingActionRecord,
   ProcessedUpdateRecord,
   SavingsGoalRecord,
@@ -13,6 +14,8 @@ import type { buildAccountingView } from "@/lib/finance/accounting/view";
 export type NewProcessedUpdate = Omit<ProcessedUpdateRecord, "rowNumber">;
 export type NewTransaction = Omit<TransactionRecord, "rowNumber">;
 export type NewBudget = Omit<BudgetRecord, "rowNumber">;
+export type NewCategory = Omit<CategoryRecord, "rowNumber">;
+export type BudgetSnapshot = Pick<BudgetRecord, "period" | "category" | "amount" | "currency" | "updatedAt">;
 export type NewSavingsGoal = Omit<SavingsGoalRecord, "rowNumber">;
 export type NewPendingAction = Omit<PendingActionRecord, "rowNumber">;
 
@@ -43,9 +46,13 @@ export interface FinanceStore {
     patch: Partial<TransactionChanges> & { status?: TransactionRecord["status"] },
   ): Promise<TransactionRecord>;
   listBudgets(userId: string): Promise<BudgetRecord[]>;
+  /** Optional for legacy Sheets storage. Custom category creation must fail closed without it. */
+  listCategories?(userId: string): Promise<CategoryRecord[]>;
+  /** Creates the category and optional first budget atomically; duplicate names reuse the category, but an existing budget rejects the whole write. */
+  createCategory?(row: NewCategory, budget?: NewBudget): Promise<CategoryRecord>;
   saveBudget(row: NewBudget): Promise<BudgetRecord>;
   /** Removes one of the user's budgets. Returns false when it wasn't found. */
-  deleteBudget(userId: string, budgetId: string): Promise<boolean>;
+  deleteBudget(userId: string, budgetId: string, expected?: BudgetSnapshot): Promise<boolean>;
   listSavingsGoals(userId: string): Promise<SavingsGoalRecord[]>;
   appendSavingsGoal(row: NewSavingsGoal): Promise<SavingsGoalRecord>;
   updateSavingsGoal(

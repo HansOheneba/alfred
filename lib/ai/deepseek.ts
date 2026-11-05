@@ -4,6 +4,7 @@ import type { Channel } from "@/lib/ai/persona";
 import { buildSystemPrompt, type RecentTransaction } from "@/lib/ai/prompts";
 import { LIMITS, type DeepSeekSettings } from "@/lib/config";
 import { AiError } from "@/lib/errors";
+import type { CategoryRecord } from "@/lib/finance/types";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { zonedYmd } from "@/lib/finance/dates";
 import { parseModelOutput, type InterpretedAction } from "@/lib/finance/schemas";
@@ -22,6 +23,8 @@ const completionSchema = z.object({
 });
 
 export type InterpretRequest = {
+  /** Optional management adapters available for this owner/channel; availability is checked again by the server. */
+  services?: string[];
   text: string;
   timezone: string;
   currency: string;
@@ -35,6 +38,7 @@ export type InterpretRequest = {
   telegramUserId?: number | null;
   channel?: Channel;
   budgets?: { period: string; category: string; amount: string; currency: string }[];
+  categories?: CategoryRecord[];
   goals?: { name: string; currentAmount: string; targetAmount: string; currency: string }[];
   history?: { role: "user" | "assistant"; body: string }[];
   /** Bank payments waiting for a label, so the user can answer about them in their own words. */
@@ -64,6 +68,7 @@ export async function interpretMessage(
 ): Promise<InterpretedAction> {
   const today = zonedYmd(request.now, request.timezone);
   const system = buildSystemPrompt({
+    services: request.services,
     today,
     timezone: request.timezone,
     currency: request.currency,
@@ -75,6 +80,7 @@ export async function interpretMessage(
     telegramUserId: request.telegramUserId,
     channel: request.channel,
     budgets: request.budgets,
+    categories: request.categories,
     goals: request.goals,
     waiting: request.waiting,
     people: request.people,

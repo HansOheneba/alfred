@@ -2,9 +2,11 @@ import type { SupabaseSettings } from "@/lib/config";
 import { attentionSummary } from "@/lib/finance/accounting/types";
 import { AuthError, DatabaseError, SheetsError } from "@/lib/errors";
 import { canonicalizeAmount } from "@/lib/finance/money";
+import { validCategoryBudget, validateCategoryName } from "@/lib/finance/categories";
 import type { FinanceStore } from "@/lib/finance/store";
 import type {
   PendingActionRecord,
+  CategoryRecord,
   PendingStatus,
   ProcessedStatus,
   ProcessedUpdateRecord,
@@ -15,6 +17,11 @@ import type {
   TransactionType,
 } from "@/lib/finance/types";
 import { query } from "@/lib/supabase/connection";
+
+type CategoryRow = { id: string; category_id: string; owner_id: string; name: string; type: TransactionType; created_at: Date };
+function categoryFrom(row: CategoryRow): CategoryRecord {
+  return { categoryId: row.category_id, userId: row.owner_id, name: row.name, type: row.type, createdAt: iso(row.created_at), rowNumber: Number(row.id) };
+}
 
 type TransactionRow = {
   id: string;
@@ -69,6 +76,13 @@ function iso(value: Date | string): string {
   return value instanceof Date ? value.toISOString() : new Date(value).toISOString();
 }
 
+/** Preserve PostgreSQL's sub-millisecond version for exact confirmation guards. */
+function preciseIso(value: Date | string, raw?: string): string {
+  const canonical = iso(value);
+  const fraction = raw?.match(/\.(\d+)(?:Z|[+-]\d{2}(?::?\d{2})?)$/)?.[1];
+  return fraction && /[1-9]/.test(fraction.slice(3)) ? canonical.replace(/\.\d{3}Z$/, `.${fraction.padEnd(3, "0")}Z`) : canonical;
+}
+
 function transactionFrom(row: TransactionRow): TransactionRecord {
   return {
     transactionId: row.transaction_id,
@@ -98,6 +112,9 @@ export async function listRawTransactions(settings:SupabaseSettings,userId:strin
 }
 
 export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceStore {
+  async function categoriesReady(): Promise<boolean> {
+    return (await query<{ ready: boolean }>(settings, "select to_regclass('public.custom_categories') is not null as ready"))[0]?.ready === true;
+  }
   async function readReporting(userId:string) {
     const { loadAccountingReadModel }=await import("@/lib/finance/accounting/persisted-store");
     // The accounting read fetches raw rows inside its source-version boundary,
@@ -280,6 +297,42 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       return next;
     },
 
+    async listCategories(userId) {
+      // An additive migration must not take existing fixed-category paths offline before rollout.
+      if (!await categoriesReady()) return [];
+      return (await query<CategoryRow>(settings,
+        "select id, category_id, owner_id::text, name, type, created_at from public.custom_categories where owner_id=$1::uuid order by id",
+        [userId])).map(categoryFrom);
+    },
+
+    async createCategory(row, budget) {
+      const validated = validateCategoryName(row.name, row.type);
+      if (!validated.ok) throw new DatabaseError(validated.message);
+      if (budget && !validCategoryBudget(row, validated.name, budget)) throw new AuthError("The category budget is invalid. Nothing was changed.");
+      if (!await categoriesReady()) throw new DatabaseError("Custom categories are not ready. Nothing was changed.");
+      const values: unknown[] = [row.categoryId, row.userId, validated.name, row.type, row.createdAt];
+      // One statement owns both writes. A budget failure rolls the category insert back too.
+      // A case-insensitive conflict returns the original spelling and identity, including across concurrent requests.
+      const categorySql = `with saved_category as (
+        insert into public.custom_categories as existing (category_id,owner_id,name,type,created_at)
+        values ($1,$2::uuid,$3,$4,$5)
+        on conflict (owner_id,type,lower(name)) do update set name=existing.name
+        returning id,category_id,owner_id::text,name,type,created_at
+      )`;
+      let sql = `${categorySql} select * from saved_category`;
+      if (budget) {
+        values.push(budget.budgetId, budget.period, budget.amount, budget.currency, budget.createdAt, budget.updatedAt);
+        sql = `${categorySql}, saved_budget as (
+          insert into public.budgets (budget_id,user_id,owner_id,period,category,amount,currency,created_at,updated_at)
+          select $6,$2::text,$2::uuid,$7,name,$8::numeric,$9,$10::timestamptz,$11::timestamptz from saved_category
+          returning id
+        ) select * from saved_category`;
+      }
+      const saved = await query<CategoryRow>(settings, sql, values);
+      if (!saved[0]) throw new DatabaseError("The ledger did not confirm the category.");
+      return categoryFrom(saved[0]);
+    },
+
     async listBudgets(userId) {
       const rows = await query<{
         id: string;
@@ -291,9 +344,10 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
         currency: string;
         created_at: Date;
         updated_at: Date;
+        updated_at_precise?: string;
       }>(
         settings,
-        `select id, budget_id, coalesce(owner_id::text, user_id) as user_id, period, category, amount::text, currency, created_at, updated_at
+        `select id, budget_id, coalesce(owner_id::text, user_id) as user_id, period, category, amount::text, currency, created_at, updated_at, updated_at::text as updated_at_precise
          from public.budgets where owner_id = $1::uuid order by id`,
         [userId],
       );
@@ -305,7 +359,7 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
         amount: money(row.amount, true),
         currency: row.currency.trim(),
         createdAt: iso(row.created_at),
-        updatedAt: iso(row.updated_at),
+        updatedAt: preciseIso(row.updated_at, row.updated_at_precise),
         rowNumber: Number(row.id),
       }));
     },
@@ -325,11 +379,12 @@ export function createSupabaseFinanceStore(settings: SupabaseSettings): FinanceS
       return { ...row, createdAt: iso(saved[0].created_at), rowNumber: Number(id) };
     },
 
-    async deleteBudget(userId, budgetId) {
+    async deleteBudget(userId, budgetId, expected) {
       const rows = await query<{ id: string }>(
         settings,
-        "delete from public.budgets where owner_id = $1::uuid and budget_id = $2 returning id",
-        [userId, budgetId],
+        `delete from public.budgets where owner_id = $1::uuid and budget_id = $2
+          ${expected ? "and period=$3 and category=$4 and amount=$5::numeric and currency=$6 and updated_at=$7::timestamptz" : ""} returning id`,
+        expected ? [userId, budgetId, expected.period, expected.category, expected.amount, expected.currency, expected.updatedAt] : [userId, budgetId],
       );
       return rows.length > 0;
     },

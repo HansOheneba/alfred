@@ -225,8 +225,8 @@ describe("webhook route", () => {
 
   it("asks before saving a budget and saves it after Confirm", async () => {
     const { deps, store, telegram } = harness();
-    deps.interpret = async () => ({ type: "set_budget", category: "food", amount: "800.00", currency: "GHS", period: null });
-    await runUpdate(textUpdate(60, 42, "set a food budget of 800"), deps);
+    deps.interpret = async () => ({ type: "set_budget", category: "food", amount: "800.00", currency: "GHS", period: "2026-10" });
+    await runUpdate(textUpdate(60, 42, "set a food budget of GHS 800 for October 2026"), deps);
     expect(await store.listBudgets("42")).toHaveLength(0);
     expect(telegram.sent.at(-1)?.text).toContain("Set a Food budget of GH₵800.00 for October 2026?");
 

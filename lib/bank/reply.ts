@@ -5,7 +5,8 @@ import { classifyPayee } from "@/lib/bank/payees";
 import { holdFor } from "@/lib/bank/related";
 import type { BankMessage, LabelChange } from "@/lib/bank/store";
 import type { UserProfile } from "@/lib/config";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, normalizeCategory } from "@/lib/finance/categories";
+import { EXPENSE_CATEGORIES, INCOME_CATEGORIES, normalizeCategory, readCategories } from "@/lib/finance/categories";
+import type { CategoryRecord } from "@/lib/finance/types";
 import { zonedYmd } from "@/lib/finance/dates";
 import { findPerson, loanBalances } from "@/lib/finance/loans";
 import type { LabelAnswer } from "@/lib/finance/schemas";
@@ -379,26 +380,48 @@ export async function labelShortcut(deps: IngestDeps, profile: UserProfile, text
 }
 
 function purposeWords(text: string): string[] {
-  return text.toLowerCase().replace(/[’]/g, "'").match(/[a-z0-9]+(?:'[a-z]+)?/g) ?? [];
+  return text.toLowerCase().replace(/[’]/g, "'").match(/[\p{L}\p{N}]+(?:'[\p{L}]+)?/gu) ?? [];
 }
 
 /** Only explicit purpose words support a focused label; sender/source recognition does not. */
 /** Services people pay for monthly, named the way people say them. */
 const SUBSCRIPTION_SERVICES = /\b(?:claude|chatgpt|chat gpt|openai|anthropic|netflix|spotify|youtube premium|apple music|apple one|icloud|google one|disney plus|showmax|starlink|prime video|canva|notion|cursor|github copilot)\b/;
 
-function purposeEvidence(text: string, direction: BankMessage["direction"]) {
+function purposeEvidence(text: string, direction: BankMessage["direction"], custom: readonly CategoryRecord[] = []) {
   const words = purposeWords(text);
   const categories = new Set<string>();
   const spending = new Set<string>();
-  for (let index = 0; index < words.length; index++) {
-    for (let length = 1; length <= 3 && index + length <= words.length; length++) {
-      const phrase = words.slice(index, index + length).join(" ");
-      const category = normalizeCategory(phrase, direction === "in" ? "income" : "expense");
-      if (category && category !== "Other" && category !== "Misc") categories.add(category);
-      const expense = normalizeCategory(phrase, "expense");
-      if (expense && expense !== "Misc") spending.add(expense);
+  let categoryText = text, spendingText = text;
+  // Match the complete saved name, including punctuation and non-English letters.
+  // Its words must not accidentally add a built-in category ("Arts & health"
+  // should not also imply Personal just because "health" is a built-in alias).
+  for (const category of [...custom].sort((left, right) => right.name.length - left.name.length)) {
+    const name = category.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+");
+    const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])${name}(?=$|[^\\p{L}\\p{N}])`, "giu");
+    if (!pattern.test(text)) continue;
+    if (category.type === (direction === "in" ? "income" : "expense")) {
+      categories.add(category.name);
+      categoryText = categoryText.replace(pattern, "$1 ");
+    }
+    if (category.type === "expense") {
+      spending.add(category.name);
+      spendingText = spendingText.replace(pattern, "$1 ");
     }
   }
+  for (const [source, type, found] of [
+    [categoryText, direction === "in" ? "income" : "expense", categories],
+    [spendingText, "expense", spending],
+  ] as const) {
+    const tokens = purposeWords(source);
+    for (let index = 0; index < tokens.length; index++) {
+      for (let length = 1; length <= 3 && index + length <= tokens.length; length++) {
+        const category = normalizeCategory(tokens.slice(index, index + length).join(" "), type);
+        if (category && category !== "Other" && category !== "Misc") found.add(category);
+      }
+    }
+  }
+  // Saved category names only mask category aliases. They must never erase
+  // evidence that the money was borrowed, transferred, refunded or handled.
   const said = words.join(" ");
   // Paying a well-known service is subscription spending, even when "subscription" isn't said.
   if (direction === "out" && SUBSCRIPTION_SERVICES.test(said)) {
@@ -447,46 +470,47 @@ function purposeEvidence(text: string, direction: BankMessage["direction"]) {
   if (/\b(?:pass through|someone else's|on behalf of|handling money for)\b/.test(said)) kinds.add("pass_through");
   if (/\b(?:invest|invested|investment)\b/.test(said)) kinds.add("invest");
   if (/\b(?:share|split|contribution|chipping in|chip in)\b/.test(said) && spending.size === 1) kinds.add("chip_in");
-  if (categories.has("Refund") && spending.size === 1) kinds.add("refund");
+  if (words.some(word => normalizeCategory(word, "income") === "Refund") && spending.size === 1) kinds.add("refund");
   const purposes = new Set([...categories].map(category => category === "Refund" ? "refund" : `category:${category}`));
   for (const kind of kinds) purposes.add(kind);
   return { words, categories, spending, kinds, purposes, semanticWords };
 }
 
-export function explicitExpenseCategory(text: string): string | null {
-  const evidence = purposeEvidence(text, "out");
-  return !paymentPurposeUnclear(text, "out") && evidence.purposes.size === 1 && evidence.categories.size === 1 ? [...evidence.categories][0] : null;
+export function explicitExpenseCategory(text: string, custom: readonly CategoryRecord[] = []): string | null {
+  const evidence = purposeEvidence(text, "out", custom);
+  return !paymentPurposeUnclear(text, "out", custom) && evidence.purposes.size === 1 && evidence.categories.size === 1 ? [...evidence.categories][0] : null;
 }
 
-export function paymentPurposeNeedsClassification(text: string, direction: BankMessage["direction"]): boolean {
-  return !paymentPurposeUnclear(text, direction) && purposeEvidence(text, direction).purposes.size === 0;
+export function paymentPurposeNeedsClassification(text: string, direction: BankMessage["direction"], custom: readonly CategoryRecord[] = []): boolean {
+  return !paymentPurposeUnclear(text, direction, custom) && purposeEvidence(text, direction, custom).purposes.size === 0;
 }
 
 /** A tentative single assertion can be clear; questions and competing possibilities cannot. */
-export function paymentPurposeUnclear(text: string, direction: BankMessage["direction"]): boolean {
+export function paymentPurposeUnclear(text: string, direction: BankMessage["direction"], custom: readonly CategoryRecord[] = []): boolean {
   const said = text.trim().toLowerCase().replace(/[’]/g, "'").replace(/[.!?,;:]+$/g, "").trim();
   if (/^(?:y|yes|yeah|yep|yup|n|no|nope|nah|ok|okay|sure|thanks|thank you|hmm|what|something|stuff|whatever|other|misc(?:ellaneous)?)$/.test(said)) return true;
   if (text.includes("?") || /\b(?:maybe|perhaps|not sure|unsure|no idea|not certain|can't remember|cannot remember|could be|i guess|i (?:do not|don't|dont) know|whether|or)\b/.test(said)) return true;
   if (/\b(?:not|isn't|wasn't|never)\s+(?:a |an |my )?(?:birthday|gift|present|rent|loan|repayment)\b/.test(said)) return true;
-  const evidence = purposeEvidence(text, direction);
+  const evidence = purposeEvidence(text, direction, custom);
   return evidence.purposes.size > 1 || /\b(?:probably|i think)\b/.test(said) && evidence.purposes.size !== 1;
 }
 
 const PURPOSE_FILLER = new Set(["a", "an", "the", "it", "this", "that", "was", "is", "for", "to", "from", "of", "and", "payment", "money"]);
 
 /** A model may format the person's purpose, but cannot supply a different one or add details. */
-export function groundedPaymentLabel(text: string, message: BankMessage, label: Label): boolean {
-  if (paymentPurposeUnclear(text, message.direction)) return false;
-  const evidence = purposeEvidence(text, message.direction);
+export function groundedPaymentLabel(text: string, message: BankMessage, label: Label, categories: readonly CategoryRecord[] = []): boolean {
+  const custom = categories.filter(category => category.userId === message.ownerId);
+  if (paymentPurposeUnclear(text, message.direction, custom)) return false;
+  const evidence = purposeEvidence(text, message.direction, custom);
   if (evidence.purposes.size !== 1) return false;
-  const category = "category" in label ? normalizeCategory(label.category, label.kind === "category" && message.direction === "in" ? "income" : "expense") : null;
+  const category = "category" in label ? normalizeCategory(label.category, label.kind === "category" && message.direction === "in" ? "income" : "expense", custom) : null;
   if (label.kind === "category" ? !category || !evidence.categories.has(category) : !evidence.kinds.has(label.kind)) return false;
   if ((label.kind === "refund" || label.kind === "chip_in") && (!category || !evidence.spending.has(category))) return false;
   const details = "description" in label ? label.description : "note" in label ? label.note : "investment" in label ? label.investment : null;
   const own = new Set(evidence.words);
   const sourceWords = new Set(purposeWords(message.counterparty));
   const sameWord = (word: string) => PURPOSE_FILLER.has(word) || own.has(word) || sourceWords.has(word) || evidence.semanticWords.has(word)
-    || Boolean(normalizeCategory(word, message.direction === "in" ? "income" : "expense") && evidence.categories.has(normalizeCategory(word, message.direction === "in" ? "income" : "expense")!));
+    || Boolean(normalizeCategory(word, message.direction === "in" ? "income" : "expense", custom) && evidence.categories.has(normalizeCategory(word, message.direction === "in" ? "income" : "expense", custom)!));
   if (details && !purposeWords(details).every(sameWord)) return false;
   if ("person" in label && label.person && !purposeWords(label.person).every(word => own.has(word) || purposeWords(message.counterparty).includes(word))) return false;
   if (label.kind === "category" && label.forMonth && !text.includes(label.forMonth)) return false;
@@ -501,10 +525,11 @@ export function groundedPaymentLabel(text: string, message: BankMessage, label: 
  * it cannot contradict a purpose they named, pick a spending category they
  * didn't mention, or add details and people that appear nowhere.
  */
-export function proposableLabel(text: string, message: BankMessage, label: Label, context: string[] = []): boolean {
-  if (label.kind === "skip" || paymentPurposeUnclear(text, message.direction)) return false;
-  const evidence = purposeEvidence(text, message.direction);
-  const category = "category" in label ? normalizeCategory(label.category, label.kind === "category" && message.direction === "in" ? "income" : "expense") : null;
+export function proposableLabel(text: string, message: BankMessage, label: Label, context: string[] = [], categories: readonly CategoryRecord[] = []): boolean {
+  const custom = categories.filter(category => category.userId === message.ownerId);
+  if (label.kind === "skip" || paymentPurposeUnclear(text, message.direction, custom)) return false;
+  const evidence = purposeEvidence(text, message.direction, custom);
+  const category = "category" in label ? normalizeCategory(label.category, label.kind === "category" && message.direction === "in" ? "income" : "expense", custom) : null;
   const own = new Set([...evidence.words, ...purposeWords(message.counterparty), ...context.flatMap(purposeWords)]);
   const details = "description" in label ? label.description : "note" in label ? label.note : "investment" in label ? label.investment : null;
   if (label.kind === "category" || label.kind === "refund" || label.kind === "chip_in") {
@@ -521,7 +546,7 @@ export function proposableLabel(text: string, message: BankMessage, label: Label
     return false;
   }
   const allowed = (word: string) => PURPOSE_FILLER.has(word) || own.has(word) || evidence.semanticWords.has(word)
-    || Boolean(category && normalizeCategory(word, message.direction === "in" ? "income" : "expense") === category);
+    || Boolean(category && normalizeCategory(word, message.direction === "in" ? "income" : "expense", custom) === category);
   if (details && !purposeWords(details).every(allowed)) return false;
   if ("person" in label && label.person && !purposeWords(label.person).every((word) => own.has(word))) return false;
   if (label.kind === "category" && (label.forMonth || label.includedFee)) return false;
@@ -549,6 +574,7 @@ export function proposedLabelApplier(deps: IngestDeps, profile: UserProfile) {
  * nothing came of it.
  */
 export async function applyResolved(deps: IngestDeps, profile: UserProfile, text: string, resolved: ResolvedLabel[], waiting: WaitingPayments): Promise<LabelReply | null> {
+  const categories = await readCategories(deps.ledger, profile.profileId);
   const current = waiting.current;
   const lines: string[] = [];
   const changes: LabelChange[] = [];
@@ -566,7 +592,7 @@ export async function applyResolved(deps: IngestDeps, profile: UserProfile, text
         dropped += 1;
         continue;
       }
-      if (waiting.exactQuestion && !groundedPaymentLabel(text, message, answer.label)) {
+      if (waiting.exactQuestion && !groundedPaymentLabel(text, message, answer.label, categories)) {
         dropped += 1;
         continue;
       }

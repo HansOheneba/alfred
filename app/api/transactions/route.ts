@@ -1,6 +1,6 @@
 import { z } from "zod";
 
-import { normalizeCategory } from "@/lib/finance/categories";
+import { resolveCategory } from "@/lib/finance/categories";
 import { isSaneTransactionDate, zonedYmd } from "@/lib/finance/dates";
 import { newTransactionId } from "@/lib/finance/ids";
 import { amountSchema, isoDateSchema } from "@/lib/finance/schemas";
@@ -52,7 +52,7 @@ export async function PATCH(request: Request): Promise<Response> {
       if (toMinor(splitFee) >= toMinor(baseAmount)) return fail("The included fee must be less than the payment amount.", 400);
     }
     const category =
-      changes.category || changes.transactionType ? normalizeCategory(changes.category ?? target.category, type) : undefined;
+      changes.category || changes.transactionType ? await resolveCategory(owner.store, userId, changes.category ?? target.category, type) : undefined;
     if ((changes.category || changes.transactionType) && !category) return fail("Pick a category that fits that type.", 400);
     const today = zonedYmd(new Date(), owner.profile.timezone);
     if (changes.date && !isSaneTransactionDate(changes.date, today)) return fail("That date isn't one Alfred can store.", 400);

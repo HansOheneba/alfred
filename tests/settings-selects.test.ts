@@ -23,6 +23,7 @@ vi.mock("react", async load => {
     useEffect: (...args: Parameters<typeof react.useEffect>) => { if (!runtime.active) react.useEffect(...args); },
   };
 });
+vi.mock("@/app/components/category-catalog", () => ({ useCustomCategories: () => [] }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 vi.mock("@/app/settings/lazy-settings-data", () => ({ useOwnedSettingsData: () => ({ value: undefined, refreshing: false, retry: vi.fn() }) }));
 

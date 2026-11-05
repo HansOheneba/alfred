@@ -10,7 +10,8 @@ import { usePrivacyMask } from "@/app/components/app-shell";
 import { buildAccountingView } from "@/lib/finance/accounting/view";
 import type { SettlementIssue } from "@/lib/finance/accounting/settlements";
 import { needsAttention, type AccountingAction, type AccountingState, type CashMovement, type FinancialAccount } from "@/lib/finance/accounting/types";
-import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
+import { categoryList } from "@/lib/finance/categories";
+import { useCustomCategories } from "@/app/components/category-catalog";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import { AccountPageControls, accountListPage, BalanceHistory, formatAccountTime } from "./account-history";
 import { parseActivityHandoff } from "@/lib/web/activity-handoff";
@@ -331,7 +332,7 @@ function MovementEditor({ movement, state, busy, progress, close, saveReview, ca
   const [status, setStatus] = useState(["transfer", "review"].includes(movement.status) ? "confirmed" : movement.status);
   const [custom, setCustom] = useState(false), [customName, setCustomName] = useState(""), [categoryError, setCategoryError] = useState("");
   const [masked] = usePrivacyMask();
-  const choices = [...new Set([...(movement.direction === "in" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES), ...state.movements.map(item => item.category)].filter(Boolean))].sort();
+  const choices = [...new Set([...categoryList(movement.direction === "in" ? "income" : "expense", useCustomCategories()), ...state.movements.map(item => item.category)].filter(Boolean))].sort();
   const linked = movementIsLinked(state, movement), account = state.accounts.find(item => item.id === movement.accountId);
   const classificationProtected = Boolean(movement.legacyClassification);
   const correctionHref = movement.sourceKind === "bank" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(movement.sourceId) ? `/chat?payment=${movement.sourceId}` : "/chat";
@@ -364,7 +365,7 @@ function MovementEditor({ movement, state, busy, progress, close, saveReview, ca
 function SimilarReview({ rows, state, busy, progress, close, saveReview, money }: { rows: CashMovement[]; state: AccountingState; busy: boolean; progress: string; close: () => void; saveReview: (review: AccountReview) => Promise<boolean>; money: (value: number, currency?: string) => string }) {
   const [selected, setSelected] = useState<string[]>([]), [category, setCategory] = useState(rows[0]?.category ?? "Other"), [review, setReview] = useState<AccountReview | null>(null), [error, setError] = useState("");
   const [reviewRejected, setReviewRejected] = useState(false);
-  const choices = [...new Set([...(rows[0]?.direction === "in" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES), ...rows.map(row => row.category)])].sort();
+  const choices = [...new Set([...categoryList(rows[0]?.direction === "in" ? "income" : "expense", useCustomCategories()), ...rows.map(row => row.category)])].sort();
   function prepare() { try { setError(""); setReview(prepareSimilarReview(state, selected, category)); setReviewRejected(false); } catch (error) { setError(error instanceof Error ? error.message : "Check the selected payments."); } }
   async function confirm() { if (review && !busy && !reviewRejected && !await saveReview(review)) setReviewRejected(true); }
   return <Modal title={review ? "Review selected changes" : "Review similar payments"} close={close} busy={busy}>

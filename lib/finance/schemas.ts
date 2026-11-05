@@ -4,6 +4,9 @@ import { LIMITS } from "@/lib/config";
 import { RELATIVE_PERIODS, isRealDate } from "@/lib/finance/dates";
 import { canonicalizeAmount, toMinor } from "@/lib/finance/money";
 import { INVESTMENT_KINDS } from "@/lib/investments/kinds";
+import { billActionSchemas, billPendingSchemas } from "@/lib/finance/bill-management-schema";
+import { accountActionSchemas, accountPendingSchemas } from "@/lib/accounts/management-schema";
+import { preferenceActionSchemas, preferencePendingSchemas } from "@/lib/accounts/preference-management-schema";
 
 export const amountSchema = z
   .string()
@@ -118,6 +121,9 @@ export const lookupQuerySchema = z.object({
 export type LookupQuery = z.infer<typeof lookupQuerySchema>;
 
 export const financeActionSchema = z.discriminatedUnion("type", [
+  ...billActionSchemas,
+  ...accountActionSchemas,
+  ...preferenceActionSchemas,
   z.object({
     type: z.literal("create_transaction"),
     explicit: z.boolean().default(false),
@@ -204,10 +210,31 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     date: isoDateSchema.nullable().optional(),
   }),
   z.object({
+    type: z.literal("get_categories"),
+    transaction_type: z.enum(["income", "expense"]).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("create_category"),
+    name: z.string().trim().min(1).max(40),
+    transaction_type: z.enum(["income", "expense"]),
+    budget: z.object({
+      amount: amountSchema,
+      currency: currencySchema.nullable().optional(),
+      period: yearMonthSchema.nullable().optional(),
+    }).nullable().optional(),
+  }),
+  z.object({
+    type: z.literal("delete_budget"),
+    budget_id: z.string().min(8).max(80).nullable().optional(),
+    category: z.string().min(1).max(40).nullable().optional(),
+    period: yearMonthSchema.nullable().optional(),
+    currency: currencySchema.nullable().optional(),
+  }),
+  z.object({
     type: z.literal("set_budget"),
     category: z.string().min(1).max(40),
     amount: amountSchema,
-    currency: currencySchema,
+    currency: currencySchema.nullable().optional(),
     period: yearMonthSchema.nullable().optional(),
   }),
   z.object({
@@ -329,7 +356,7 @@ export const proposedLabelSchema = z.discriminatedUnion("kind", [
 
 /** Actions a question may offer: ones that write, with their own checks, never another question. */
 export const OFFERABLE = new Set<FinanceAction["type"]>([
-  "create_transaction", "record_loan", "invest_money", "set_budget", "create_savings_goal", "update_savings_goal",
+  "create_transaction", "record_loan", "invest_money", "set_budget", "create_category", "delete_budget", "create_savings_goal", "update_savings_goal",
   "correct_transaction", "remember_about_me", "remember_person", "add_investment", "update_investment",
 ]);
 
@@ -342,6 +369,9 @@ export function offeredActions(offer: unknown[] | null | undefined): FinanceActi
 }
 
 export const pendingPayloadSchema = z.discriminatedUnion("type", [
+  ...billPendingSchemas,
+  ...accountPendingSchemas,
+  ...preferencePendingSchemas,
   z.object({
     type: z.literal("offer"),
     originUpdateId: z.string().regex(/^\d+$/),
@@ -371,6 +401,22 @@ export const pendingPayloadSchema = z.discriminatedUnion("type", [
     currency: currencySchema,
     date: isoDateSchema,
     note: z.string().max(200),
+  }),
+  z.object({
+    type: z.literal("create_category"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    name: z.string().min(1).max(40),
+    transactionType: z.enum(["income", "expense"]),
+    budget: z.object({ amount: amountSchema, currency: currencySchema, period: yearMonthSchema }).nullable(),
+  }),
+  z.object({
+    type: z.literal("delete_budget"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    budgetId: z.string().min(8).max(80),
+    expected: z.object({
+      category: z.string().min(1).max(40), amount: amountSchema, currency: currencySchema,
+      period: yearMonthSchema, updatedAt: z.string().min(1).max(80),
+    }),
   }),
   z.object({
     type: z.literal("set_budget"),
@@ -480,7 +526,20 @@ export function normalizeModelValue(value: unknown, today?: string): unknown {
   if (next.type === "clarify" && next.question == null && typeof next.message === "string") next.question = next.message;
   if (next.type === "clarify" && Array.isArray(next.offer)) next.offer = next.offer.map((item) => normalizeModelValue(item, today));
   if (next.type === "chat" && next.message == null && typeof next.question === "string") next.message = next.question;
-  if (next.type === "set_budget" || next.type === "get_budget_status") next.period = budgetPeriod(next.period, today);
+  if (next.type === "set_budget" || next.type === "get_budget_status" || next.type === "delete_budget") next.period = budgetPeriod(next.period, today);
+  if (next.type === "create_category" && asRecord(next.budget)) {
+    const budget = { ...asRecord(next.budget)! };
+    budget.amount = canonicalizeAmount(budget.amount) ?? budget.amount;
+    if (typeof budget.currency === "string") budget.currency = budget.currency.trim().toUpperCase();
+    budget.period = budgetPeriod(budget.period, today);
+    next.budget = budget;
+  }
+  if (next.type === "update_bill" && asRecord(next.changes)) {
+    const changes = { ...asRecord(next.changes)! };
+    if (changes.amount != null) changes.amount = canonicalizeAmount(changes.amount) ?? changes.amount;
+    if (typeof changes.currency === "string") changes.currency = changes.currency.trim().toUpperCase();
+    next.changes = changes;
+  }
   if (typeof next.currency === "string") next.currency = next.currency.trim().toUpperCase();
   if ("amount" in next && next.amount != null) {
     next.amount = canonicalizeAmount(next.amount) ?? next.amount;

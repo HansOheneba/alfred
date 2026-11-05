@@ -21,7 +21,9 @@ export function trackTurnData(deps: StudioDeps) {
             const patch = args[2];
             const emptyPatch = ["update", "updateTransaction", "updateSavingsGoal", "updateMessage"].includes(String(property)) && patch && typeof patch === "object" && !Object.values(patch).some((item) => item !== undefined);
             const emptyHoldings = property === "setHoldings" && Array.isArray(patch) && patch.length === 0;
-            if (writes.includes(method) && !emptyPatch && !emptyHoldings && saved !== false && saved !== null) invalidate();
+            const unchanged = saved === false || saved === null || saved === "stale" || saved === "missing" || saved === "already_applied"
+              || typeof saved === "object" && saved !== null && "availability" in saved && saved.availability !== "ready";
+            if (writes.includes(method) && !emptyPatch && !emptyHoldings && !unchanged) invalidate();
             return saved;
           });
           if (cached.includes(method)) reads.set(key, result);
@@ -35,7 +37,10 @@ export function trackTurnData(deps: StudioDeps) {
     changed: () => changed,
     deps: {
       ...deps,
-      store: observe(deps.store, "finance", ["appendTransaction", "updateTransaction", "saveBudget", "deleteBudget", "appendSavingsGoal", "updateSavingsGoal"], ["listTransactions", "listReportTransactions", "readReporting", "listBudgets", "listSavingsGoals"]),
+      store: observe(deps.store, "finance", ["appendTransaction", "updateTransaction", "saveBudget", "deleteBudget", "createCategory", "appendSavingsGoal", "updateSavingsGoal"], ["listTransactions", "listReportTransactions", "readReporting", "listBudgets", "listSavingsGoals", "listCategories"]),
+      bills: deps.bills ? observe(deps.bills, "bills", ["save", "setActive", "remove", "applyConfirmed"], ["list", "strictList"]) : deps.bills,
+      accountManagement: deps.accountManagement ? observe(deps.accountManagement, "accountManagement", ["save"], ["read"]) : deps.accountManagement,
+      preferences: deps.preferences ? observe(deps.preferences, "preferences", ["updateProfile", "updateReminders", "updateNotifications"], ["readProfile", "readReminders", "readNotifications"]) : deps.preferences,
       bank: deps.bank ? observe(deps.bank, "bank", ["insertMessage", "updateMessage", "correctDate", "saveRule", "deleteRule", "addAccountName"]) : deps.bank,
       loans: deps.loans ? observe(deps.loans, "loans", ["add", "remove"], ["list"]) : deps.loans,
       investments: deps.investments ? observe(deps.investments, "investments", ["create", "update", "setHoldings", "addValue", "addContribution", "removeContribution"]) : deps.investments,

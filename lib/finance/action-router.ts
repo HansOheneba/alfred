@@ -1,7 +1,12 @@
+import { DatabaseError } from "@/lib/errors";
 import { sourceName } from "@/lib/bank/parse";
+import type { BillStore } from "@/lib/finance/bills";
+import { handleBillManagement, executeBillManagement } from "@/lib/finance/bill-management";
+import { handleAccountManagement, executeAccountManagement, type AccountManagementStore } from "@/lib/accounts/management";
+import { handlePreferenceManagement, executePreferenceManagement, type PreferenceManagementStore } from "@/lib/accounts/preference-management";
 import type { ChatChart } from "@/lib/accounts/messages";
 import type { UserProfile } from "@/lib/config";
-import { normalizeCategory } from "@/lib/finance/categories";
+import { categoryList, readCategories, resolveCategory, validateCategoryName } from "@/lib/finance/categories";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import {
   formatDisplayDate,
@@ -67,6 +72,9 @@ type DeliveryBody =
   | { kind: "confirm"; text: string; actionId: string; context?: ConversationContext };
 
 export type ActionContext = {
+  bills?: BillStore | null;
+  accountManagement?: AccountManagementStore | null;
+  preferences?: PreferenceManagementStore | null;
   profile: UserProfile;
   store: FinanceStore;
   now: Date;
@@ -103,6 +111,12 @@ export type BankAccess = {
 
 export async function handleAction(action: FinanceAction, ctx: ActionContext): Promise<Delivery> {
   switch (action.type) {
+    case "get_bills": case "create_bill": case "update_bill": case "set_bill_active": case "delete_bill":
+      return handleBillManagement(action, ctx);
+    case "get_accounts": case "create_account": case "update_account":
+      return handleAccountManagement(action, ctx);
+    case "read_settings": case "update_profile_settings": case "update_reminder_settings": case "update_notification_settings":
+      return handlePreferenceManagement(action, ctx);
     case "help":
       return { kind: "text", text: helpText() };
     // Lookups are answered inside the turn; one that reaches here found nothing more to do.
@@ -149,6 +163,12 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return recordLoan(action, ctx);
     case "get_transaction_history":
       return history(action, ctx);
+    case "get_categories":
+      return getCategories(action, ctx);
+    case "create_category":
+      return createCategory(action, ctx);
+    case "delete_budget":
+      return deleteBudget(action, ctx);
     case "set_budget":
       return setBudget(action, ctx);
     case "get_budget_status":
@@ -171,6 +191,9 @@ export async function executeConfirmed(
   ctx: ActionContext,
 ): Promise<{ text: string; context?: ConversationContext }> {
   const userId = ctx.profile.profileId;
+  if (payload.type === "create_bill" || payload.type === "update_bill" || payload.type === "set_bill_active" || payload.type === "delete_bill") return executeBillManagement(payload, ctx);
+  if (payload.type === "create_account" || payload.type === "update_account") return executeAccountManagement(payload, ctx);
+  if (payload.type === "update_profile_settings" || payload.type === "update_reminder_settings" || payload.type === "update_notification_settings") return executePreferenceManagement(payload, ctx);
   if (payload.type === "offer") return { text: "That offer is settled in the conversation. Nothing was changed." };
   if (payload.type === "label_payments") {
     if (!ctx.labelPayments) return { text: "I can't file bank payments right now. Nothing was changed." };
@@ -206,13 +229,47 @@ export async function executeConfirmed(
     const owes = left ? `${payload.person} owes you ${formatMoneyAmount(left.owed, left.currency)} in total.` : `${payload.person} has paid you back in full.`;
     return { text: `Done. ${owes}` };
   }
+  if (payload.type === "create_category") {
+    if (!ctx.store.createCategory) return { text: "I can't create custom categories with this storage connection. Nothing was changed." };
+    const custom = await readCategories(ctx.store, userId);
+    const checked = validateCategoryName(payload.name, payload.transactionType, custom);
+    if (!checked.ok) return { text: `${checked.message} Nothing was changed.` };
+    if (payload.budget && payload.transactionType !== "expense") return { text: "Budgets need an expense category. Nothing was changed." };
+    const timestamp = ctx.now.toISOString();
+    let category;
+    try {
+      category = await ctx.store.createCategory({
+        categoryId: ctx.createId(), userId, name: checked.name, type: payload.transactionType, createdAt: timestamp,
+      }, payload.budget ? {
+        budgetId: ctx.createId(), userId, category: checked.name, amount: payload.budget.amount,
+        currency: payload.budget.currency, period: payload.budget.period, createdAt: timestamp, updatedAt: timestamp,
+      } : undefined);
+    } catch (error) {
+      if (error instanceof DatabaseError && error.sqlState === "23505") return { text: "That category or budget was set while this confirmation was open. Nothing was changed. Ask again to review the current budget." };
+      throw error;
+    }
+    return { text: payload.budget
+      ? `Done. ${category.name} is an expense category, with a budget of ${formatMoneyAmount(payload.budget.amount, payload.budget.currency)} for ${monthName(payload.budget.period)}.`
+      : `Done. ${category.name} is available as an ${category.type} category.` };
+  }
+  if (payload.type === "delete_budget") {
+    const budget = (await ctx.store.listBudgets(userId)).find(item => item.budgetId === payload.budgetId);
+    if (!budget) return { text: "That budget is no longer available. Nothing was changed." };
+    if (!sameBudget(budget, payload.expected)) return { text: "That budget changed since I asked. Please ask again so you can review the current budget." };
+    const removed = await ctx.store.deleteBudget(userId, payload.budgetId, payload.expected);
+    return { text: removed
+      ? `Removed your ${budget.category} budget for ${monthName(budget.period)} (${formatMoneyAmount(budget.amount, budget.currency)}). Your transactions are unchanged.`
+      : "That budget changed or is no longer available. Nothing was removed." };
+  }
   if (payload.type === "set_budget") {
+    const category = await resolveCategory(ctx.store, userId, payload.category, "expense");
+    if (!category) return { text: "That expense category is no longer available. Nothing was changed." };
     const timestamp = ctx.now.toISOString();
     const saved = await ctx.store.saveBudget({
       budgetId: ctx.createId(),
       userId,
       period: payload.period,
-      category: payload.category,
+      category,
       amount: payload.amount,
       currency: payload.currency,
       createdAt: timestamp,
@@ -262,7 +319,7 @@ export async function executeConfirmed(
   const nextType = payload.changes.transactionType ?? target.type;
   let category = payload.changes.category ?? target.category;
   if (payload.changes.category || payload.changes.transactionType) {
-    const normalized = normalizeCategory(category, nextType);
+    const normalized = await resolveCategory(ctx.store, userId, category, nextType);
     if (!normalized) return { text: unknownCategoryMessage(nextType) };
     category = normalized;
   }
@@ -293,7 +350,7 @@ async function createTransactions(
   ctx: ActionContext,
 ): Promise<Delivery> {
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
-  const normalized = normalizeDrafts(action.transactions, ctx.profile, today);
+  const normalized = normalizeDrafts(action.transactions, ctx.profile, today, await readCategories(ctx.store, ctx.profile.profileId));
   if (!normalized.ok) return { kind: "text", text: normalized.message };
   const needsConfirm = ctx.confirmTransactions === "always" || !action.explicit;
   if (needsConfirm) {
@@ -377,7 +434,7 @@ async function spendingSummary(
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const resolved = resolveRange(action, today);
   if (!resolved.ok) return { kind: "text", text: resolved.message };
-  const category = action.category ? normalizeCategory(action.category, "expense") : null;
+  const category = action.category ? await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "expense") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
   const transactions = await readReportingTransactions(ctx.store,ctx.profile.profileId);
   const detail = action.detail ?? "total";
@@ -530,7 +587,7 @@ async function incomeSummary(
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const resolved = resolveRange(action, today);
   if (!resolved.ok) return { kind: "text", text: resolved.message };
-  const category = action.category ? normalizeCategory(action.category, "income") : null;
+  const category = action.category ? await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "income") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("income") };
   const rows = inRange(await readReportingTransactions(ctx.store,ctx.profile.profileId), {
     userId: ctx.profile.profileId,
@@ -649,7 +706,7 @@ async function history(
   if (!resolved.ok) return { kind: "text", text: resolved.message };
   const type = undefined;
   const category = action.category
-    ? normalizeCategory(action.category, "expense") ?? normalizeCategory(action.category, "income")
+    ? await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "expense") ?? await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "income")
     : null;
   if (action.category && !category) {
     return { kind: "text", text: "I don't know that category for income or expenses." };
@@ -779,18 +836,76 @@ async function recordLoan(action: Extract<FinanceAction, { type: "record_loan" }
   });
 }
 
+function budgetDetailsQuestion(currency: string | null | undefined, period: string | null | undefined): string | null {
+  if (!currency && !period) return "Which currency and month should this budget use?";
+  if (!currency) return "Which currency should this budget use?";
+  if (!period) return "Which month should this budget use?";
+  return null;
+}
+
+async function getCategories(action: Extract<FinanceAction, { type: "get_categories" }>, ctx: ActionContext): Promise<Delivery> {
+  const custom = await readCategories(ctx.store, ctx.profile.profileId);
+  const types = action.transaction_type ? [action.transaction_type] : ["expense", "income"] as const;
+  return { kind: "text", text: types.map(type => `${type === "expense" ? "Expense" : "Income"} categories: ${categoryList(type, custom).join(", ")}.`).join("\n") };
+}
+
+async function createCategory(action: Extract<FinanceAction, { type: "create_category" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.store.createCategory) return { kind: "text", text: "I can't create custom categories with this storage connection." };
+  const custom = await readCategories(ctx.store, ctx.profile.profileId);
+  const checked = validateCategoryName(action.name, action.transaction_type, custom);
+  if (!checked.ok) return { kind: "text", text: checked.message };
+  if (action.budget && action.transaction_type !== "expense") return { kind: "text", text: "Budgets need an expense category. Should this be an expense category?" };
+  if (action.budget) {
+    const missing = budgetDetailsQuestion(action.budget.currency, action.budget.period);
+    if (missing) return { kind: "text", text: missing };
+  }
+  const exists = custom.some(item => item.type === action.transaction_type && item.name.toLowerCase() === checked.name.toLowerCase());
+  if (exists && !action.budget) return { kind: "text", text: `${checked.name} is already one of your ${action.transaction_type} categories.` };
+  const budget = action.budget ? { amount: action.budget.amount, currency: action.budget.currency!, period: action.budget.period! } : null;
+  const existingBudget = budget ? (await ctx.store.listBudgets(ctx.profile.profileId)).find(item => item.category === checked.name && item.currency === budget.currency && item.period === budget.period) : null;
+  if (existingBudget) return { kind: "text", text: `Your ${checked.name} budget for ${monthName(existingBudget.period)} is already ${formatMoneyAmount(existingBudget.amount, existingBudget.currency)}. Ask me to change that budget if you want a different amount.` };
+  const line = budget
+    ? `${exists ? "Use" : "Create"} the ${checked.name} expense category and set its budget to ${formatMoneyAmount(budget.amount, budget.currency)} for ${monthName(budget.period)}?`
+    : `Create an ${action.transaction_type} category named ${checked.name}?`;
+  return saveConfirmation(ctx, `${line}\n\nConfirm or cancel.`, {
+    type: "create_category", originUpdateId: String(ctx.updateId), name: checked.name, transactionType: action.transaction_type, budget,
+  });
+}
+
+function sameBudget(budget: { category: string; amount: string; currency: string; period: string; updatedAt: string }, expected: { category: string; amount: string; currency: string; period: string; updatedAt: string }): boolean {
+  return budget.category === expected.category && budget.amount === expected.amount && budget.currency === expected.currency && budget.period === expected.period && budget.updatedAt === expected.updatedAt;
+}
+
+async function deleteBudget(action: Extract<FinanceAction, { type: "delete_budget" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!action.budget_id && (!action.category || !action.period || !action.currency)) {
+    return { kind: "text", text: "Which category, month and currency is the budget you want to remove?" };
+  }
+  const category = action.category ? await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "expense") : null;
+  if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
+  const matches = (await ctx.store.listBudgets(ctx.profile.profileId)).filter(item =>
+    (!action.budget_id || item.budgetId === action.budget_id) && (!category || item.category === category)
+    && (!action.period || item.period === action.period) && (!action.currency || item.currency === action.currency));
+  if (matches.length !== 1) return { kind: "text", text: matches.length ? "More than one budget matches. Which exact budget should I remove?" : "I couldn't find that budget. Nothing was changed." };
+  const budget = matches[0];
+  return saveConfirmation(ctx, `Remove your ${budget.category} budget of ${formatMoneyAmount(budget.amount, budget.currency)} for ${monthName(budget.period)}? Your transactions will stay as they are.\n\nConfirm or cancel.`, {
+    type: "delete_budget", originUpdateId: String(ctx.updateId), budgetId: budget.budgetId,
+    expected: { category: budget.category, amount: budget.amount, currency: budget.currency, period: budget.period, updatedAt: budget.updatedAt },
+  });
+}
+
 async function setBudget(
   action: Extract<FinanceAction, { type: "set_budget" }>,
   ctx: ActionContext,
 ): Promise<Delivery> {
-  const category = normalizeCategory(action.category, "expense");
-  if (!category) return { kind: "text", text: unknownCategoryMessage("expense") };
-  const today = zonedYmd(ctx.now, ctx.profile.timezone);
-  const period = action.period ?? today.slice(0, 7);
+  const missing = budgetDetailsQuestion(action.currency, action.period);
+  if (missing) return { kind: "text", text: missing };
+  const category = await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "expense");
+  if (!category) return { kind: "text", text: `You don't have an expense category named "${action.category}". Would you like to create it and use it for this budget?` };
+  const period = action.period!;
   const existing = (await ctx.store.listBudgets(ctx.profile.profileId)).find(
     (budget) => budget.period === period && budget.category === category && budget.currency === action.currency,
   );
-  const amount = formatMoneyAmount(action.amount, action.currency);
+  const amount = formatMoneyAmount(action.amount, action.currency!);
   const lines = existing
     ? [`Change your ${category} budget for ${monthName(period)}?`, `${formatMoneyAmount(existing.amount, existing.currency)} → ${amount}`]
     : [`Set a ${category} budget of ${amount} for ${monthName(period)}?`];
@@ -799,7 +914,7 @@ async function setBudget(
     originUpdateId: String(ctx.updateId),
     category,
     amount: action.amount,
-    currency: action.currency,
+    currency: action.currency!,
     period,
   });
 }
@@ -818,7 +933,7 @@ async function budgetStatus(
   const today = zonedYmd(ctx.now, ctx.profile.timezone);
   const period = action.period ?? today.slice(0, 7);
   const periodPhrase = period === today.slice(0, 7) ? "this month" : period;
-  const category = action.category ? normalizeCategory(action.category, "expense") : null;
+  const category = action.category ? await resolveCategory(ctx.store, ctx.profile.profileId, action.category, "expense") : null;
   if (action.category && !category) return { kind: "text", text: unknownCategoryMessage("expense") };
   const userId = ctx.profile.profileId;
   const budgets = (await ctx.store.listBudgets(userId)).filter(
@@ -943,7 +1058,7 @@ async function correctTransaction(
   }
   const nextType = changes.transactionType ?? target.type;
   if (action.changes.category) {
-    const category = normalizeCategory(action.changes.category, nextType);
+    const category = await resolveCategory(ctx.store, ctx.profile.profileId, action.changes.category, nextType);
     if (!category) return { kind: "text", text: unknownCategoryMessage(nextType) };
     if (category !== target.category) changes.category = category;
   }

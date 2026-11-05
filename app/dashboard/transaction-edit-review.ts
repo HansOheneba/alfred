@@ -1,3 +1,4 @@
+import type { CategoryRecord } from "@/lib/finance/types";
 import type { LedgerRow } from "@/lib/finance/analytics";
 import { normalizeCategory } from "@/lib/finance/categories";
 import { formatDisplayDate } from "@/lib/finance/dates";
@@ -8,9 +9,9 @@ export type TransactionEditDraft = Pick<LedgerRow, "type" | "amount" | "descript
 export type TransactionEditReview = { changes: Record<string, string>; differences: { label: string; before: string; after: string }[]; splitsFee: boolean };
 
 /** Review the exact native record change without writing or changing report totals. */
-export function prepareTransactionEdit(row: LedgerRow, draft: TransactionEditDraft): { ok: true; review: TransactionEditReview } | { ok: false; error: string } {
+export function prepareTransactionEdit(row: LedgerRow, draft: TransactionEditDraft, custom: readonly CategoryRecord[] = []): { ok: true; review: TransactionEditReview } | { ok: false; error: string } {
   const amount = canonicalizeAmount(draft.amount), description = draft.description.trim();
-  const category = draft.type === row.type && draft.category === row.category ? row.category : normalizeCategory(draft.category, draft.type);
+  const category = draft.type === row.type && draft.category === row.category ? row.category : normalizeCategory(draft.category, draft.type, custom);
   if (!amount || !amountSchema.safeParse(amount).success) return { ok: false, error: "Enter a positive amount with up to two decimals." };
   if (!description || description.length > 200) return { ok: false, error: "Enter a description of 200 characters or fewer." };
   if (!category) return { ok: false, error: "Choose a category for this transaction type." };
