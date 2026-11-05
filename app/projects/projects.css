@@ -1,0 +1,52 @@
+/* The team's projects: an add box, filters, then one card per idea with its notes underneath. */
+.alfred-projects { width: 100%; max-width: 760px; margin: 0 auto; padding-block: 24px 64px; padding-inline: 16px; display: grid; gap: 18px; }
+.alfred-projects > * { min-width: 0; }
+.alfred-projects-head h1 { margin: 0; font-size: 1.5rem; font-weight: 600; color: var(--ink); }
+.alfred-projects-head p { margin: 4px 0 0; font-size: 0.9rem; color: var(--muted); }
+
+.alfred-projects-new { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
+.alfred-projects-new input, .alfred-projects-new textarea, .alfred-project-edit input, .alfred-project-edit textarea, .alfred-project-addNote textarea {
+  width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 0.95rem; color: var(--ink); background: var(--bg); resize: vertical;
+}
+.alfred-projects-new input { border: 0; background: transparent; padding: 6px 4px; font-size: 1rem; }
+.alfred-projects-new input:focus { outline: none; }
+.alfred-projects-new:focus-within { border-color: var(--accent); }
+.alfred-projects-newRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.alfred-projects-newRow label, .alfred-projects-leadFilter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
+.alfred-projects select { border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 0.85rem; color: var(--ink); background: var(--surface); }
+
+.alfred-projects-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
+.alfred-projects-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; min-width: 0; flex: 1 1 100%; max-width: 100%; }
+.alfred-projects-chips button { flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font-size: 0.83rem; color: var(--ink); background: var(--surface); cursor: pointer; }
+.alfred-projects-chips button span { color: var(--faint); margin-left: 2px; font-variant-numeric: tabular-nums; }
+.alfred-projects-chips button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+
+.alfred-projects-error { margin: 0; color: var(--danger); font-size: 0.88rem; }
+.alfred-projects-empty { margin: 0; padding: 28px 12px; text-align: center; color: var(--muted); font-size: 0.92rem; border: 1px dashed var(--line); border-radius: 14px; }
+.alfred-projects-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+
+.alfred-project { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 14px; display: grid; gap: 10px; }
+.alfred-project[data-status="shipped"], .alfred-project[data-status="parked"] { background: color-mix(in srgb, var(--line) 18%, var(--surface)); }
+.alfred-project-title { all: unset; cursor: pointer; display: grid; gap: 4px; min-width: 0; }
+.alfred-project-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
+.alfred-project-title h2 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
+.alfred-project-title p { margin: 0; font-size: 0.9rem; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.alfred-project-edit { display: grid; gap: 8px; }
+.alfred-project-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.82rem; }
+.alfred-project-status { font-weight: 500; }
+.alfred-project-status.is-building { border-color: var(--accent); color: var(--accent); }
+.alfred-project-status.is-shipped { color: var(--success); }
+.alfred-project-status.is-parked { color: var(--faint); }
+.alfred-project-notesToggle { border: 0; background: transparent; padding: 4px 2px; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); }
+.alfred-project-when { margin-left: auto; color: var(--faint); }
+
+.alfred-project-notes { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
+.alfred-project-notes ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
+.alfred-project-noteHead { display: flex; align-items: baseline; gap: 8px; font-size: 0.8rem; }
+.alfred-project-noteHead strong { color: var(--ink); font-weight: 600; }
+.alfred-project-noteHead span { color: var(--faint); }
+.alfred-project-noteHead button { margin-left: auto; border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
+.alfred-project-notes li p { margin: 2px 0 0; font-size: 0.92rem; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.alfred-project-noNotes { margin: 0; font-size: 0.88rem; color: var(--muted); }
+.alfred-project-addNote { display: grid; gap: 8px; }
+.alfred-project-actions { display: flex; flex-wrap: wrap; gap: 8px; }
