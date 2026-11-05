@@ -175,9 +175,12 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
   .alfred-ui-privacy { min-width: 44px; min-height: 44px; justify-content: center; }
   .alfred-ui-privacy span { display: none; }
   .alfred-ui-themeButton { min-height: 44px; padding-inline: 8px; }
-  .alfred-ui-dock { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); width: min(calc(100% - 12px),560px); min-height: 72px; padding: 4px; border-radius: 20px; bottom: max(12px,env(safe-area-inset-bottom)); gap: 0; }
+  .alfred-ui-dock { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(0,1fr); width: min(calc(100% - 12px),560px); min-height: 72px; padding: 4px; border-radius: 20px; bottom: max(12px,env(safe-area-inset-bottom)); gap: 0; }
   .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { flex-direction: column; gap: 4px; min-width: 0; min-height: 56px; padding: 4px 0; font-size: 12px; line-height: 16px; border-radius: 12px; }
   .alfred-ui-dock svg { width: 20px; height: 20px; }
+  /* Six tabs (with Projects) need a little less room per label. */
+  .alfred-ui-dock[data-count="6"] :is(a,.alfred-chatNav-trigger) { font-size: 11px; letter-spacing: -.01em; }
+  .alfred-ui-dock :is(a,.alfred-chatNav-trigger) > span:last-child { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
   .alfred-ui-dashboard { gap: 20px; padding: 24px 16px 12px; }
   .alfred-ui-heading h1 { font-size: 28px; }
   .alfred-ui-controls { gap: 12px; }

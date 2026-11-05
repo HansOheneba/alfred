@@ -9,11 +9,11 @@ vi.mock("@/lib/supabase/connection", () => ({ query: transport.query }));
 import { createSupabaseTeamStore } from "@/lib/team/store";
 
 const ADA = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", KOJO = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", OUTSIDER = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
-const idea = { title: "Payday forecast", summary: "What's left before payday", status: "idea" as const, leadId: null };
+const idea = { title: "Payday forecast", summary: "What's left before payday", status: "idea" as const, priority: "medium" as const, leadId: null, links: [] };
 
 describe("the team's projects in an ephemeral SQL database", () => {
   let db: PGlite;
-  const migration = readFileSync("supabase/migrations/20261105220000_team_projects.sql", "utf8");
+  const migration = ["20261105220000_team_projects.sql", "20261106090000_team_project_details.sql"].map((file) => readFileSync(`supabase/migrations/${file}`, "utf8")).join("\n");
   const store = createSupabaseTeamStore({} as SupabaseSettings);
   beforeAll(async () => {
     db = new PGlite();
@@ -36,6 +36,28 @@ describe("the team's projects in an ephemeral SQL database", () => {
     expect(seen?.members).toEqual([{ id: ADA, name: "Ada" }, { id: KOJO, name: "Kojo" }]);
     expect(seen?.projects).toEqual([expect.objectContaining({ id: project!.id, notes: [expect.objectContaining({ body: "Learn payday from salary texts first." })] })]);
     expect(await store.updateProject(ADA, project!.id, { status: "building", leadId: null })).toMatchObject({ status: "building", leadId: null, title: "Payday forecast" });
+  });
+
+  it("keeps priority, links and when a project shipped, and lets only a note's author edit it", async () => {
+    const project = await store.addProject(ADA, { ...idea, priority: "high", links: [{ url: "https://www.youtube.com/watch?v=abc", label: "Reference" }] });
+    expect(project).toMatchObject({ priority: "high", links: [{ url: "https://www.youtube.com/watch?v=abc", label: "Reference" }], shippedAt: null });
+    const shipped = await store.updateProject(KOJO, project!.id, { status: "shipped", priority: "low", links: [] });
+    expect(shipped).toMatchObject({ status: "shipped", priority: "low", links: [], shippedAt: expect.any(String) });
+    expect(await store.updateProject(KOJO, project!.id, { status: "building" })).toMatchObject({ shippedAt: null });
+    const note = await store.addNote(ADA, project!.id, "First go");
+    expect(note).toMatchObject({ editedAt: null });
+    expect(await store.editNote(KOJO, note!.id, "Changed by someone else")).toBeNull();
+    expect(await store.editNote(ADA, note!.id, "Second go")).toMatchObject({ body: "Second go", editedAt: expect.any(String) });
+    expect((await store.board(KOJO))?.projects[0].notes).toEqual([expect.objectContaining({ body: "Second go" })]);
+  });
+
+  it("lets either member remove a project with its notes, and nobody else", async () => {
+    const project = await store.addProject(ADA, idea);
+    await store.addNote(ADA, project!.id, "Will go with it");
+    expect(await store.removeProject(OUTSIDER, project!.id)).toBe(false);
+    expect(await store.removeProject(KOJO, project!.id)).toBe(true);
+    expect((await store.board(ADA))?.projects).toEqual([]);
+    expect((await db.query("select count(*)::int as n from team_project_notes")).rows).toEqual([{ n: 0 }]);
   });
 
   it("shows and lets a non-member do nothing at all", async () => {

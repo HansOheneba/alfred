@@ -1,52 +1,180 @@
-/* The team's projects: an add box, filters, then one card per idea with its notes underneath. */
-.alfred-projects { width: 100%; max-width: 760px; margin: 0 auto; padding-block: 24px 64px; padding-inline: 16px; display: grid; gap: 18px; }
-.alfred-projects > * { min-width: 0; }
-.alfred-projects-head h1 { margin: 0; font-size: 1.5rem; font-weight: 600; color: var(--ink); }
-.alfred-projects-head p { margin: 4px 0 0; font-size: 0.9rem; color: var(--muted); }
-
-.alfred-projects-new { display: grid; gap: 8px; padding: 12px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); }
-.alfred-projects-new input, .alfred-projects-new textarea, .alfred-project-edit input, .alfred-project-edit textarea, .alfred-project-addNote textarea {
-  width: 100%; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; font: inherit; font-size: 0.95rem; color: var(--ink); background: var(--bg); resize: vertical;
+/* The team's projects: a summary of where things stand, an owner filter, then a list grouped by status or a board.
+   A project opens in a panel (bottom sheet on phones) with its fields and notes. Status colours are local to this page. */
+.alfred-projects {
+  --p-idea: #6f7580; --p-idea-fg: #43474e; --p-idea-bg: #eceef1;
+  --p-planned: #2f6fdb; --p-planned-fg: #1a459a; --p-planned-bg: #e3edfc;
+  --p-building: #c47400; --p-building-fg: #723f00; --p-building-bg: #fdeed6;
+  --p-shipped: #1f9254; --p-shipped-fg: #0d5a33; --p-shipped-bg: #dcf3e4;
+  --p-parked: #8e5bc4; --p-parked-fg: #623594; --p-parked-bg: #efe6f8;
+  --p-high-fg: #941c16; --p-high-bg: #fde6e3; --p-medium-fg: #634700; --p-medium-bg: #fbf0cc; --p-low-fg: #43474e; --p-low-bg: #eceef1;
+  width: 100%; max-width: 1240px; margin: 0 auto; padding-block: 24px 64px; padding-inline: 16px;
+  display: flex; flex-direction: column; gap: 16px; font-variant-numeric: tabular-nums;
 }
-.alfred-projects-new input { border: 0; background: transparent; padding: 6px 4px; font-size: 1rem; }
-.alfred-projects-new input:focus { outline: none; }
-.alfred-projects-new:focus-within { border-color: var(--accent); }
-.alfred-projects-newRow { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
-.alfred-projects-newRow label, .alfred-projects-leadFilter { display: inline-flex; align-items: center; gap: 8px; font-size: 0.85rem; color: var(--muted); }
-.alfred-projects select { border: 1px solid var(--line); border-radius: 8px; padding: 5px 8px; font: inherit; font-size: 0.85rem; color: var(--ink); background: var(--surface); }
+:root[data-theme="dark"] .alfred-projects, :root[data-theme="dark"] .alfred-projects-panel {
+  --p-idea: #a0a6b0; --p-idea-fg: #dfe1e5; --p-idea-bg: #2c2e33;
+  --p-planned: #6ea0f0; --p-planned-fg: #c3d8fb; --p-planned-bg: #1e2f4d;
+  --p-building: #e6a23c; --p-building-fg: #fbd9a0; --p-building-bg: #3d2b10;
+  --p-shipped: #4cc083; --p-shipped-fg: #b0ecc9; --p-shipped-bg: #133524;
+  --p-parked: #b48de0; --p-parked-fg: #e0ccf6; --p-parked-bg: #34254a;
+  --p-high-fg: #ffc4be; --p-high-bg: #4d1f1c; --p-medium-fg: #f6dd94; --p-medium-bg: #3d3110; --p-low-fg: #dfe1e5; --p-low-bg: #2c2e33;
+}
+.alfred-projects-panel {
+  --p-idea: #6f7580; --p-idea-fg: #43474e; --p-idea-bg: #eceef1;
+  --p-planned: #2f6fdb; --p-planned-fg: #1a459a; --p-planned-bg: #e3edfc;
+  --p-building: #c47400; --p-building-fg: #723f00; --p-building-bg: #fdeed6;
+  --p-shipped: #1f9254; --p-shipped-fg: #0d5a33; --p-shipped-bg: #dcf3e4;
+  --p-parked: #8e5bc4; --p-parked-fg: #623594; --p-parked-bg: #efe6f8;
+}
+.alfred-projects > *, .alfred-projects-panel * { min-width: 0; }
+.alfred-projects [data-status="idea"], .alfred-projects-panel [data-status="idea"] { --c: var(--p-idea); --cfg: var(--p-idea-fg); --cbg: var(--p-idea-bg); }
+.alfred-projects [data-status="planned"], .alfred-projects-panel [data-status="planned"] { --c: var(--p-planned); --cfg: var(--p-planned-fg); --cbg: var(--p-planned-bg); }
+.alfred-projects [data-status="building"], .alfred-projects-panel [data-status="building"] { --c: var(--p-building); --cfg: var(--p-building-fg); --cbg: var(--p-building-bg); }
+.alfred-projects [data-status="shipped"], .alfred-projects-panel [data-status="shipped"] { --c: var(--p-shipped); --cfg: var(--p-shipped-fg); --cbg: var(--p-shipped-bg); }
+.alfred-projects [data-status="parked"], .alfred-projects-panel [data-status="parked"] { --c: var(--p-parked); --cfg: var(--p-parked-fg); --cbg: var(--p-parked-bg); }
+.alfred-projects-sicon { flex: none; width: 16px; height: 16px; color: var(--cfg, var(--muted)); }
 
-.alfred-projects-filters { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; }
-.alfred-projects-chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; min-width: 0; flex: 1 1 100%; max-width: 100%; }
-.alfred-projects-chips button { flex: none; border: 1px solid var(--line); border-radius: 999px; padding: 5px 11px; font-size: 0.83rem; color: var(--ink); background: var(--surface); cursor: pointer; }
-.alfred-projects-chips button span { color: var(--faint); margin-left: 2px; font-variant-numeric: tabular-nums; }
-.alfred-projects-chips button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent-soft); color: var(--accent); }
+/* Header */
+.alfred-projects-head { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 12px 20px; }
+.alfred-projects-head h1 { margin: 0; font-size: 28px; font-weight: 600; letter-spacing: -.04em; color: var(--ink); }
+.alfred-projects-head p { margin: 2px 0 0; font-size: 14px; color: var(--muted); }
+.alfred-projects-headActions { display: flex; align-items: center; gap: 10px; }
+.alfred-projects-tabs { display: inline-flex; gap: 2px; padding: 3px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.alfred-projects-tabs button { min-height: 38px; padding: 0 14px; border: 0; border-radius: 9px; background: transparent; color: var(--muted); font-size: 14px; font-weight: 600; cursor: pointer; }
+.alfred-projects-tabs button[aria-pressed="true"] { background: var(--surface); color: var(--ink); box-shadow: 0 0 0 1px var(--line); }
 
-.alfred-projects-error { margin: 0; color: var(--danger); font-size: 0.88rem; }
-.alfred-projects-empty { margin: 0; padding: 28px 12px; text-align: center; color: var(--muted); font-size: 0.92rem; border: 1px dashed var(--line); border-radius: 14px; }
-.alfred-projects-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 12px; }
+/* Summary */
+.alfred-projects-summary { display: flex; flex-direction: column; gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 16px; background: var(--surface); }
+.alfred-projects-sumHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 12px; }
+.alfred-projects-sumHead h2 { margin: 0; font-size: 20px; font-weight: 600; letter-spacing: -.02em; color: var(--ink); }
+.alfred-projects-pct { font-size: 15px; font-weight: 600; color: var(--muted); }
+.alfred-projects-last { margin-left: auto; font-size: 14px; color: var(--muted); }
+.alfred-projects-last b { color: var(--ink); font-weight: 600; }
+.alfred-projects-bar { display: flex; gap: 2px; height: 10px; overflow: hidden; border-radius: 6px; background: var(--line); }
+.alfred-projects-bar i { display: block; flex-basis: 0; min-width: 4px; background: var(--c); }
+.alfred-projects-tiles { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 8px; }
+.alfred-projects-tiles button { display: flex; flex-direction: column; gap: 2px; padding: 8px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
+.alfred-projects-tiles button:hover { background: var(--surface-2); }
+.alfred-projects-tiles button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
+.alfred-projects-num { font-size: 24px; font-weight: 600; line-height: 1.15; }
+.alfred-projects-tileLabel { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; font-weight: 500; }
+.alfred-projects-attention { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; font-size: 14px; color: var(--muted); }
+.alfred-projects-attention:empty { display: none; }
+.alfred-projects-attention b { color: var(--ink); font-weight: 600; }
+.alfred-projects-attention button { min-height: 34px; padding: 4px 10px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+.alfred-projects-attention button[aria-pressed="true"] { border-color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent); background: var(--accent-soft); }
 
-.alfred-project { border: 1px solid var(--line); border-radius: 14px; background: var(--surface); padding: 14px; display: grid; gap: 10px; }
-.alfred-project[data-status="shipped"], .alfred-project[data-status="parked"] { background: color-mix(in srgb, var(--line) 18%, var(--surface)); }
-.alfred-project-title { all: unset; cursor: pointer; display: grid; gap: 4px; min-width: 0; }
-.alfred-project-title:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; border-radius: 6px; }
-.alfred-project-title h2 { margin: 0; font-size: 1rem; font-weight: 600; color: var(--ink); overflow-wrap: anywhere; }
-.alfred-project-title p { margin: 0; font-size: 0.9rem; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
-.alfred-project-edit { display: grid; gap: 8px; }
-.alfred-project-meta { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-size: 0.82rem; }
-.alfred-project-status { font-weight: 500; }
-.alfred-project-status.is-building { border-color: var(--accent); color: var(--accent); }
-.alfred-project-status.is-shipped { color: var(--success); }
-.alfred-project-status.is-parked { color: var(--faint); }
-.alfred-project-notesToggle { border: 0; background: transparent; padding: 4px 2px; font: inherit; color: var(--accent); cursor: pointer; text-decoration: underline; text-underline-offset: 3px; text-decoration-color: color-mix(in srgb, var(--accent) 35%, transparent); }
-.alfred-project-when { margin-left: auto; color: var(--faint); }
+/* Owner filter */
+.alfred-projects-toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.alfred-projects-label { font-size: 13px; font-weight: 600; color: var(--muted); }
+.alfred-projects-owners { display: flex; flex-wrap: wrap; gap: 6px; }
+.alfred-projects-owners button { min-height: 34px; padding: 0 13px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 500; cursor: pointer; }
+.alfred-projects-owners button[aria-pressed="true"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); font-weight: 600; }
+.alfred-projects-showing { margin-left: auto; display: flex; align-items: center; gap: 8px; font-size: 14px; color: var(--muted); }
+.alfred-projects-showing button, .alfred-projects-none button { border: 0; background: transparent; padding: 4px; color: var(--accent); font: inherit; font-weight: 600; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
 
-.alfred-project-notes { display: grid; gap: 10px; border-top: 1px solid var(--line); padding-top: 10px; }
-.alfred-project-notes ol { list-style: none; margin: 0; padding: 0; display: grid; gap: 10px; }
-.alfred-project-noteHead { display: flex; align-items: baseline; gap: 8px; font-size: 0.8rem; }
-.alfred-project-noteHead strong { color: var(--ink); font-weight: 600; }
-.alfred-project-noteHead span { color: var(--faint); }
-.alfred-project-noteHead button { margin-left: auto; border: 0; background: transparent; color: var(--muted); font: inherit; cursor: pointer; }
-.alfred-project-notes li p { margin: 2px 0 0; font-size: 0.92rem; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
-.alfred-project-noNotes { margin: 0; font-size: 0.88rem; color: var(--muted); }
-.alfred-project-addNote { display: grid; gap: 8px; }
-.alfred-project-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Pills and owners */
+.alfred-projects-pill { display: inline-flex; align-items: center; gap: 5px; padding: 2px 8px; border-radius: 7px; background: var(--cbg); color: var(--cfg); font-size: 13px; font-weight: 600; white-space: nowrap; }
+.alfred-projects-pill .alfred-projects-sicon { width: 14px; height: 14px; }
+.alfred-projects-pill[data-priority="high"] { background: var(--p-high-bg); color: var(--p-high-fg); }
+.alfred-projects-pill[data-priority="medium"] { background: var(--p-medium-bg); color: var(--p-medium-fg); }
+.alfred-projects-pill[data-priority="low"] { background: var(--p-low-bg); color: var(--p-low-fg); }
+.alfred-projects-owner { display: inline-flex; align-items: center; gap: 6px; font-size: 14px; color: var(--ink); }
+.alfred-projects-avatar { flex: none; display: inline-flex; align-items: center; justify-content: center; min-width: 24px; height: 24px; padding: 0 5px; border-radius: 12px; background: var(--brand-soft); color: var(--brand); font-size: 11px; font-weight: 700; }
+
+/* List */
+.alfred-projects-list { display: flex; flex-direction: column; gap: 14px; }
+.alfred-projects-thead, .alfred-projects-row { display: grid; grid-template-columns: minmax(0, 1fr) 120px 92px 116px 92px 150px; gap: 12px; align-items: center; padding-inline: 12px; }
+.alfred-projects-thead { padding-block: 6px; border-bottom: 1px solid var(--line); font-size: 13px; font-weight: 600; color: var(--muted); }
+.alfred-projects-group { display: flex; flex-direction: column; }
+.alfred-projects-groupHead { display: flex; align-items: center; gap: 8px; width: 100%; padding: 8px 4px; border: 0; border-radius: 8px; background: transparent; color: var(--ink); font-size: 16px; font-weight: 600; text-align: left; cursor: pointer; }
+.alfred-projects-groupHead:hover { background: var(--surface-2); }
+.alfred-projects-groupHead > span:last-child, .alfred-projects-colHead > span:last-child { font-size: 14px; font-weight: 500; color: var(--muted); }
+.alfred-projects-chev { flex: none; width: 16px; height: 16px; color: var(--muted); transition: transform 120ms; }
+.alfred-projects-groupHead[aria-expanded="false"] .alfred-projects-chev { transform: rotate(-90deg); }
+.alfred-projects-rows { display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+.alfred-projects-row { width: 100%; min-height: 54px; padding-block: 10px; border: 0; border-bottom: 1px solid var(--line); background: transparent; color: var(--ink); text-align: left; cursor: pointer; }
+.alfred-projects-row:hover { background: var(--surface-2); }
+.alfred-projects-row:focus-visible { outline-offset: -2px; }
+.alfred-projects-name { display: flex; align-items: flex-start; gap: 8px; }
+.alfred-projects-name > .alfred-projects-sicon { margin-top: 2px; }
+.alfred-projects-name > span { display: flex; flex-direction: column; }
+.alfred-projects-title { font-size: 15px; font-weight: 600; line-height: 1.3; overflow-wrap: anywhere; }
+.alfred-projects-desc { font-size: 14px; color: var(--muted); display: -webkit-box; -webkit-line-clamp: 1; -webkit-box-orient: vertical; overflow: hidden; }
+.alfred-projects-cell { font-size: 14px; color: var(--muted); overflow-wrap: anywhere; }
+.alfred-projects-metas { display: contents; }
+.alfred-projects-metas > .alfred-projects-pill { justify-self: start; }
+.alfred-projects-nothing { margin: 0; padding: 10px 12px; font-size: 14px; color: var(--muted); }
+.alfred-projects-none { margin: 0; padding: 16px 12px; font-size: 14px; color: var(--muted); }
+.alfred-projects-empty { display: flex; flex-direction: column; gap: 4px; padding: 28px 16px; border: 1px dashed var(--line-strong); border-radius: 16px; text-align: center; font-size: 14px; color: var(--muted); }
+.alfred-projects-empty strong { color: var(--ink); font-size: 16px; }
+.alfred-projects-error { margin: 0; color: var(--danger); font-size: 14px; }
+
+/* Board */
+.alfred-projects-board { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(224px, 1fr); gap: 10px; overflow-x: auto; scroll-snap-type: x proximity; padding-bottom: 8px; }
+.alfred-projects-col { display: flex; flex-direction: column; gap: 8px; align-self: start; padding: 8px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface-2); scroll-snap-align: start; }
+.alfred-projects-colHead { display: flex; align-items: center; gap: 6px; padding: 2px 4px; font-size: 15px; font-weight: 600; color: var(--ink); }
+.alfred-projects-card { display: flex; flex-direction: column; gap: 8px; width: 100%; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface); color: var(--ink); text-align: left; cursor: pointer; }
+.alfred-projects-card:hover { border-color: var(--line-strong); }
+.alfred-projects-card .alfred-projects-desc { -webkit-line-clamp: 2; }
+.alfred-projects-cardMeta { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 8px; font-size: 13px; color: var(--muted); }
+
+/* Panel: a side panel on wide screens; dialog.css turns it into a bottom sheet on phones. */
+@media (min-width: 721px) {
+  .alfred-projects-panel { width: min(600px, calc(100vw - 40px)); inset: 0 0 0 auto; margin: 0; height: 100dvh; max-height: 100dvh; border-radius: 0; border-block: 0; border-right: 0; }
+  .alfred-projects-panel .alfred-dialog-surface { height: 100%; }
+}
+.alfred-projects-panel .alfred-dialog-body { display: flex; flex-direction: column; gap: 22px; padding-bottom: calc(20px + env(safe-area-inset-bottom)); }
+.alfred-projects-fields { display: flex; flex-direction: column; gap: 16px; }
+.alfred-projects-field { display: flex; flex-direction: column; gap: 6px; }
+.alfred-projects-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.alfred-projects-panel :is(input, textarea, select) { width: 100%; padding: 9px 11px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font: inherit; font-size: 16px; }
+.alfred-projects-panel textarea { resize: vertical; line-height: 1.45; }
+.alfred-projects-panel .alfred-projects-titleInput { padding: 4px 6px; margin-left: -6px; width: calc(100% + 6px); border-color: transparent; background: transparent; font-size: 22px; font-weight: 600; letter-spacing: -.02em; }
+.alfred-projects-panel .alfred-projects-titleInput:is(:hover, :focus) { border-color: var(--line-strong); background: var(--surface); }
+.alfred-projects-pipeline { display: flex; flex-wrap: wrap; gap: 6px; }
+.alfred-projects-pipeline button { display: inline-flex; align-items: center; gap: 6px; min-height: 38px; padding: 0 12px; border: 1px solid var(--line-strong); border-radius: 10px; background: var(--surface); color: var(--ink); font-size: 14px; font-weight: 600; cursor: pointer; }
+.alfred-projects-pipeline button[aria-pressed="true"] { border-color: var(--c); background: var(--cbg); color: var(--cfg); box-shadow: inset 0 0 0 1px var(--c); }
+.alfred-projects-links { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 6px; }
+.alfred-projects-links li { display: flex; align-items: center; gap: 8px; }
+.alfred-projects-links a { flex: none; max-width: 55%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--accent); font-weight: 600; text-decoration: underline; text-underline-offset: 3px; }
+.alfred-projects-links span { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 13px; color: var(--muted); }
+.alfred-projects-links button, .alfred-projects-noteActions button { border: 0; background: transparent; padding: 4px 6px; border-radius: 6px; color: var(--muted); font-size: 13px; text-decoration: underline; text-underline-offset: 3px; cursor: pointer; }
+.alfred-projects-links button:hover { color: var(--danger); }
+.alfred-projects-addLink { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 6px; }
+.alfred-projects-hint { margin: 0; font-size: 14px; color: var(--muted); }
+.alfred-projects-thread { display: flex; flex-direction: column; gap: 10px; }
+.alfred-projects-note { display: flex; flex-direction: column; gap: 6px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-2); }
+.alfred-projects-noteHead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 8px; font-size: 13px; color: var(--muted); }
+.alfred-projects-noteHead b { color: var(--ink); font-weight: 600; }
+.alfred-projects-note p { margin: 0; font-size: 15px; color: var(--ink); white-space: pre-wrap; overflow-wrap: anywhere; }
+.alfred-projects-noteActions { display: flex; justify-content: flex-end; gap: 4px; }
+.alfred-projects-noteActions button:hover { color: var(--ink); }
+.alfred-projects-composer { display: flex; flex-direction: column; gap: 8px; }
+.alfred-projects-composerBar { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 8px; }
+.alfred-projects-foot { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 10px; padding-top: 14px; border-top: 1px solid var(--line); font-size: 13px; color: var(--muted); }
+.alfred-projects-danger { color: var(--danger); }
+
+@media (max-width: 900px) {
+  .alfred-projects-thead { display: none; }
+  .alfred-projects-row { grid-template-columns: minmax(0, 1fr); gap: 6px; padding-inline: 8px; }
+  .alfred-projects-desc { -webkit-line-clamp: 2; }
+  .alfred-projects-metas { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 10px; padding-left: 24px; }
+  .alfred-projects-metas > .alfred-projects-cell:empty { display: none; }
+}
+@media (max-width: 720px) {
+  .alfred-projects { padding-block: 20px 24px; }
+  .alfred-projects-head h1 { font-size: 26px; }
+  .alfred-projects-headActions { width: 100%; justify-content: space-between; }
+  .alfred-projects-board { grid-auto-columns: 84%; }
+}
+@media (max-width: 520px) {
+  .alfred-projects-summary { padding: 12px; }
+  .alfred-projects-tiles { gap: 4px; }
+  .alfred-projects-tiles button { align-items: center; padding: 6px 2px; text-align: center; }
+  .alfred-projects-tileLabel { flex-direction: column; gap: 2px; font-size: 12px; }
+  .alfred-projects-last { margin-left: 0; width: 100%; }
+  .alfred-projects-addLink { grid-template-columns: 1fr auto; }
+  .alfred-projects-addLink input:nth-of-type(2) { grid-column: 1 / -1; grid-row: 1; }
+  .alfred-projects-showing { margin-left: 0; }
+}
+@media (prefers-reduced-motion: reduce) { .alfred-projects-chev { transition: none; } }
