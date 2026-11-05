@@ -3,7 +3,9 @@ import { z } from "zod";
 import type { Channel } from "@/lib/ai/persona";
 import { buildSystemPrompt, type RecentTransaction } from "@/lib/ai/prompts";
 import { LIMITS, type DeepSeekSettings } from "@/lib/config";
+import { alertOperator } from "@/lib/ai/operator-alert";
 import { AiError } from "@/lib/errors";
+import { logError } from "@/lib/log";
 import type { CategoryRecord } from "@/lib/finance/types";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { zonedYmd } from "@/lib/finance/dates";
@@ -202,6 +204,9 @@ export function conversationTurns(history: { role: "user" | "assistant"; body: s
   return turns;
 }
 
+/** Statuses that mean the provider refused Alfred's account (no credit, bad key), not a passing outage. */
+const ACCOUNT_STATUSES = new Set([401, 402, 403]);
+
 /** One model call returning the reply text; chatCompletion is DeepSeek's. */
 export type Completion = typeof chatCompletion;
 
@@ -240,6 +245,15 @@ export async function chatCompletion(
   }
 
   if (response.status === 429) throw new AiError("rate_limit", "DeepSeek rate limited the request.");
+  if (ACCOUNT_STATUSES.has(response.status)) {
+    const error = new AiError("account", `DeepSeek refused Alfred's account with status ${response.status}.`);
+    const event = response.status === 402 ? "ai_out_of_credit" : "ai_key_rejected";
+    logError(event, error);
+    await alertOperator(event, response.status === 402
+      ? "DeepSeek is out of credit (HTTP 402). Alfred can't read chat messages until it's topped up."
+      : `DeepSeek rejected Alfred's API key (HTTP ${response.status}). Alfred can't read chat messages until the key is fixed.`);
+    throw error;
+  }
   if (!response.ok) throw new AiError("unavailable", `DeepSeek failed with status ${response.status}.`);
 
   // The time limit also covers reading the body, so a slow reply can time out here too.

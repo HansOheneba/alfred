@@ -34,6 +34,7 @@ export const FALLBACKS: { pattern: RegExp; what: string }[] = [
   { pattern: /couldn't find that in your records/i, what: "lookup found nothing" },
   { pattern: /^Here's what I found:/i, what: "lookup answer replaced by raw results (unsupported figure)" },
   { pattern: /thinking is running slow/i, what: "model was down or too slow" },
+  { pattern: /can't think right now/i, what: "model provider refused Alfred (out of credit or bad key)" },
   { pattern: /couldn't match that to a payment/i, what: "answer matched no payment" },
 ];
 

@@ -41,7 +41,7 @@ export async function interpretWithContext(input: {
   open?: (history: ChatMessageRecord[]) => string[];
   /** Hears what Alfred is doing, for the live step shown while a reply is worked out. */
   progress?: Progress | null;
-}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** Why the model gave nothing usable, so `action` is a stock fallback: its reply couldn't be read, or it was down or too slow. */ unread?: "invalid" | "outage"; /** Lookup rounds the model took. */ lookedUp?: number; /** What those lookups returned. */ found?: { query: string; lines: string[] }[] }> {
+}): Promise<{ action: InterpretedAction; context: ConversationContext | null; cue: ChatCue; /** Why the model gave nothing usable, so `action` is a stock fallback: its reply couldn't be read, or it was down or too slow. */ unread?: "invalid" | "outage" | "account"; /** Lookup rounds the model took. */ lookedUp?: number; /** What those lookups returned. */ found?: { query: string; lines: string[] }[] }> {
   const ownerId = input.profile.profileId;
   const [transactions, context, budgets, goals, history, reporting, categories] = await Promise.all([
     input.store.listTransactions(ownerId),
@@ -138,9 +138,9 @@ export async function interpretWithContext(input: {
       return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: "invalid" };
     }
     // While a payment question is open, its buttons still work without the model, so the turn can carry on.
-    if (error instanceof AiError && (error.code === "unavailable" || error.code === "timeout") && input.waiting?.current) {
+    if (error instanceof AiError && (error.code === "unavailable" || error.code === "timeout" || error.code === "account") && input.waiting?.current) {
       logError("interpret_outage", error);
-      return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: "outage" };
+      return { action: { type: "chat", message: conversationalFallback(input.text) }, context, cue, unread: error.code === "account" ? "account" : "outage" };
     }
     throw error;
   }

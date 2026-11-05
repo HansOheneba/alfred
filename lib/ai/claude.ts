@@ -30,6 +30,7 @@ export function claudeCompletion(model: string, options: { apiKey: string; effor
     } catch (error) {
       if (error instanceof Anthropic.RateLimitError) throw new AiError("rate_limit", "Claude rate limited the request.");
       if (error instanceof Anthropic.APIConnectionTimeoutError) throw new AiError("timeout", "Claude timed out.");
+      if (error instanceof Anthropic.APIError && (error.status === 401 || error.status === 402 || error.status === 403)) throw new AiError("account", `Claude refused the account with status ${error.status}.`);
       if (error instanceof Anthropic.APIError) throw new AiError("unavailable", `Claude failed with status ${error.status ?? "unknown"}.`);
       throw new AiError("unavailable", "Claude could not be reached.");
     }
