@@ -1,0 +1,27 @@
+{
+  "id": "small-talk-saves-nothing",
+  "title": "Small talk while payments wait",
+  "source": "Earlier hand-run eval",
+  "tags": [
+    "conversation",
+    "safety"
+  ],
+  "now": "2026-10-31T05:15:00.000Z",
+  "setup": {
+    "bankTexts": [
+      "Payment made for GHS 22.50 to ELLEN OHENEWA OBENG-DARKO Current Balance: GHS 1512.11 . Available Balance: GHS 1512.11. Reference: . Transaction ID: 92694674830. Fee charged: GHS0.00"
+    ]
+  },
+  "steps": [
+    {
+      "say": "how are things?",
+      "expect": {
+        "savesNothing": true,
+        "notReply": "books are quiet|nothing (is )?(waiting|pending)|all caught up"
+      }
+    }
+  ],
+  "final": {
+    "transactions": []
+  }
+}

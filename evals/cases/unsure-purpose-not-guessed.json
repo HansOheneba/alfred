@@ -1,0 +1,39 @@
+{
+  "id": "unsure-purpose-not-guessed",
+  "title": "An unsure answer is not turned into a guess",
+  "source": "Payment notice safety rule",
+  "tags": [
+    "payments",
+    "safety"
+  ],
+  "now": "2026-11-03T12:00:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "kofi",
+        "direction": "in",
+        "amount": "125.00",
+        "counterparty": "KOFI MENSAH",
+        "occurredAt": "2026-11-03T11:50:00.000Z",
+        "source": "momo"
+      }
+    ],
+    "notice": "kofi"
+  },
+  "steps": [
+    {
+      "say": "hmm I'm not sure what that was",
+      "replyTo": "kofi",
+      "expect": {
+        "savesNothing": true,
+        "asksToConfirm": false
+      }
+    }
+  ],
+  "final": {
+    "payments": {
+      "kofi": "needs_label"
+    },
+    "transactions": []
+  }
+}

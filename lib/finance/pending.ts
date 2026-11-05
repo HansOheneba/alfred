@@ -2,6 +2,7 @@ import { executeConfirmed, type ActionContext } from "@/lib/finance/action-route
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { pendingPayloadSchema } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
+import { remember } from "@/lib/learning/log";
 
 export type Decision = "confirm" | "cancel";
 
@@ -45,15 +46,21 @@ export async function decidePending(
   if (pending.status === "cancelled" || pending.status === "expired") {
     return { text: "That confirmation is closed. Nothing was changed." };
   }
-  if (input.decision === "cancel") {
-    await ctx.store.updatePendingAction(pending.actionId, { status: "cancelled" });
-    return { text: "Cancelled. Nothing was changed." };
-  }
   let raw: unknown = null;
   try {
     raw = JSON.parse(pending.payloadJson) as unknown;
   } catch {
     raw = null;
+  }
+  // Saying yes or no to Alfred's reading of a payment is what it learns from.
+  if (pending.actionType === "label_payments") {
+    const items = (raw as { items?: { bankMessageId?: string }[] } | null)?.items ?? [];
+    await remember(ctx.learning, (log) => log.correction({ ownerId: ctx.profile.profileId, bankMessageId: items[0]?.bankMessageId ?? null,
+      kind: input.decision === "confirm" ? "yes" : "reject", userText: null, proposed: items, final: input.decision === "confirm" ? items : null }));
+  }
+  if (input.decision === "cancel") {
+    await ctx.store.updatePendingAction(pending.actionId, { status: "cancelled" });
+    return { text: "Cancelled. Nothing was changed." };
   }
   const payload = pendingPayloadSchema.safeParse(raw);
   if (!payload.success || payload.data.type !== pending.actionType) {

@@ -1,0 +1,63 @@
+{
+  "id": "george-card-loan",
+  "title": "Card top-up a friend spends, who'll pay me back",
+  "source": "Hans, 2026-11-04: refused 'George owes me' twice",
+  "tags": [
+    "payments",
+    "loans",
+    "real-failure"
+  ],
+  "now": "2026-11-04T18:20:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "topUp",
+        "direction": "in",
+        "amount": "350.00",
+        "counterparty": "GCB prepaid card top-up",
+        "occurredAt": "2026-11-04T18:08:00.000Z"
+      },
+      {
+        "ref": "charge",
+        "direction": "out",
+        "amount": "332.19",
+        "counterparty": "MTCGAME.COM",
+        "occurredAt": "2026-11-04T18:18:00.000Z"
+      }
+    ],
+    "notice": "topUp"
+  },
+  "steps": [
+    {
+      "say": "The 350 was to top up my virtual card a friend wants to use it to make an a online payment",
+      "replyTo": "topUp",
+      "expect": {
+        "notReply": "couldn't tell which waiting payments"
+      }
+    },
+    {
+      "say": "He will pay me back so look at it more like George owes me",
+      "replyTo": "topUp",
+      "expect": {
+        "asksToConfirm": true,
+        "savesNothing": true,
+        "notReply": "couldn't tell which waiting payments"
+      }
+    },
+    {
+      "tap": "confirm"
+    }
+  ],
+  "final": {
+    "payments": {
+      "topUp": "transfer",
+      "charge": "lent"
+    },
+    "loans": [
+      {
+        "person": "George",
+        "owed": "332.19"
+      }
+    ]
+  }
+}

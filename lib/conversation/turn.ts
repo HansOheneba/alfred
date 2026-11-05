@@ -34,6 +34,7 @@ import { answerTypedDecision, decidePending, latestOpenPending, typedDecision } 
 import { actionsOf, type FinanceAction, type InterpretedAction } from "@/lib/finance/schemas";
 import type { FinanceStore } from "@/lib/finance/store";
 import type { ConversationContext } from "@/lib/finance/conversation";
+import { remember } from "@/lib/learning/log";
 import { logInfo } from "@/lib/log";
 import { aboutForPrompt, type NotebookStore } from "@/lib/notebook/store";
 import { notesForPrompt, type PeopleStore } from "@/lib/people/store";
@@ -72,6 +73,20 @@ type TurnOptions = { channel: Channel; excludeClientId?: string | null; replyToP
  * what's open, and may ask for a few actions, done in order.
  */
 export async function converse(text: string, ctx: ActionContext, deps: TurnDeps, options: TurnOptions): Promise<TurnReply> {
+  const started = Date.now();
+  const seen: TurnSeen = { actions: [], model: null };
+  const reply = await converseTurn(text, ctx, deps, options, seen);
+  await remember(ctx.learning, (log) => log.trace({
+    ownerId: ctx.profile.profileId, channel: options.channel === "telegram" ? "telegram" : "web", actions: seen.actions, model: seen.model,
+    latencyMs: Date.now() - started, intent: reply.intent ?? null, proposed: reply.kind === "confirm", refused: /haven't changed this payment|couldn't tell which/i.test(reply.text),
+  }));
+  return reply;
+}
+
+/** What the model was asked and chose on this turn, for its trace. */
+type TurnSeen = { actions: string[]; model: string | null };
+
+async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, options: TurnOptions, seen: TurnSeen): Promise<TurnReply> {
   const noticeFocus = await paymentNoticeFocus(deps.messages, ctx.profile.profileId, options);
   const closedNotice = Boolean(noticeFocus && !noticeFocus.requiresPurpose);
   const closedSource = closedNotice && noticeFocus ? await deps.bank?.getMessage(ctx.profile.profileId, noticeFocus.bankMessageId) : null;
@@ -157,6 +172,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
   }
   let open: string[] = [];
   const proposal = noticeFocus?.requiresPurpose ? await openProposalText(deps.messages, ctx, noticeFocus.bankMessageId, options.excludeClientId) : null;
+  const earlier = noticeFocus?.requiresPurpose ? await saidAboutPayment(deps.messages, ctx.profile.profileId, noticeFocus.bankMessageId, options.excludeClientId) : [];
   const request = (said: string): Parameters<typeof interpretWithContext>[0] => ({
     text: said,
     profile: ctx.profile,
@@ -181,6 +197,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
               nearby.length ? `Other waiting payments around the same time: ${nearby.join("; ")}. If what the person says also explains one of these (a card top-up and the charge right after it, say), label it in the same answer.` : "",
               "Alfred shows the person its reading and asks before saving, so choose the label that matches what they mean in their own words: money out that someone will pay back is lent to that person, money moved onto their own card or account is own_transfer.",
               "lent only fits money OUT. When someone owes them for something paid from the card or account this money went onto, put lent on that later OUT payment, and keep this payment as own_transfer.",
+              earlier.length ? `Earlier about this payment they said: ${earlier.map((item) => `"${item}"`).join(", then ")}. Read the new message together with that.` : "",
               proposal ? `Alfred already showed this reading, still waiting for a yes: "${proposal.replace(/\s+/g, " ").slice(0, 400)}". If the new message corrects or adds to it, answer with the full corrected set of labels.` : "",
               "If the purpose is unclear, ask; never invent a person or purpose they didn't give, or log the same payment again.",
             ].filter(Boolean).join(" ")
@@ -196,6 +213,8 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     const asked = await alfredsOpenQuestion(deps.messages, ctx.profile.profileId, options.excludeClientId);
     if (asked) ({ action, context, cue, unread } = await interpretWithContext(request(`Yes, go ahead with what you asked: "${asked}"${text.trim().length > 12 ? ` (${text.trim()})` : ""}`)));
   }
+  seen.actions = actionsOf(action).map((item) => item.type);
+  seen.model = waiting || actionsMayNeedCare(text) ? LABEL_MODEL : "default";
   logInfo("interpreted", { userId: ctx.profile.profileId, action: action.type === "several" ? action.actions.map((item) => item.type).join("+") : action.type });
 
   // A reply that couldn't be read, or that came while the model was down, most likely answers the
@@ -235,7 +254,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
       const said = [text, ...(people ?? [])];
       const fit = proposals.filter((item) => groundedPaymentLabel(text, item.message, item.label) || proposableLabel(text, item.message, item.label, said));
       // A reading has to cover the payment being asked about; nearby ones can only come along with it.
-      const proposed = fit.length === proposals.length && fit.some((item) => item.message.id === focused.id) ? await proposeLabels(ctx, fit, ctx.profile) : null;
+      const proposed = fit.length === proposals.length && fit.some((item) => item.message.id === focused.id) ? await proposeLabels(ctx, fit, ctx.profile, text) : null;
       if (proposed) return keepNoticeFocus({ ...proposed, intent: "bank:label" });
     }
     if (!proposals.some((item) => item.message.id === focused.id && groundedPaymentLabel(text, focused, item.label))) {
@@ -573,4 +592,12 @@ async function openProposalText(messages: MessageLog | null | undefined, ctx: Ac
   if (!messages || !(await openLabelProposal(ctx, bankMessageId))) return null;
   const recent = (await messages.listRecent(ctx.profile.profileId, 8)).filter((item) => !excludeClientId || item.clientId !== excludeClientId);
   return [...recent].reverse().find((item) => item.role === "assistant" && item.body.startsWith("Here's how I read"))?.body ?? null;
+}
+
+/** What the person already said in reply to this payment's alert, oldest first. */
+async function saidAboutPayment(messages: MessageLog | null | undefined, ownerId: string, bankMessageId: string, excludeClientId?: string | null): Promise<string[]> {
+  if (!messages) return [];
+  const recent = (await messages.listRecent(ownerId, 12)).filter((item) => !excludeClientId || item.clientId !== excludeClientId);
+  return recent.filter((item) => item.role === "user" && item.paymentNotice?.bankMessageId === bankMessageId)
+    .map((item) => item.body.replace(/\s+/g, " ").trim().slice(0, 300)).slice(-3);
 }

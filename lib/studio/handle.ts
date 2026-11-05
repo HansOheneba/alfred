@@ -1,4 +1,5 @@
 import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
+import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
 import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
 import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
@@ -65,6 +66,8 @@ export type StudioDeps = {
   people?: PeopleStore | null;
   /** What Alfred has learnt about the person. */
   notebook?: NotebookStore | null;
+  /** Corrections and turn traces, for learning and measuring. */
+  learning?: LearningLog | null;
   accountRuleCommands?: AccountRuleBotDeps | null;
   /** Deterministic, owner-scoped pairing of the two captured bank alerts. */
   transferConversations?: TransferConversationDeps | null;
@@ -150,6 +153,7 @@ export async function handleProfileTurn(
     payeeNames: deps.bank ? () => payeeNamesFrom(deps.bank!, profile.profileId) : undefined,
     bank: deps.bank ? bankAccess(deps.bank, deps.notebook, profile.profileId) : null,
     notebook: deps.notebook ?? null,
+    learning: deps.learning ?? null,
   };
   const labelling = ingestFor(deps, now);
   ctx.labelPayments = labelling ? proposedLabelApplier(labelling, profile) : null;
@@ -368,6 +372,7 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     investments: createSupabaseInvestmentStore(settings.supabase),
     people: createSupabasePeopleStore(settings.supabase),
     notebook: createSupabaseNotebookStore(settings.supabase),
+    learning: createSupabaseLearningLog(settings.supabase),
     accountRuleCommands: createAccountRuleBotDeps(settings.supabase),
     transferConversations: createTransferConversationDeps(settings.supabase),
     paymentResolutions: createPaymentResolutionDeps(settings.supabase),

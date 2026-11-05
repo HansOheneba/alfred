@@ -1,0 +1,38 @@
+{
+  "id": "top-up-is-own-money",
+  "title": "A card top-up is my own money",
+  "source": "Hans, 2026-11-04",
+  "tags": [
+    "payments",
+    "transfers"
+  ],
+  "now": "2026-11-04T18:20:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "topUp",
+        "direction": "in",
+        "amount": "350.00",
+        "counterparty": "GCB prepaid card top-up",
+        "occurredAt": "2026-11-04T18:08:00.000Z"
+      }
+    ],
+    "notice": "topUp"
+  },
+  "steps": [
+    {
+      "say": "I topped up my virtual card",
+      "replyTo": "topUp"
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "payments": {
+      "topUp": "transfer"
+    },
+    "transactions": []
+  }
+}

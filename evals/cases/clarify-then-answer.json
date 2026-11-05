@@ -1,0 +1,35 @@
+{
+  "id": "clarify-then-answer",
+  "title": "Answering Alfred's clarifying question",
+  "source": "Earlier hand-run eval",
+  "tags": [
+    "conversation",
+    "logging"
+  ],
+  "now": "2026-10-31T05:15:00.000Z",
+  "steps": [
+    {
+      "say": "I spent 50 today",
+      "expect": {
+        "reply": "\\?",
+        "savesNothing": true
+      }
+    },
+    {
+      "say": "on transport"
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "50.00",
+        "category": "Transport"
+      }
+    ]
+  }
+}

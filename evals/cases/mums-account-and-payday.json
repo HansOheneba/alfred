@@ -1,0 +1,27 @@
+{
+  "id": "mums-account-and-payday",
+  "title": "Ignore my mum's account and remember payday",
+  "source": "Earlier hand-run eval",
+  "tags": [
+    "memory"
+  ],
+  "now": "2026-10-31T05:15:00.000Z",
+  "setup": {
+    "bankTexts": [
+      "Hi Hans Oheneba Aduse Your A/C No:XXXX0543 has been debited GHS12.00 Desc: ESERVICE BUNDLE CHARGE Date: 2026-10-30 22:55 Bal: GHS 50,085.00"
+    ]
+  },
+  "steps": [
+    {
+      "say": "that's my mum's account, ignore it. also remember I get paid on the 25th",
+      "expect": {
+        "reply": "0543[\\s\\S]*25th|25th[\\s\\S]*0543"
+      }
+    }
+  ],
+  "final": {
+    "remembers": [
+      "25"
+    ]
+  }
+}

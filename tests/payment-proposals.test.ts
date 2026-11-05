@@ -9,6 +9,7 @@ import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { MemoryLoanStore, loanBalances } from "@/lib/finance/loans";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 import { handleProfileTurn, type StudioDeps } from "@/lib/studio/handle";
+import { MemoryLearningLog } from "@/lib/learning/log";
 import { profile } from "./helpers";
 
 const NOW = new Date("2026-11-04T18:20:00.000Z");
@@ -20,6 +21,7 @@ function setup(reply: (request: InterpretRequest) => InterpretedAction) {
   const messages = new MemoryMessageLog();
   const loans = new MemoryLoanStore();
   const interpret = vi.fn(async (request: InterpretRequest) => reply(request));
+  const learning = new MemoryLearningLog();
   let sequence = 0;
   let action = 0;
   const deps: StudioDeps = {
@@ -28,7 +30,7 @@ function setup(reply: (request: InterpretRequest) => InterpretedAction) {
       supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
       authorizedUserIds: [42], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "auto",
     },
-    bank, store, messages, interpret, loans, now: () => NOW,
+    bank, store, messages, interpret, loans, learning, now: () => NOW,
     createId: () => `7a1b2c3d-4444-4444-8444-${String(++sequence).padStart(12, "0")}`,
     createActionId: () => `synthetic-proposal-${++action}`,
   };
@@ -43,7 +45,7 @@ function setup(reply: (request: InterpretRequest) => InterpretedAction) {
     await messages.append({ ownerId: owner.profileId, role: "assistant", channel: "web", body: "Fictional payment notice",
       clientId: `payment-notice-${message.id}`, intent: "automation:incoming-payment", paymentNotice: { bankMessageId: message.id, requiresPurpose: true } });
   }
-  return { owner, bank, store, loans, interpret, deps, payment, notice };
+  return { owner, bank, store, loans, interpret, deps, payment, notice, learning };
 }
 
 /** A card top-up, then a friend's online purchase on the card ten minutes later. */
@@ -80,6 +82,35 @@ describe("Alfred proposes what it understood instead of refusing", () => {
     expect((await state.bank.getMessage(state.owner.profileId, topUp.id))?.status).toBe("transfer");
     expect((await state.bank.getMessage(state.owner.profileId, charge.id))?.status).toBe("lent");
     expect(loanBalances(await state.loans.list(state.owner.profileId))).toMatchObject([{ person: "George", owed: "332.19" }]);
+  });
+
+  it("logs each reading the person replaced, rejected or accepted, and a trace per turn", async () => {
+    let turn = 0;
+    const state = setup((request) => {
+      turn += 1;
+      const charge = request.waiting!.lines.findIndex((line) => line.includes("332.19")) + 1;
+      return turn === 1
+        ? { type: "label_payments", answers: [{ items: [request.waiting!.current], action: "own_transfer" }] }
+        : { type: "label_payments", answers: [{ items: [request.waiting!.current], action: "own_transfer" }, { items: [charge], action: "lent", person: "George" }] };
+    });
+    const { topUp } = await cardStory(state);
+    await handleProfileTurn(state.owner, { text: "I topped up my virtual card", clientId: "log-1" }, state.deps);
+    await handleProfileTurn(state.owner, { text: "George owes me for the game he bought with it", clientId: "log-2" }, state.deps);
+    await handleProfileTurn(state.owner, { text: "yes", clientId: "log-3" }, state.deps);
+    expect(state.learning.corrections.map((item) => item.kind)).toEqual(["edit", "yes"]);
+    expect(state.learning.corrections[0]).toMatchObject({ bankMessageId: topUp.id, userText: "George owes me for the game he bought with it" });
+    expect((state.learning.corrections[0].final as unknown[]).length).toBe(2);
+    expect(state.learning.traces.length).toBeGreaterThanOrEqual(2);
+    expect(state.learning.traces[0]).toMatchObject({ channel: "web", actions: ["label_payments"], proposed: true, refused: false });
+    expect(state.learning.corrections.every((item) => item.ownerId === state.owner.profileId)).toBe(true);
+  });
+
+  it("logs a rejected reading", async () => {
+    const state = setup((request) => ({ type: "label_payments", answers: [{ items: [request.waiting!.current], action: "own_transfer" }] }));
+    await cardStory(state);
+    await handleProfileTurn(state.owner, { text: "I topped up my virtual card", clientId: "reject-1" }, state.deps);
+    await handleProfileTurn(state.owner, { text: "no", clientId: "reject-2" }, state.deps);
+    expect(state.learning.corrections).toMatchObject([{ kind: "reject", final: null }]);
   });
 
   it("leaves everything untouched when the person says no", async () => {

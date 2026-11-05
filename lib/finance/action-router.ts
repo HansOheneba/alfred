@@ -19,6 +19,7 @@ import { budgetMath } from "@/lib/finance/budgets";
 import { buildInsights } from "@/lib/finance/insights";
 import type { BankBalance } from "@/lib/bank/store";
 import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
+import type { LearningLog } from "@/lib/learning/log";
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
@@ -90,6 +91,8 @@ export type ActionContext = {
   notebook?: NotebookStore | null;
   /** Files confirmed labels on captured payments and says what changed. Labels need the bank texts, so this is unset without them. */
   labelPayments?: ((items: { bankMessageId: string; label: ProposedLabel }[]) => Promise<string>) | null;
+  /** Where corrections and turn traces are kept, for learning and measuring. */
+  learning?: LearningLog | null;
 };
 
 export type BankAccess = {
