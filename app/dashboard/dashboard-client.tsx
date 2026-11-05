@@ -17,6 +17,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import { Card, Dialog, EmptyState, categoryColor } from "@/app/components/ui";
 import { BillsCard } from "@/app/dashboard/bills-card";
+import { PinnedCharts } from "@/app/dashboard/pinned-charts";
 import { CategoryDonut, DailyChart, MonthlyChart, SimpleBars } from "@/app/dashboard/charts";
 import { compactMoney, delta, percent } from "@/app/dashboard/helpers";
 import { CashFlowSankey } from "@/app/dashboard/sankey-chart";
@@ -149,6 +150,8 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initi
         <Stat label="Income" value={formatMinor(earned, currency)} hint={`${RANGE_LABELS[preset]} · ${delta(earned, prevEarned, true).text}`} tone={delta(earned, prevEarned, true).tone} />
         <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
       </div>
+
+      {ledger.pinned?.length ? <PinnedCharts pinned={ledger.pinned} /> : null}
 
       {hasAny ? <div id="overview-transactions" tabIndex={-1} className={styles.transactions}><TransactionsTable rows={transactions ? ledger.rows : ledger.rows.filter(row => row.currency === currency && row.date >= range.start && row.date <= range.end).sort((left, right) => left.type === right.type ? 0 : left.type === "expense" ? -1 : 1)} category={selected} onClearCategory={() => updateView({ category: null })} rangeLabel={rangeLabel} range={range} currency={currency} initialFilters={initialTransactionFilters} timeZone={timeZone} remote={transactions} preset={preset} /></div> : null}
 
