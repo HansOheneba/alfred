@@ -1,0 +1,24 @@
+{
+  "id": "create-category-for-budget",
+  "title": "Asked to make a category and put the budget under it",
+  "source": "2026-11-05: 'Create a category and add it under that' got 'I can't create new categories'",
+  "tags": ["conversation", "budgets"],
+  "now": "2026-11-05T16:30:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "messages": [
+      { "role": "user", "body": "Can you add a budget for me" },
+      { "role": "assistant", "body": "Happy to. What's the budget for, and how much?" }
+    ]
+  },
+  "steps": [
+    {
+      "say": "Make a Gym category and give it a budget of 300",
+      "expect": { "asksToConfirm": true, "notReply": "which currency|which month|can't create" }
+    },
+    { "tap": "confirm" }
+  ],
+  "final": {
+    "budgets": [{ "category": "Gym", "amount": "300.00", "period": "2026-11" }]
+  }
+}
