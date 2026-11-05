@@ -153,6 +153,15 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     ...rangeFields,
   }),
   z.object({
+    /** What's left before payday: included cash minus bills due before then. */
+    type: z.literal("get_payday_forecast"),
+  }),
+  z.object({
+    /** The day of the month salary usually lands, or null for no regular payday. */
+    type: z.literal("set_payday"),
+    day: z.number().int().min(1).max(31).nullable(),
+  }),
+  z.object({
     type: z.literal("get_financial_overview"),
     ...rangeFields,
   }),

@@ -22,6 +22,8 @@ import {
 import { formatMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
 import { chartSummary, drawChart } from "@/lib/finance/charts";
+import { forecastPayday, learnPayday, ordinal, paydayText, resolvePayday } from "@/lib/finance/payday";
+import type { PaydayStore } from "@/lib/finance/payday-store";
 import { buildInsights } from "@/lib/finance/insights";
 import type { BankBalance } from "@/lib/bank/store";
 import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
@@ -76,6 +78,8 @@ type DeliveryBody =
 
 export type ActionContext = {
   bills?: BillStore | null;
+  /** The payday the person confirmed or set. Payday answers say they're unavailable without it. */
+  paydays?: PaydayStore | null;
   accountManagement?: AccountManagementStore | null;
   preferences?: PreferenceManagementStore | null;
   profile: UserProfile;
@@ -146,6 +150,10 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return incomeSummary(action, ctx);
     case "show_chart":
       return showChart(action, ctx);
+    case "get_payday_forecast":
+      return paydayForecast(ctx);
+    case "set_payday":
+      return setPayday(action, ctx);
     case "get_financial_overview":
       return overview(action, ctx);
     case "get_insights":
@@ -508,6 +516,33 @@ async function showChart(action: Extract<FinanceAction, { type: "show_chart" }>,
   });
   if (!drawn.ok) return { kind: "text", text: drawn.message };
   return { kind: "text", text: chartSummary(drawn.chart), chart: drawn.chart };
+}
+
+/** What's left before payday, from the same books, balances and bills as the Overview. */
+async function paydayForecast(ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.paydays) return { kind: "text", text: "Payday forecasts aren't available here yet." };
+  const userId = ctx.profile.profileId, currency = ctx.profile.currency, today = zonedYmd(ctx.now, ctx.profile.timezone);
+  const [setting, transactions, bills, balances] = await Promise.all([
+    ctx.paydays.get(userId),
+    readReportingTransactions(ctx.store, userId),
+    ctx.bills ? ctx.bills.list(userId) : Promise.resolve([]),
+    ctx.store.getAccountBalances ? ctx.store.getAccountBalances(userId, currency).catch(() => null) : Promise.resolve(null),
+  ]);
+  const payday = resolvePayday(setting, learnPayday(transactions, currency, today));
+  const forecast = forecastPayday({ payday, today, currency, cash: { totalMinor: balances?.totalMinor ?? null, missingCount: balances?.missingCount ?? 0 }, bills, transactions });
+  return { kind: "text", text: paydayText(forecast, payday) };
+}
+
+/** Saves the day salary usually lands, or that there's no regular payday. */
+async function setPayday(action: Extract<FinanceAction, { type: "set_payday" }>, ctx: ActionContext): Promise<Delivery> {
+  if (!ctx.paydays) return { kind: "text", text: "I can't save a payday here yet." };
+  await ctx.paydays.set(ctx.profile.profileId, action.day === null ? { day: null, regular: false } : { day: action.day, regular: true });
+  return {
+    kind: "text",
+    text: action.day === null
+      ? "Got it, no regular payday. I won't forecast one. Tell me the day if that changes."
+      : `Got it, payday is the ${ordinal(action.day)}. When a month is shorter, I'll count its last day. Ask \"what's left before payday?\" any time.`,
+  };
 }
 
 /** Spending by category in the user's main currency, for the chart beside a reply. */

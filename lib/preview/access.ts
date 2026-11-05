@@ -4,6 +4,7 @@ export const AUTOMATION_PREVIEW_PATHS = [
   "/preview/automations/mac-setup",
   "/preview/automations/transfer",
   "/preview/sms-automation",
+  "/preview/payday",
 ] as const;
 
 type PreviewEnvironment = Record<string, string | undefined>;

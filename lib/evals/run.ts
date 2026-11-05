@@ -1,3 +1,4 @@
+import { MemoryPaydayStore } from "@/lib/finance/payday-store";
 import { MemoryMessageLog } from "@/lib/accounts/messages";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import type { Voice } from "@/lib/ai/voice";
@@ -58,6 +59,7 @@ async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain)
     loans: new MemoryLoanStore(),
     investments: new MemoryInvestmentStore(),
     people: new MemoryPeopleStore(),
+    paydays: new MemoryPaydayStore(),
     notebook,
     learning: new MemoryLearningLog(),
     interpret: brain.interpret,

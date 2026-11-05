@@ -14,6 +14,8 @@ import { buildAccountingView, projectAccountingTransactions } from "@/lib/financ
 import { withLedgerReceipts } from "@/lib/finance/accounting/receipts";
 import { drawChart, type DrawnChart } from "@/lib/finance/charts";
 import { createSupabasePinStore } from "@/lib/finance/pins";
+import { forecastPayday, learnPayday, resolvePayday, type Payday, type PaydayForecast } from "@/lib/finance/payday";
+import { createSupabasePaydayStore } from "@/lib/finance/payday-store";
 import { logError } from "@/lib/log";
 import { loadLedgerBankMetadata } from "./ledger-bank-metadata";
 
@@ -83,6 +85,8 @@ export type Ledger = {
   renewalSuggestions?: RenewalSuggestion[];
   /** Charts kept on the Overview from chat, worked out from these same books. */
   pinned?: { id: string; chart: DrawnChart }[];
+  /** What's left before payday, from the same balances and bills as the rest of the page. */
+  payday?: { payday: Payday; forecast: PaydayForecast | null };
   /** Stable financial accounts and source-based reconciliation; never sum provider-level legacy balances. */
   accounting?: { availability:"ready"|"migration-required";revision:number;balances:ReturnType<typeof buildAccountingView>["balances"];loans:ReturnType<typeof buildAccountingView>["loans"];issues:string[] };
 };
@@ -95,7 +99,7 @@ export async function loadLedger(profile: UserProfile, settings: StudioSettings)
 export async function loadLedgerSnapshot(profile: UserProfile, settings: StudioSettings, options: { receipts?: boolean } = {}): Promise<{ ledger: Ledger; accounting: AccountingResult }> {
   const store = createSupabaseFinanceStore(settings.supabase);
   const userId = profile.profileId;
-  const [accounting, budgets, goals, bank, loans, bills, pins] = await Promise.all([
+  const [accounting, budgets, goals, bank, loans, bills, pins, paydaySetting] = await Promise.all([
     loadAccountingReadModel(settings.supabase,userId),
     store.listBudgets(userId),
     store.listSavingsGoals(userId),
@@ -104,6 +108,8 @@ export async function loadLedgerSnapshot(profile: UserProfile, settings: StudioS
     createSupabaseBillStore(settings.supabase).list(userId),
     // A kept chart is extra: if they can't load, the rest of the Overview still does.
     createSupabasePinStore(settings.supabase).list(userId).catch((error: unknown) => (logError("pins_list", error), [])),
+    // So is payday: without its table, payday is still learned from salary.
+    createSupabasePaydayStore(settings.supabase).get(userId).catch((error: unknown) => (logError("payday_get", error), null)),
   ]);
   const transactions=accounting.availability==="ready" ? projectAccountingTransactions(accounting.rawTransactions,accounting.state) : accounting.rawTransactions;
   const accountingView=buildAccountingView(accounting.state,profile.currency);
@@ -111,6 +117,11 @@ export async function loadLedgerSnapshot(profile: UserProfile, settings: StudioS
   const linkedLoans:LoanBalance[]=accountingView.loans.filter((loan) => loan.outstandingMinor>0).map((loan) => ({person:loan.description,personKey:`accounting:${loan.settlementId}`,currency:loan.currency,lent:(loan.principalMinor/100).toFixed(2),repaid:(loan.returnedMinor/100).toFixed(2),owed:(loan.outstandingMinor/100).toFixed(2),borrowed:"0.00",paidBack:"0.00",owe:"0.00",since:accounting.state.movements.find((movement) => movement.id===loan.originalMovementId)?.occurredAt ?? accounting.state.movements.find((movement) => movement.id===loan.originalMovementId)?.date ?? ""}));
   const today = zonedYmd(new Date(), profile.timezone);
   const monthStart = `${today.slice(0, 7)}-01`;
+  const paydayView = () => {
+    const payday = resolvePayday(paydaySetting, learnPayday(transactions, profile.currency, today));
+    const cash = accounting.availability === "ready" ? accountingView.balances : null;
+    return { payday, forecast: forecastPayday({ payday, today, currency: profile.currency, cash: { totalMinor: cash?.totalMinor ?? null, missingCount: cash?.missingCount ?? 0 }, bills, transactions }) };
+  };
   const [year, month] = today.split("-").map(Number);
   const monthEnd = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
   return { accounting, ledger: {
@@ -158,6 +169,7 @@ export async function loadLedgerSnapshot(profile: UserProfile, settings: StudioS
       const drawn = drawChart({ query: pin.query, transactions, userId, currency: profile.currency, today });
       return drawn.ok ? [{ id: pin.id, chart: drawn.chart }] : [];
     }),
+    payday: paydayView(),
     accounting:{availability:accounting.availability,revision:accounting.state.revision,balances:accountingView.balances,loans:accountingView.loans,issues:accountingView.settlementIssues.map((issue) => issue.reason)},
   } };
 }

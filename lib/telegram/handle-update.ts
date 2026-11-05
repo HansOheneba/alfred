@@ -1,5 +1,6 @@
 import { LIMITS, type AppSettings } from "@/lib/config";
 import { createSupabaseBillStore, type BillStore } from "@/lib/finance/bills";
+import { createSupabasePaydayStore, type PaydayStore } from "@/lib/finance/payday-store";
 import { createSupabaseAccountManagementStore, type AccountManagementStore } from "@/lib/accounts/management";
 import { createSupabasePreferenceManagementStore, type PreferenceManagementStore } from "@/lib/accounts/preference-management";
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
@@ -44,6 +45,7 @@ import { ACCOUNT_RULE_INTENT_GUIDANCE, createAccountRuleBotDeps, handleAccountRu
 
 export type HandlerDeps = {
   bills?: BillStore | null;
+  paydays?: PaydayStore | null;
   accountManagement?: AccountManagementStore | null;
   preferences?: PreferenceManagementStore | null;
   settings: AppSettings;
@@ -359,6 +361,7 @@ function actionContext(
 ): ActionContext {
   return {
     bills: deps.bills ?? null,
+    paydays: deps.paydays ?? null,
     accountManagement: deps.accountManagement ?? null,
     preferences: deps.preferences ?? null,
     profile,
@@ -420,6 +423,7 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
       });
   return {
     bills: settings.supabase ? createSupabaseBillStore(settings.supabase) : null,
+    paydays: settings.supabase ? createSupabasePaydayStore(settings.supabase) : null,
     accountManagement: settings.supabase ? createSupabaseAccountManagementStore(settings.supabase) : null,
     preferences: settings.supabase ? createSupabasePreferenceManagementStore(settings.supabase) : null,
     settings,
