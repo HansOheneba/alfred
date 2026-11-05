@@ -602,7 +602,7 @@ export function ChatPanel({
                         <p className="alfred-production-chat-decisionHint">Or tell me what&apos;s different.</p>
                       </section>
                     ) : <MessageText text={message.text} />}
-                    {message.chart ? <ReplyChart chart={message.chart} /> : null}
+                    {message.chart ? <ReplyChart chart={message.chart} onAsk={busy ? undefined : (value) => submitText(value)} /> : null}
                     {!(message.actionId && !message.settled) && (paymentEntry?.state === "ready" ? isSelectedPaymentMessage(message, paymentEntry) : message === last) && !newTopic && !busy && choices.length ? <AnswerChoices choices={choices} onChoose={(item) => void send({ choice: item.choice }, item.label)} /> : null}
                   </div>
                 </article>

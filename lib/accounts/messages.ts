@@ -1,3 +1,5 @@
+import type { DrawnChart } from "@/lib/finance/charts";
+
 export type ChatChannel = "web" | "telegram";
 
 export function isPaymentNoticeIntent(intent: string | null | undefined): boolean {
@@ -6,7 +8,8 @@ export function isPaymentNoticeIntent(intent: string | null | undefined): boolea
 
 export type ChatChart =
   | { kind: "categories"; currency: string; items: { label: string; minor: number }[] }
-  | { kind: "daily"; currency: string; items: { label: string; minor: number }[] };
+  | { kind: "daily"; currency: string; items: { label: string; minor: number }[] }
+  | DrawnChart;
 
 export type ChatMessageRecord = {
   id: string;

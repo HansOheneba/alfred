@@ -144,6 +144,15 @@ export const financeActionSchema = z.discriminatedUnion("type", [
     ...rangeFields,
   }),
   z.object({
+    /** Draw a chart; the server works out every number from the books. */
+    type: z.literal("show_chart"),
+    measure: z.enum(["spending", "income", "net"]).nullable().optional(),
+    by: z.enum(["category", "merchant", "day", "week", "month"]),
+    style: z.enum(["bar", "line", "donut", "table"]).nullable().optional(),
+    compare: z.boolean().nullable().optional(),
+    ...rangeFields,
+  }),
+  z.object({
     type: z.literal("get_financial_overview"),
     ...rangeFields,
   }),

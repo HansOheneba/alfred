@@ -1,0 +1,47 @@
+/* A chart Alfred drew on request: title and total on top, the chart, then how to read it. */
+.alfred-chart {
+  margin: 12px 0 0;
+  padding: 14px 14px 12px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--surface);
+  display: grid;
+  gap: 10px;
+  max-width: 560px;
+}
+.alfred-chart-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.alfred-chart-title { margin: 0; font-weight: 600; font-size: 0.92rem; color: var(--ink); }
+.alfred-chart-sub { margin: 2px 0 0; font-size: 0.78rem; color: var(--muted); }
+.alfred-chart-total { margin: 0; font-weight: 600; font-size: 1.05rem; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.alfred-chart-empty { margin: 0; padding: 18px 0; color: var(--muted); font-size: 0.86rem; text-align: center; }
+.alfred-chart-foot { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.75rem; color: var(--faint); }
+.alfred-chart-foot:empty { display: none; }
+.alfred-chart-key { display: inline-block; width: 10px; height: 3px; border-radius: 2px; background: var(--accent); vertical-align: middle; }
+.alfred-chart-key.is-before { background: var(--line-strong); margin-left: 6px; }
+
+.alfred-chart-donut { display: flex; flex-wrap: wrap; align-items: center; gap: 12px 18px; }
+.alfred-chart-legend { list-style: none; margin: 0; padding: 0; display: grid; gap: 4px; flex: 1 1 180px; min-width: 0; font-size: 0.82rem; }
+.alfred-chart-legend li { display: grid; grid-template-columns: 10px minmax(0, 1fr) auto; align-items: center; gap: 8px; }
+.alfred-chart-swatch { width: 10px; height: 10px; border-radius: 3px; }
+.alfred-chart-amount { font-variant-numeric: tabular-nums; color: var(--muted); }
+
+.alfred-chart-tableWrap { overflow-x: auto; }
+.alfred-chart-table { width: 100%; border-collapse: collapse; font-size: 0.84rem; font-variant-numeric: tabular-nums; }
+.alfred-chart-table th { text-align: left; font-weight: 500; color: var(--muted); padding: 4px 8px 6px 0; border-bottom: 1px solid var(--line); }
+.alfred-chart-table td { padding: 6px 8px 6px 0; border-bottom: 1px solid var(--line); }
+.alfred-chart-table tr:last-child td { border-bottom: 0; }
+
+.alfred-chart-legend button,
+.alfred-chart-table button {
+  all: unset;
+  cursor: pointer;
+  color: var(--ink);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-decoration: underline;
+  text-decoration-color: var(--line-strong);
+  text-underline-offset: 3px;
+}
+.alfred-chart-legend button:focus-visible,
+.alfred-chart-table button:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 4px; }

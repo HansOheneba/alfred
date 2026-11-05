@@ -21,6 +21,7 @@ import {
 } from "@/lib/finance/dates";
 import { formatMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
+import { chartSummary, drawChart } from "@/lib/finance/charts";
 import { buildInsights } from "@/lib/finance/insights";
 import type { BankBalance } from "@/lib/bank/store";
 import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
@@ -140,6 +141,8 @@ export async function handleAction(action: FinanceAction, ctx: ActionContext): P
       return spendingSummary(action, ctx);
     case "get_income_summary":
       return incomeSummary(action, ctx);
+    case "show_chart":
+      return showChart(action, ctx);
     case "get_financial_overview":
       return overview(action, ctx);
     case "get_insights":
@@ -487,6 +490,21 @@ function queryContext(
 
 function remember(text: string, context: ConversationContext, chart?: ChatChart): Delivery {
   return chart ? { kind: "text", text, context, chart } : { kind: "text", text, context };
+}
+
+/** A chart the person asked for, drawn from their books; the reply states only figures the chart shows. */
+async function showChart(action: Extract<FinanceAction, { type: "show_chart" }>, ctx: ActionContext): Promise<Delivery> {
+  const measure = action.measure ?? "spending";
+  const type = measure === "income" ? "income" : "expense";
+  const category = action.category ? await resolveCategory(ctx.store, ctx.profile.profileId, action.category, type) : null;
+  if (action.category && !category) return { kind: "text", text: unknownCategoryMessage(type) };
+  const drawn = drawChart({
+    query: { measure, by: action.by, style: action.style ?? null, compare: action.compare ?? null, category, period: action.period ?? null, month: action.month ?? null, year: action.year ?? null, startDate: action.start_date ?? null, endDate: action.end_date ?? null },
+    transactions: await readReportingTransactions(ctx.store, ctx.profile.profileId),
+    userId: ctx.profile.profileId, currency: ctx.profile.currency, today: zonedYmd(ctx.now, ctx.profile.timezone),
+  });
+  if (!drawn.ok) return { kind: "text", text: drawn.message };
+  return { kind: "text", text: chartSummary(drawn.chart), chart: drawn.chart };
 }
 
 /** Spending by category in the user's main currency, for the chart beside a reply. */
