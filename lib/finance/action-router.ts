@@ -25,6 +25,7 @@ import { buildInsights } from "@/lib/finance/insights";
 import type { BankBalance } from "@/lib/bank/store";
 import { findPerson, loanBalances, owedBy, oweTo, personKey, type LoanStore } from "@/lib/finance/loans";
 import type { LearningLog } from "@/lib/learning/log";
+import { fileAndAskNext, type MovementSorter, type SortOutcome } from "@/lib/conversation/sorting";
 import type { NotebookStore } from "@/lib/notebook/store";
 import type { PeopleStore } from "@/lib/people/store";
 import { addContribution, matchGoals } from "@/lib/finance/savings";
@@ -101,6 +102,8 @@ export type ActionContext = {
   labelPayments?: ((items: { bankMessageId: string; label: ProposedLabel }[]) => Promise<string>) | null;
   /** Where corrections and turn traces are kept, for learning and measuring. */
   learning?: LearningLog | null;
+  /** The Accounts page's Needs attention list, sorted in chat a merchant at a time. */
+  sorting?: MovementSorter | null;
 };
 
 export type BankAccess = {
@@ -195,6 +198,7 @@ export async function executeConfirmed(
   if (payload.type === "create_account" || payload.type === "update_account") return executeAccountManagement(payload, ctx);
   if (payload.type === "update_profile_settings" || payload.type === "update_reminder_settings" || payload.type === "update_notification_settings") return executePreferenceManagement(payload, ctx);
   if (payload.type === "offer") return { text: "That offer is settled in the conversation. Nothing was changed." };
+  if (payload.type === "file_movements") return { text: await fileGroup(ctx, payload.groupId, payload.status === "confirmed" ? { status: "confirmed", category: payload.category ?? "Misc" } : { status: payload.status }) };
   if (payload.type === "label_payments") {
     if (!ctx.labelPayments) return { text: "I can't file bank payments right now. Nothing was changed." };
     return { text: await ctx.labelPayments(payload.items) };
@@ -834,6 +838,12 @@ async function recordLoan(action: Extract<FinanceAction, { type: "record_loan" }
     date,
     note: action.note?.trim() ?? "",
   });
+}
+
+/** Files a Needs attention group the person said yes to, then asks about the next one. */
+async function fileGroup(ctx: ActionContext, groupId: string, outcome: SortOutcome): Promise<string> {
+  if (!ctx.sorting) return "I can't reach your Accounts list right now. Nothing was changed.";
+  return (await fileAndAskNext(ctx.sorting, ctx.profile.profileId, null, groupId, outcome, `chat-sort-${ctx.updateId}-${groupId}`)).text;
 }
 
 /**

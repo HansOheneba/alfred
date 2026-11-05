@@ -198,13 +198,19 @@ export function applyAccountAction(state: AccountingState, action: AccountingAct
     validateAccountData(next);
     return next;
   }
-  if (action.type === "classify_movement") {
-    const movement = currentMovement(state, action.movement);
-    if (movementInUse(state, movement.id)) throw new AccountingError("Remove the movement's transfer or settlement link before reclassifying it.", "conflict");
-    if (movement.legacyClassification) throw new AccountingError("Legacy refund or loan classification must be resolved before reclassifying this movement.", "conflict");
+  if (action.type === "classify_movement" || action.type === "classify_movements") {
+    // Several at once is one change with one undo: a whole merchant group sorted in chat.
+    const references = action.type === "classify_movement" ? [action.movement] : action.movements;
+    if (references.length === 0 || references.length > 500 || new Set(references.map((reference) => reference.movementId)).size !== references.length) throw new AccountingError("Choose between 1 and 500 different movements.");
+    const ids = new Set(references.map((reference) => {
+      const movement = currentMovement(state, reference);
+      if (movementInUse(state, movement.id)) throw new AccountingError("Remove the movement's transfer or settlement link before reclassifying it.", "conflict");
+      if (movement.legacyClassification) throw new AccountingError("Legacy refund or loan classification must be resolved before reclassifying this movement.", "conflict");
+      return movement.id;
+    }));
     if (action.category !== undefined) requireText(action.category, "Category", 160);
     const next = { ...state, movements: state.movements.map((row) => {
-      if (row.id!==movement.id) return row;
+      if (!ids.has(row.id)) return row;
       const changed={...row,status:action.status};
       if (action.category!==undefined) {changed.category=action.category.trim();changed.categoryOrigin="manual";delete changed.appliedRuleId;delete changed.ruleConflict;}
       return changed;

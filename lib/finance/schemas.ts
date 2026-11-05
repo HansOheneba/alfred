@@ -286,6 +286,15 @@ export const financeActionSchema = z.discriminatedUnion("type", [
   z.object({
     /** Show the next payment waiting for a label, e.g. when told "ask" or "go on". */
     type: z.literal("ask_next"),
+    /** Move past the group Alfred is asking about without filing it. */
+    skip: z.boolean().nullable().optional(),
+  }),
+  z.object({
+    /** Answer for a group of imported or held payments from the Needs attention list, by its number. */
+    type: z.literal("file_movements"),
+    group: z.number().int().min(1).max(8),
+    outcome: z.enum(["category", "own_money", "not_charged", "duplicate"]),
+    category: z.string().min(1).max(40).nullable().optional(),
   }),
   z.object({
     /** Settle the confirmation Alfred has open, from a reply like "yes go ahead" or "no leave it". */
@@ -381,6 +390,13 @@ export const pendingPayloadSchema = z.discriminatedUnion("type", [
     type: z.literal("label_payments"),
     originUpdateId: z.string().regex(/^\d+$/),
     items: z.array(z.object({ bankMessageId: z.string().min(1).max(80), label: proposedLabelSchema })).min(1).max(4),
+  }),
+  z.object({
+    type: z.literal("file_movements"),
+    originUpdateId: z.string().regex(/^\d+$/),
+    groupId: z.string().regex(/^[0-9a-f]{10}$/),
+    status: z.enum(["confirmed", "excluded", "duplicate"]),
+    category: z.string().min(1).max(40).nullable(),
   }),
   z.object({
     type: z.literal("create_transaction"),

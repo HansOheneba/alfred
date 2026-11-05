@@ -7,7 +7,9 @@ import type { StudioSettings, UserProfile } from "@/lib/config";
 import type { EvalCase } from "@/lib/evals/cases";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
 import { MemoryLoanStore, loanBalances } from "@/lib/finance/loans";
-import { canonicalizeAmount } from "@/lib/finance/money";
+import { canonicalizeAmount, toMinor } from "@/lib/finance/money";
+import { MemorySorter } from "@/lib/conversation/sorting";
+import { emptyAccountingState, type AccountingState } from "@/lib/finance/accounting/types";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 import { MemoryInvestmentStore } from "@/lib/investments/store";
 import { MemoryLearningLog } from "@/lib/learning/log";
@@ -96,6 +98,7 @@ async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain)
   for (const [index, budget] of evalCase.setup.budgets.entries()) {
     await deps.store.saveBudget({ budgetId: `eval-budget-${index}`, userId: OWNER_ID, period: evalCase.now.slice(0, 7), category: budget.category, amount: budget.amount, currency: "GHS", createdAt: evalCase.now, updatedAt: evalCase.now });
   }
+  deps.sorting = new MemorySorter(attentionBooks(evalCase));
   for (const message of evalCase.setup.messages) {
     await deps.messages!.append({ ownerId: OWNER_ID, role: message.role, channel: "web", body: message.body, intent: message.intent ?? null });
   }
@@ -108,8 +111,27 @@ async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain)
   return { owner, deps, refs, tick: () => { clock += 60_000; } };
 }
 
+/** The Accounts page's books with the case's imported or held payments, on one account, all needing attention. */
+function attentionBooks(evalCase: EvalCase): AccountingState {
+  const state = emptyAccountingState(OWNER_ID);
+  if (!evalCase.setup.attention.length) return state;
+  state.accounts.push({ id: "eval-account", label: "Main account", provider: "Bank", currency: "GHS", includeInCash: true, createdAt: evalCase.now });
+  for (const [index, row] of evalCase.setup.attention.entries()) {
+    for (let copy = 0; copy < row.count; copy++) {
+      const start = new Date(`${row.from}T12:00:00.000Z`);
+      const date = new Date(Date.UTC(start.getUTCFullYear(), start.getUTCMonth() + copy, start.getUTCDate())).toISOString().slice(0, 10);
+      const id = `eval-import-${index}-${copy}`;
+      state.movements.push({ id: `import:${id}`, ownerId: OWNER_ID, accountId: "eval-account", direction: row.direction, status: row.status, sourceStatus: row.status,
+        amountMinor: toMinor(row.amount), feeMinor: 0, currency: "GHS", date, occurredAt: null, description: row.description, category: "Uncategorized", sourceCategory: "Uncategorized",
+        sourceId: id, sourceKind: "manual", sourceFingerprint: `eval-${evalCase.id}-${index}-${copy}`, legacyTransactionId: null, feeTransactionId: null, legacyClassification: null, sourceLabel: "Bank" });
+    }
+  }
+  return state;
+}
+
 /** Everything a step could change, to tell whether it saved anything. */
 async function snapshot(deps: StudioDeps): Promise<string> {
+  const sorted = deps.sorting instanceof MemorySorter ? deps.sorting.state.movements.map((item) => [item.status, item.category]) : [];
   const [transactions, loans, messages, contributions, notes] = await Promise.all([
     deps.store.listTransactions(OWNER_ID),
     deps.loans!.list(OWNER_ID),
@@ -123,6 +145,7 @@ async function snapshot(deps: StudioDeps): Promise<string> {
     messages.map((item) => [item.id, item.status]),
     contributions.map((item) => [item.investmentId, item.amount]),
     notes.length,
+    sorted,
   ]);
 }
 
@@ -211,6 +234,14 @@ async function checkFinal(evalCase: EvalCase, deps: StudioDeps, refs: Map<string
       if (!named.some((flow) => flow.investment.toLowerCase() === expected.investment.toLowerCase() && flow.amount === expected.amount)) {
         problems.push(`no ${expected.amount} flow for ${expected.investment} (have ${JSON.stringify(named)})`);
       }
+    }
+  }
+  if (final.sorted && deps.sorting instanceof MemorySorter) {
+    const movements = deps.sorting.state.movements;
+    for (const expected of final.sorted) {
+      const rows = movements.filter((item) => item.description === expected.description);
+      const wrong = rows.filter((item) => item.status !== expected.status || (expected.category !== undefined && item.category !== expected.category));
+      if (!rows.length || wrong.length) problems.push(`“${expected.description}” should be ${expected.status}${expected.category ? ` under ${expected.category}` : ""}, have ${JSON.stringify([...new Set(rows.map((item) => `${item.status} ${item.category}`))])}`);
     }
   }
   if (final.budgets) {

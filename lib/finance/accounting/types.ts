@@ -40,6 +40,7 @@ export type AccountingAction = Command & (
   | { type: "update_account"; accountId: string; changes: Partial<Pick<FinancialAccount,"label" | "provider" | "includeInCash">> }
   | { type: "assign_movement"; movement: MovementReference; accountId: string }
   | { type: "classify_movement"; movement: MovementReference; status: "confirmed" | "review" | "hold" | "duplicate" | "excluded"; category?: string }
+  | { type: "classify_movements"; movements: MovementReference[]; status: "confirmed" | "duplicate" | "excluded"; category?: string }
   | { type: "record_snapshot"; snapshot: BalanceSnapshot }
   | { type: "pair_transfer"; id: string; outgoing: MovementReference; incoming: MovementReference }
   | { type: "unpair_transfer"; transferId: string }

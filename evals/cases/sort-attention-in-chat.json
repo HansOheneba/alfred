@@ -1,0 +1,40 @@
+{
+  "id": "sort-attention-in-chat",
+  "title": "Sorting the Needs attention list in chat, a merchant at a time",
+  "source": "2026-11-05: asked to sort 145 imported movements in chat, was sent to the Accounts page twice",
+  "tags": ["conversation", "sorting"],
+  "now": "2026-11-05T17:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "attention": [
+      { "description": "Wallet withdrawal", "direction": "out", "status": "review", "amount": "200.00", "count": 5, "from": "2026-03-02" },
+      { "description": "NETFLIX.COM", "direction": "out", "status": "hold", "amount": "65.00", "count": 3, "from": "2026-07-14" },
+      { "description": "Kojo Small credit", "direction": "in", "status": "review", "amount": "50.00", "count": 2, "from": "2026-09-01" }
+    ],
+    "messages": [
+      { "role": "user", "body": "yes" },
+      { "role": "assistant", "body": "No bank texts are waiting for a label, but 10 movements need attention on the Accounts page (7 waiting for a category, 3 on hold)." }
+    ]
+  },
+  "steps": [
+    {
+      "say": "let's sort them out here. ask me what you need to close them",
+      "expect": { "reply": "Wallet withdrawal", "notReply": "open accounts|on the accounts page", "savesNothing": true }
+    },
+    {
+      "say": "that's me moving money to my own momo wallet",
+      "expect": { "reply": "NETFLIX" }
+    },
+    {
+      "say": "those are my netflix subscription, they went through"
+    },
+    { "say": "skip" }
+  ],
+  "final": {
+    "sorted": [
+      { "description": "Wallet withdrawal", "status": "excluded" },
+      { "description": "NETFLIX.COM", "status": "confirmed", "category": "Subscriptions" },
+      { "description": "Kojo Small credit", "status": "review" }
+    ]
+  }
+}
