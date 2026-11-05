@@ -69,6 +69,15 @@ describe("mobile Settings section navigation", () => {
     const back = nodes(view.value).find(node => text(node.props.children as ReactNode) === "Back to settings")!; (back.props.onClick as () => void)(); view.render(); expect(location.hash).toBe(""); expect(view.root.props["data-mobile-section-open"]).toBe(false);
     view.choose("automations"); view.choose("profile"); expect(nodes(view.value).find(node => node.type === "input" && node.props.autoComplete === "nickname")?.props.value).toBe("Unsaved fictional name");
   });
+  it("does not present an unsaved reminder draft as an active setting", () => {
+    const view = screen("#reminders");
+    const reminder = nodes(view.value).find(node => node.props.label === "Morning check-in" && typeof node.props.onEnabled === "function")!;
+    (reminder.props.onEnabled as (enabled: boolean) => void)(true); view.render();
+    expect((view.navigation.props.statuses as { reminders: { text: string }; bank?: unknown }).reminders.text).toBe("Check-ins off");
+    expect((view.navigation.props.statuses as { bank?: unknown }).bank).toBeUndefined();
+    view.choose("profile"); view.choose("reminders");
+    expect(nodes(view.value).find(node => node.props.label === "Morning check-in" && typeof node.props.onEnabled === "function")?.props.enabled).toBe(true);
+  });
   it("names the shared detail panel for the selected section on desktop and mobile", () => {
     const view = screen("#profile");
     const region = () => nodes(view.value).find(node => node.props.id === "alfred-settings-detail")!;

@@ -28,6 +28,14 @@ describe("financial page loading states", () => {
     expect(markup).not.toContain("alfred-account-card");
   });
 
+  it("follows Overview's daily activity and plans before the collapsed Insights section", () => {
+    const markup = renderToStaticMarkup(createElement(DashboardSkeleton));
+    expect(markup.indexOf("alfred-loading-overviewTransactions")).toBeGreaterThan(markup.indexOf("alfred-loading-weekly"));
+    expect(markup.indexOf("alfred-loading-overviewPlans")).toBeGreaterThan(markup.indexOf("alfred-loading-overviewTransactions"));
+    expect(markup.indexOf("alfred-loading-overviewInsights")).toBeGreaterThan(markup.indexOf("alfred-loading-overviewPlans"));
+    expect(markup).not.toContain("alfred-loading-charts");
+  });
+
   it.each(["Budgets", "Savings goals", "Telegram", "Bank messages"])("announces deferred %s loading without implying an error or empty state", title => {
     const markup = renderToStaticMarkup(createElement(SettingsSectionSkeleton, { title }));
     expect(markup).toContain(`Loading ${title.toLowerCase()}`);

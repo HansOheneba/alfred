@@ -43,7 +43,7 @@ export function ChatLoadingState() {
   }, [text]);
   return <div className="alfred-production-chat">
     <section className="alfred-production-chat-conversation" aria-label="Chat with Alfred">
-      <header className="alfred-production-chat-toolbar"><h1>Chat</h1></header>
+      <h1 className="sr-only">Chat</h1>
       <div className="alfred-production-chat-scroll"><ChatHistorySkeleton /></div>
       <div className="alfred-production-chat-composeArea">
         <div className="alfred-production-chat-composer" aria-label="Message composer loading">

@@ -7,6 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } fro
 import { followUpsFor, type Suggestion } from "@/app/chat/follow-ups";
 import { ChatContextSkeleton, ChatHistorySkeleton } from "@/app/chat/chat-loading";
 import { useChatDraft, useChatDraftFocus } from "@/app/chat/chat-draft";
+import { useChatContextController } from "@/app/chat/chat-context-control";
 import { CHAT_CONTEXT_ERROR, CHAT_SESSION_CHANGED, invalidateAfterChatOutcome, loadOwnedChatContext } from "@/app/chat/context-data";
 import { createChatEmptyStatusRefresh } from "@/app/chat/empty-status";
 import type { PaymentChatEntry } from "@/app/chat/payment-entry";
@@ -44,8 +45,6 @@ const QUICK_ACTIONS: (Suggestion & { description: string; tone: "expense" | "inc
 
 
 
-export const STATS_EVENT = "alfred:open-stats";
-
 /** Size the draft without measuring an empty, not-yet-laid-out input. */
 export function resizeChatComposer(node: { value: string; scrollHeight: number; style: Pick<CSSStyleDeclaration, "height"> }) {
   if (!node.value) {
@@ -55,23 +54,6 @@ export function resizeChatComposer(node: { value: string; scrollHeight: number; 
   node.style.height = "auto";
   node.style.height = `${Math.max(44, Math.min(node.scrollHeight, 160))}px`;
 }
-
-/** Retained for existing controls that open the conversation context sheet. */
-export function StatsButton() {
-  return (
-    <button
-      type="button"
-      onClick={() => window.dispatchEvent(new Event(STATS_EVENT))}
-      aria-label="This month at a glance"
-      className={buttonClassName({ variant: "ghost", size: "icon" })}
-    >
-      <svg viewBox="0 0 24 24" className="size-[18px]" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-        <path d="M5 20V11m7 9V5m7 15v-6" />
-      </svg>
-    </button>
-  );
-}
-
 
 export function ChatPanel({
   ownerId,
@@ -127,13 +109,14 @@ export function ChatPanel({
     payment: { part: "payment", state: initialPaymentEntry?.state === "unavailable" ? "error" : initialPaymentTarget && initialPaymentEntry?.state !== "ready" ? "loading" : "ready" },
   });
   const checkedInitialEmpty = useRef(initialFinancialsEmpty !== null);
-  const [statsOpen, setStatsOpen] = useState(false);
   const [contextLedger, setContextLedger] = useState<Ledger | null>(ledger ?? null);
   const [contextError, setContextError] = useState("");
   const [contextVersion, setContextVersion] = useState(0);
   // Keep the last confirmed answer during rechecks. null means status is unavailable
   // or the owner changed; it never proves a fresh account.
   const [knownEmpty, setKnownEmpty] = useState<boolean | null>(ledger ? getGettingStartedState(ledger).isEmpty : initialFinancialsEmpty);
+  const financialsEmpty = contextLedger ? getGettingStartedState(contextLedger).isEmpty : knownEmpty === true;
+  const [statsOpen, setStatsOpen] = useChatContextController(!financialsEmpty && !sessionChanged);
   const emptyStatus = useMemo(() => createChatEmptyStatusRefresh(ownerId, setKnownEmpty, requestData), [ownerId, requestData]);
   const contextDirty = useRef(!ledger);
   const contextRequest = useRef<AbortController | null>(null);
@@ -251,13 +234,6 @@ export function ChatPanel({
     node.focus({ preventScroll: true });
     node.setSelectionRange(node.value.length, node.value.length);
   }, [initialQuestion, restoreDraftFocus]);
-
-  // Existing callers can also ask for the context sheet by event.
-  useEffect(() => {
-    const open = () => setStatsOpen(true);
-    window.addEventListener(STATS_EVENT, open);
-    return () => window.removeEventListener(STATS_EVENT, open);
-  }, []);
 
   useEffect(() => {
     if (paymentEntry?.state !== "ready" || !activePaymentTarget || paymentEntryScrolled.current) return;
@@ -556,7 +532,6 @@ export function ChatPanel({
     return index === messages.length - 1 && !messages.slice(index + 1).some((item) => item.role === "assistant");
   }
 
-  const financialsEmpty = contextLedger ? getGettingStartedState(contextLedger).isEmpty : knownEmpty === true;
   // Until the owned history read finishes, only a freshly verified selected
   // payment and an explicitly sent local turn are safe to show as conversation.
   const visibleMessages = historyLoaded ? messages : messages.filter(message => isSelectedPaymentMessage(message, paymentEntry) || message.role === "user" && (message.status === "sending" || message.status === "failed"));
@@ -572,10 +547,7 @@ export function ChatPanel({
   return (
     <div className="alfred-production-chat">
       <section className="alfred-production-chat-conversation" data-empty={showWelcome} aria-label="Chat with Alfred">
-        <header className="alfred-production-chat-toolbar">
-          <h1>Chat</h1>
-          {!financialsEmpty ? <button type="button" className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-button--compact alfred-production-chat-contextToggle" })} aria-label="Show context" title="Show context" aria-haspopup="dialog" aria-expanded={statsOpen} aria-controls="alfred-production-chat-contextSheet" onClick={() => setStatsOpen(true)}><ChatIcon><circle cx="12" cy="12" r="9" /><path d="M12 11v6m0-10v.01" /></ChatIcon><span>Context</span></button> : null}
-        </header>
+        <h1 className="sr-only">Chat</h1>
         {sessionChanged ? <div className="mx-6 mt-3 text-sm text-danger" role="alert"><p>Your session changed. Reload this page to continue.</p><a className="alfred-chat-answer-chip mt-2" href={activePaymentTarget ? `/chat?payment=${activePaymentTarget}` : "/chat"}>Reload</a></div> : null}
 
         {activePaymentTarget && !sourceReady ? <div className="mx-6 mt-3 text-sm text-muted" role="status" aria-busy={readProgress.payment?.state === "loading"}><p>{readProgress.payment?.state === "loading" ? "Opening this payment…" : "I couldn't open this payment. Try again, or ask me about something else."}</p>{newTopic ? <p className="mt-1">Your next message is about something else. This alert hasn&apos;t been changed.</p> : null}<div className="mt-2 flex flex-wrap gap-2">{readProgress.payment?.state !== "loading" ? <button type="button" className="alfred-chat-answer-chip" onClick={refreshThread}>Try again</button> : null}<button type="button" className="alfred-chat-answer-chip" onClick={() => { setNewTopic(!newTopic); inputRef.current?.focus(); }}>{newTopic ? "Back to this payment" : "Ask something else"}</button></div></div> : paymentEntry?.state === "unavailable" ? <p className="mx-6 mt-3 text-sm text-muted" role="status">I couldn&apos;t open that payment alert. Your conversation is still here.</p> : null}

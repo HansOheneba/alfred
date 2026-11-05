@@ -4,6 +4,7 @@ import Link from "next/link";
 import { buttonClassName } from "@/app/components/button-styles";
 import { Button, Dialog } from "@/app/components/ui";
 import { Select } from "@/app/components/select";
+import { TemporalInput } from "@/app/components/temporal-input";
 import { cloneElement, createContext, isValidElement, useContext, useEffect, useId, useMemo, useRef, useState, useSyncExternalStore, type FormEvent, type ReactNode } from "react";
 import { usePrivacyMask } from "@/app/components/app-shell";
 import { buildAccountingView } from "@/lib/finance/accounting/view";
@@ -12,12 +13,12 @@ import { needsAttention, type AccountingAction, type AccountingState, type CashM
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import { AccountPageControls, accountListPage, BalanceHistory, formatAccountTime } from "./account-history";
+import { parseActivityHandoff } from "@/lib/web/activity-handoff";
+import { canUndoReceipt, emptyActivityFilters, executeAccountReview, filterActivityMovements, groupAttention, movementDayGroups, movementIsLinked, nextReviewMovement, prepareMovementReview, prepareSimilarReview, readableMovementDay, undoAccountReceipt, type AccountChangeReceipt, type AccountCommand, type AccountReview, type ActivityFilters } from "./activity-tools";
 import "./accounts.css";
 
-type Command = AccountingAction extends infer A ? A extends AccountingAction ? Omit<A, "expectedRevision" | "requestId"> : never : never;
+type Command = AccountCommand;
 type Tab = "accounts" | "activity" | "settlements" | "subscriptions" | "needs-attention";
-type ActivityFilters = { search: string; account: string; status: string };
-const emptyActivityFilters: ActivityFilters = { search: "", account: "", status: "" };
 type Props = { state: AccountingState; dispatch: (action: AccountingAction) => Promise<unknown>; mode: "live" | "preview"; availability?: "ready" | "migration-required"; defaultCurrency?: string; now?: string; subscriptions?: ReactNode; onReset?: () => void; storageHint?: string; initialPaymentMovementId?: string; paymentUnavailable?: boolean };
 const reference = (movement: CashMovement) => ({ movementId: movement.id, sourceFingerprint: movement.sourceFingerprint });
 const AccountsError = createContext("");
@@ -29,12 +30,13 @@ export function accountWorkspaceHref(href: string, tab: Tab): string {
   return `${url.pathname}${url.search}${url.hash}`;
 }
 function browserTab(): Tab { return resolveAccountWorkspaceTab(new URLSearchParams(window.location.search).get("tab")); }
+function browserSearch(): string { return window.location.search; }
 function subscribeTab(callback: () => void) { window.addEventListener("popstate", callback); return () => window.removeEventListener("popstate", callback); }
 const date = formatAccountTime;
 function Glyph({ kind = "account" }: { kind?: "account" | "arrow" | "plus" }) { return <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{kind === "plus" ? <path d="M12 5v14M5 12h14" /> : kind === "arrow" ? <path d="m7 17 10-10M7 7h10v10" /> : <><rect x="3" y="5" width="18" height="15" rx="3" /><path d="M3 9h18M16 14h3M7 5V3h11" /></>}</svg>; }
 function Field({ label, children }: { label: string; children: ReactNode }) {
   const labelId = useId();
-  const control = isValidElement<{ "aria-label"?: string; "aria-labelledby"?: string }>(children) && children.type === Select && !children.props["aria-label"] && !children.props["aria-labelledby"] ? cloneElement(children, { "aria-labelledby": labelId }) : children;
+  const control = isValidElement<{ "aria-label"?: string; "aria-labelledby"?: string }>(children) && (children.type === Select || children.type === TemporalInput) && !children.props["aria-label"] && !children.props["aria-labelledby"] ? cloneElement(children, { "aria-labelledby": labelId }) : children;
   return <label className="alfred-accounts-field"><span id={labelId}>{label}</span>{control}</label>;
 }
 
@@ -44,6 +46,10 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
   const [chosenTab, setChosenTab] = useState<Tab | null>(initialPaymentMovementId || paymentUnavailable ? 'activity' : null);
   const tab = chosenTab ?? initialTab;
   const activityScope = tab === "accounts" ? "activity" : tab;
+  const query = useSyncExternalStore(subscribeTab, browserSearch, () => "");
+  const incomingFilters = useMemo(() => ({ ...emptyActivityFilters, ...parseActivityHandoff(query) }), [query]);
+  // Internal tab/payment navigation must not discard the user's applied filters.
+  const filterQuery = JSON.stringify(incomingFilters);
   useEffect(() => {
     const restoreTab = () => setChosenTab(null);
     window.addEventListener("popstate", restoreTab);
@@ -56,20 +62,28 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
   }
   const [notice, setNotice] = useState<{ text: string; error: boolean } | null>(null);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
   const [accountEditor, setAccountEditor] = useState<FinancialAccount | "new" | null>(null);
   const [snapshotAccount, setSnapshotAccount] = useState<FinancialAccount | null>(null);
   const [movementId, setMovementId] = useState<string | null>(initialPaymentMovementId ?? null);
-  const [search, setSearch] = useState("");
-  const [accountFilter, setAccountFilter] = useState("");
-  const [statusFilter, setStatusFilter] = useState("");
+  const [filterEdits, setFilterEdits] = useState<{ query: string; value: ActivityFilters } | null>(null);
+  const filters = filterEdits?.query === filterQuery ? filterEdits.value : incomingFilters;
+  const { search, account: accountFilter, status: statusFilter } = filters;
+  function changeFilters(changes: Partial<ActivityFilters>) { setFilterEdits({ query: filterQuery, value: { ...filters, ...changes } }); }
+  const setSearch = (value: string) => changeFilters({ search: value });
+  const setAccountFilter = (value: string) => changeFilters({ account: value });
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState<ActivityFilters>({ ...emptyActivityFilters });
-  const activeFilterCount = Number(Boolean(search.trim())) + Number(Boolean(accountFilter)) + Number(Boolean(statusFilter));
-  function openFilters() { setDraftFilters({ search, account: accountFilter, status: statusFilter }); setFiltersOpen(true); }
+  const activeFilterCount = Number(Boolean(search.trim())) + Number(Boolean(accountFilter)) + Number(Boolean(statusFilter)) + Number(Boolean(filters.start || filters.end)) + Number(Boolean(filters.category)) + Number(filters.type !== "all") + Number(Boolean(filters.currency)) + Number(filters.sort !== "date-desc");
+  function openFilters() { setDraftFilters({ ...filters }); setFiltersOpen(true); }
   function applyFilters(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSearch(draftFilters.search.trim()); setAccountFilter(draftFilters.account); setStatusFilter(draftFilters.status); setFiltersOpen(false);
+    if (draftFilters.start && draftFilters.end && draftFilters.start > draftFilters.end) return;
+    setFilterEdits({ query: filterQuery, value: { ...draftFilters, search: draftFilters.search.trim() } }); setFiltersOpen(false);
   }
+  const [receipt, setReceipt] = useState<AccountChangeReceipt | null>(null);
+  const [saveProgress, setSaveProgress] = useState("");
+  const [bulkGroup, setBulkGroup] = useState<CashMovement[] | null>(null);
   const [currency, setCurrency] = useState(defaultCurrency);
   useEffect(() => {
     if (availability !== "ready" || mode !== "live") return;
@@ -90,25 +104,51 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
   }, [availability, mode]);
   const view = useMemo(() => buildAccountingView(state, currency), [state, currency]);
   const firstUse = availability === "ready" && state.accounts.length === 0 && state.movements.length === 0;
-  const hasFilters = Boolean(search || accountFilter || statusFilter);
+  const hasFilters = activeFilterCount > 0;
   const attention = useMemo(() => state.movements.filter(needsAttention), [state.movements]);
+  const attentionGroups = useMemo(() => groupAttention(attention).sort((a, b) => b.rows.length - a.rows.length), [attention]);
   const movement = state.movements.find((row) => row.id === movementId);
   const currencies = [...new Set([defaultCurrency, ...state.accounts.map((item) => item.currency)])];
   const money = (minor: number, unit = currency) => masked ? "••••••" : formatMinor(minor, unit);
   async function run(command: Command, success: string) {
-    if (busy || availability !== "ready") return false;
-    setBusy(true); setNotice(null);
-    try { await dispatch({ ...command, expectedRevision: state.revision, requestId: id() } as AccountingAction); setNotice({ text: success, error: false }); return true; }
+    if (saving.current || availability !== "ready") return false;
+    saving.current = true;
+    setBusy(true); setNotice(null); setReceipt(null); setSaveProgress("Saving your change…");
+    try { const result = await executeAccountReview({ ownerId: state.ownerId, revision: state.revision, commands: [command], movements: [] }, state, dispatch, id); if (!result.ok) throw new Error(result.error); setNotice({ text: success, error: false }); return true; }
     catch (error) { setNotice({ text: error instanceof Error ? error.message : "The change could not be saved. Refresh and try again.", error: true }); return false; }
-    finally { setBusy(false); }
+    finally { saving.current = false; setBusy(false); setSaveProgress(""); }
   }
-  const filtered = useMemo(() => activityScope !== "activity" ? [] : state.movements.filter((row) => (!accountFilter || row.accountId === accountFilter || accountFilter === "unassigned" && !row.accountId) && (!statusFilter || row.status === statusFilter) && `${row.description} ${row.category} ${row.sourceId}`.toLowerCase().includes(search.toLowerCase())).sort((a, b) => (b.occurredAt ?? b.date).localeCompare(a.occurredAt ?? a.date)), [state.movements, activityScope, accountFilter, statusFilter, search]);
+  async function saveReview(review: AccountReview, next = false) {
+    if (saving.current || availability !== "ready") return false;
+    saving.current = true;
+    setBusy(true); setNotice(null); setReceipt(null); setSaveProgress(`Saving 0 of ${review.commands.length} changes…`);
+    const outcome = await executeAccountReview(review, state, dispatch, id, (done, total) => setSaveProgress(`Saving ${done} of ${total} changes…`));
+    saving.current = false; setBusy(false); setSaveProgress("");
+    if (!outcome.ok) { setNotice({ text: `${outcome.confirmed} of ${outcome.total} changes confirmed. ${outcome.error}`, error: true }); return false; }
+    setReceipt(outcome.receipt); setNotice({ text: `${review.movements.length === 1 ? "Payment updated" : `${review.movements.length} payments updated`}. Original amounts, fees and source evidence are preserved.`, error: false });
+    if (next) {
+      const current = review.movements[0]?.id;
+      setMovementId(nextReviewMovement(outcome.state, current)?.id ?? null);
+    } else setMovementId(null);
+    return true;
+  }
+  async function undoReceipt() {
+    if (!receipt || saving.current || !canUndoReceipt(state, receipt)) return;
+    saving.current = true;
+    setBusy(true); setNotice(null); setSaveProgress("Undoing this change…");
+    const outcome = await undoAccountReceipt(receipt, state, dispatch, id);
+    saving.current = false; setBusy(false); setSaveProgress(""); setReceipt(null);
+    setNotice({ text: outcome.ok ? "This change was undone. Original source evidence is preserved." : `${outcome.confirmed} undo steps confirmed. ${outcome.error}`, error: !outcome.ok });
+  }
+  const filtered = useMemo(() => activityScope !== "activity" ? [] : filterActivityMovements(state, filters, view.reportRows), [state, activityScope, filters, view.reportRows]);
 
   return <AccountsError.Provider value={notice?.error ? notice.text : ""}><div className="alfred-accounts" aria-busy={busy}>
     {paymentUnavailable ? <p className="alfred-accounts-smallNote" role="status">That payment isn’t available in this account. You can review your other records in Activity.</p> : null}
     <div className="alfred-accounts-heading"><div><h1>Accounts</h1><p>Your balances and everything moving between them.</p></div>{mode === "preview" ? <span className="alfred-accounts-demo">Demo · sample data only</span> : null}</div>
     {availability === "migration-required" ? <div className="alfred-accounts-message" role="status"><strong>Account storage is not set up yet.</strong><p>Changes cannot be saved yet. Your existing data is kept.</p></div> : null}
     {notice ? <div className={`alfred-accounts-message ${notice.error ? "is-error" : "is-success"}`} role={notice.error ? "alert" : "status"}>{notice.text}<button className={buttonClassName({ variant: "ghost", size: "icon" })} aria-label="Dismiss message" onClick={() => setNotice(null)}>×</button></div> : null}
+    {busy ? <p className="alfred-accounts-saveProgress" role="status" aria-live="polite">{saveProgress || "Saving your change…"}</p> : null}
+    {receipt?.ownerId === state.ownerId ? <ChangeReceipt receipt={receipt} state={state} money={money} busy={busy} open={setMovementId} undo={() => void undoReceipt()} dismiss={() => setReceipt(null)} /> : null}
     <section className="alfred-accounts-summary alfred-accounts-balanceCard" aria-label="Account summary">
       <div className="alfred-accounts-total"><div className="alfred-accounts-balanceLabel"><span>Total account balance</span><Glyph /></div><strong>{view.balances.totalMinor === null ? "—" : money(view.balances.totalMinor)}</strong><p className="alfred-accounts-balanceFreshness">Latest reported balances · Not live</p>{view.balances.missingCount ? <p className="alfred-accounts-balanceWarning">{view.balances.missingCount} included {view.balances.missingCount === 1 ? "account needs" : "accounts need"} a reported balance. Total is incomplete.</p> : null}
       {currencies.length > 1 ? <label className="alfred-accounts-compactCurrency"><span>Balance currency</span><Select aria-label="Balance currency" value={currency} onChange={(event) => setCurrency(event.target.value)}>{currencies.map((unit) => <option key={unit}>{unit}</option>)}</Select></label> : null}</div>
@@ -143,15 +183,31 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
       <div className="alfred-accounts-activityScopes" role="tablist" aria-label="Activity views" onKeyDown={(event) => { const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>('[role="tab"]')); const current = buttons.indexOf(document.activeElement as HTMLButtonElement); const next = event.key === "ArrowRight" ? (current + 1) % buttons.length : event.key === "ArrowLeft" ? (current - 1 + buttons.length) % buttons.length : event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1 : null; if (next !== null) { event.preventDefault(); buttons[next]?.click(); buttons[next]?.focus(); } }}>{([['activity','All activity'],['needs-attention','Needs attention'],['settlements','Refunds & loans'],['subscriptions','Subscriptions']] as const).map(([value,label]) => <button key={value} role="tab" tabIndex={activityScope === value ? 0 : -1} aria-selected={activityScope === value} aria-controls={`accounts-panel-${value}`} id={`accounts-tab-${value}`} onClick={() => setTab(value)}>{label}{value === "needs-attention" && attention.length ? <span>{attention.length}</span> : null}</button>)}</div>
       <div role="tabpanel" id={`accounts-panel-${activityScope}`} aria-labelledby={`accounts-tab-${activityScope}`}>
     {activityScope === "activity" ? <>
+      <div className="alfred-accounts-search"><label htmlFor="accounts-activity-search">Search activity</label><div><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 5 5"/></svg><input id="accounts-activity-search" type="search" value={search} onChange={event => setSearch(event.target.value)} placeholder="Merchant, category or reference" />{search ? <button type="button" className={buttonClassName({ variant: "ghost", size: "icon" })} onClick={() => setSearch("")} aria-label="Clear activity search">×</button> : null}</div></div>
+      {hasFilters ? <div className="alfred-accounts-filterChips" role="group" aria-label="Active activity filters">
+        {search ? <FilterChip label={`Search: ${search}`} clear={() => changeFilters({ search: "" })} /> : null}
+        {accountFilter ? <FilterChip label={`Account: ${accountFilter === "unassigned" ? "Unassigned" : state.accounts.find(item => item.id === accountFilter)?.label ?? "Unavailable account"}`} clear={() => changeFilters({ account: "" })} /> : null}
+        {statusFilter ? <FilterChip label={`Status: ${movementStatusLabel(statusFilter as CashMovement["status"])}`} clear={() => changeFilters({ status: "" })} /> : null}
+        {filters.start || filters.end ? <FilterChip label={`${filters.start ? readableMovementDay(filters.start) : "Any date"} – ${filters.end ? readableMovementDay(filters.end) : "Any date"}`} clear={() => changeFilters({ start: "", end: "" })} /> : null}
+        {filters.category ? <FilterChip label={`Category: ${filters.category}`} clear={() => changeFilters({ category: "" })} /> : null}
+        {filters.type !== "all" ? <FilterChip label={filters.type === "expense" ? "Expenses" : "Income"} clear={() => changeFilters({ type: "all" })} /> : null}
+        {filters.currency ? <FilterChip label={filters.currency} clear={() => changeFilters({ currency: "" })} /> : null}
+        {filters.sort !== "date-desc" ? <FilterChip label={filters.sort === "date-asc" ? "Oldest first" : filters.sort === "amount-desc" ? "Largest first" : "Smallest first"} clear={() => changeFilters({ sort: "date-desc" })} /> : null}
+        <button type="button" className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={() => changeFilters({ ...emptyActivityFilters })}>Clear all</button>
+      </div> : null}
+      {filters.category || filters.type !== "all" ? <p className="alfred-accounts-smallNote">Showing the source payments behind this report. Fees and taxes stay with their payment; the amounts below are the original principal.</p> : null}
       <div className="alfred-accounts-sectionHeading"><div><h3>All activity</h3></div>{state.movements.length > 0 ? <span>{filtered.length} movements</span> : null}</div>
 
-      <MovementList key={`${search}:${accountFilter}:${statusFilter}`} rows={filtered} accounts={state.accounts} money={money} open={setMovementId} empty={<div className="alfred-accounts-empty"><Glyph /><h3>{state.movements.length ? "No matching movements" : "No activity yet"}</h3><p>{state.movements.length ? "Try another search or clear the filters to see your recorded activity." : "Your recorded payments and transfers will appear here. Start by telling Alfred about an expense or income."}</p>{state.movements.length && hasFilters ? <button type="button" className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary alfred-button--mobileFull" })} onClick={() => { setSearch(""); setAccountFilter(""); setStatusFilter(""); }}>Clear filters</button> : <Link className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary alfred-button--mobileFull" })} href="/chat">Record a transaction <Glyph kind="arrow" /></Link>}</div>} />
+      <MovementList key={JSON.stringify(filters)} rows={filtered} accounts={state.accounts} money={money} open={setMovementId} empty={<div className="alfred-accounts-empty"><Glyph /><h3>{state.movements.length ? "No matching movements" : "No activity yet"}</h3><p>{state.movements.length ? "Try another search or clear the filters to see your recorded activity." : "Your recorded payments and transfers will appear here. Start by telling Alfred about an expense or income."}</p>{state.movements.length && hasFilters ? <button type="button" className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary alfred-button--mobileFull" })} onClick={() => changeFilters({ ...emptyActivityFilters })}>Clear filters</button> : <Link className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary alfred-button--mobileFull" })} href="/chat">Record a transaction <Glyph kind="arrow" /></Link>}</div>} />
       {state.movements.length > 0 ? <TransferForm state={state} busy={busy || availability !== "ready"} run={run} money={money} /> : null}
       {state.transfers.length ? <section className="alfred-accounts-panel"><h3>Confirmed transfers</h3>{state.transfers.map((transfer) => { const out = state.movements.find((item) => item.id === transfer.outgoing.movementId); const incoming = state.movements.find((item) => item.id === transfer.incoming.movementId); return <div className="alfred-accounts-linkRow" key={transfer.id}><div><strong>{out?.description ?? "Missing outgoing source"} → {incoming?.description ?? "Missing incoming source"}</strong><p>Own-account movement · Principal is excluded from income and spending; fees remain expenses.</p></div><button className={buttonClassName({ variant: "ghost", size: "sm" })} disabled={busy} onClick={() => { void run({ type: "unpair_transfer", transferId: transfer.id }, "Transfer link removed. Both sources are preserved."); }}>Undo link</button></div>; })}</section> : null}
     </> : null}
     {activityScope === "settlements" ? <Settlements state={state} busy={busy || availability !== "ready"} run={run} money={money} issues={view.settlementIssues} /> : null}
     {activityScope === "subscriptions" ? <section className="alfred-accounts-subscriptions"><div className="alfred-accounts-sectionHeading"><div><h2>Subscriptions</h2><p>All your saved bills and renewals, including one-time payments. Keep track of what is coming next.</p></div></div>{subscriptions ?? <p className="alfred-accounts-smallNote">Subscriptions are not available in this view.</p>}</section> : null}
-    {activityScope === "needs-attention" ? <><div className="alfred-accounts-sectionHeading"><div><h2>Needs attention</h2><p>Assign a real account and choose a category. Add a category when the right one is missing.</p></div><span>{attention.length} movements</span></div><MovementList rows={attention} accounts={state.accounts} money={money} open={setMovementId} empty={<div className="alfred-accounts-empty"><Glyph /><h3>{state.movements.length ? "You’re all caught up" : "No payments to review yet"}</h3><p>{state.movements.length ? "Your recorded movements have an account and no items are waiting here for review." : "When recorded payments need an account or a category, you’ll find them here."}</p></div>} /><p className="alfred-accounts-smallNote">Use Refunds & loans to link returns, or All activity to connect transfers. Money held for other people can be added later.</p></> : null}
+    {activityScope === "needs-attention" ? <><div className="alfred-accounts-sectionHeading"><div><h2>Needs attention</h2><p>Review one payment at a time, or choose matching payments to categorise together.</p></div><span>{attention.length} movements remaining</span></div>
+      {attention.length ? <div className="alfred-accounts-reviewStart"><div><strong>{attention.length} {attention.length === 1 ? "payment needs" : "payments need"} a review</strong><p>Check its account, category and status, then use Save &amp; next.</p></div><Button variant="primary" disabled={busy || availability !== "ready"} onClick={() => setMovementId(attention.find(row => !movementIsLinked(state, row))?.id ?? attention[0].id)}>Start review</Button></div> : null}
+      {attentionGroups.some(group => group.rows.length > 1) ? <section className="alfred-accounts-similar" aria-label="Similar payments to review"><h3>Review similar payments</h3><p>Grouped by the exact description, account, currency and direction. Review up to 25 at a time.</p><div>{attentionGroups.filter(group => group.rows.length > 1).slice(0, 6).map(group => { const rows = group.rows.filter(row => row.status !== "transfer" && !movementIsLinked(state, row)).slice(0, 25); return <article key={group.key}><div><strong>{group.rows[0].description}</strong><small>{state.accounts.find(account => account.id === group.rows[0].accountId)?.label ?? "Unassigned"} · {group.rows[0].currency} · {movementDirectionLabel(group.rows[0].direction)} · {group.rows.length} payments</small></div><Button size="sm" disabled={busy || rows.length < 2 || availability !== "ready"} onClick={() => setBulkGroup(rows)}>Review similar</Button></article>; })}</div></section> : null}
+      <MovementList rows={attention} accounts={state.accounts} money={money} open={setMovementId} empty={<div className="alfred-accounts-empty"><Glyph /><h3>{state.movements.length ? "You’re all caught up" : "No payments to review yet"}</h3><p>{state.movements.length ? "Your recorded movements have an account and no items are waiting here for review." : "When recorded payments need an account or a category, you’ll find them here."}</p></div>} /><p className="alfred-accounts-smallNote">Use Refunds & loans to link returns, or All activity to connect transfers. Money held for other people can be added later.</p></> : null}
     </div></section>
     {!firstUse || onReset ? <footer className="alfred-accounts-pageFooter"><span>{storageHint ?? (mode === "preview" ? "Synthetic records · Changes stay in this browser" : "Your saved account records")} · Changes are tracked</span><div><button className={buttonClassName({ variant: "ghost", size: "sm" })} disabled={busy || !state.audit.length || availability !== "ready"} onClick={() => { void run({ type: "undo" }, "Last account change undone. Source evidence is preserved."); }}>Undo last change</button>{onReset ? <button className={buttonClassName({ variant: "ghost", size: "sm" })} disabled={busy} onClick={() => { onReset(); setNotice({ text: "Synthetic account records reset.", error: false }); }}>Reset demo</button> : null}</div></footer> : null}
     <Dialog open={filtersOpen} onClose={() => setFiltersOpen(false)} title="Filter activity">
@@ -159,12 +215,19 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
         <Field label="Search"><input type="search" placeholder="Description, category or source" value={draftFilters.search} onChange={(event) => setDraftFilters({ ...draftFilters, search: event.target.value })} /></Field>
         <Field label="Account"><Select value={draftFilters.account} onChange={(event) => setDraftFilters({ ...draftFilters, account: event.target.value })}><option value="">All accounts</option><option value="unassigned">Unassigned</option>{state.accounts.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</Select></Field>
         <Field label="Status"><Select value={draftFilters.status} onChange={(event) => setDraftFilters({ ...draftFilters, status: event.target.value })}><option value="">All statuses</option>{(["confirmed","review","hold","transfer","duplicate","excluded"] as const).map((status) => <option key={status} value={status}>{movementStatusLabel(status)}</option>)}</Select></Field>
+        <Field label="Category"><Select value={draftFilters.category} onChange={event => setDraftFilters({ ...draftFilters, category: event.target.value })}><option value="">All categories</option>{[...new Set([...state.movements.map(item => item.category), ...view.reportRows.map(item => item.category)])].filter(Boolean).sort().map(category => <option key={category}>{category}</option>)}</Select></Field>
+        <Field label="Type"><Select value={draftFilters.type} onChange={event => setDraftFilters({ ...draftFilters, type: event.target.value as ActivityFilters["type"] })}><option value="all">All activity types</option><option value="expense">Expenses</option><option value="income">Income</option></Select></Field>
+        <div className="alfred-accounts-filterDates"><Field label="From"><TemporalInput type="date" value={draftFilters.start} onChange={event => setDraftFilters({ ...draftFilters, start: event.target.value })} /></Field><Field label="To"><TemporalInput type="date" value={draftFilters.end} onChange={event => setDraftFilters({ ...draftFilters, end: event.target.value })} /></Field></div>
+        {draftFilters.start && draftFilters.end && draftFilters.start > draftFilters.end ? <p className="alfred-accounts-formError" role="alert">Choose an end date on or after the start date.</p> : null}
+        <Field label="Currency"><Select value={draftFilters.currency} onChange={event => setDraftFilters({ ...draftFilters, currency: event.target.value })}><option value="">All currencies</option>{[...new Set(state.movements.map(item => item.currency))].sort().map(unit => <option key={unit}>{unit}</option>)}</Select></Field>
+        <Field label="Sort"><Select value={draftFilters.sort} onChange={event => setDraftFilters({ ...draftFilters, sort: event.target.value as ActivityFilters["sort"] })}><option value="date-desc">Newest first</option><option value="date-asc">Oldest first</option><option value="amount-desc">Largest first</option><option value="amount-asc">Smallest first</option></Select></Field>
         <div className="alfred-accounts-filterSheetActions alfred-buttonGroup--mobileStack"><Button className="alfred-button--mobileFull" variant="ghost" onClick={() => setDraftFilters({ ...emptyActivityFilters })}>Reset filters</Button><Button className="alfred-button--mobileFull" type="submit" variant="primary">Apply filters</Button></div>
       </form>
     </Dialog>
     {accountEditor ? <AccountEditor account={accountEditor} defaultCurrency={currency} busy={busy} close={() => setAccountEditor(null)} run={run} /> : null}
     {snapshotAccount ? <SnapshotEditor account={snapshotAccount} now={now} busy={busy} close={() => setSnapshotAccount(null)} run={run} /> : null}
-    {movement ? <MovementEditor movement={movement} state={state} busy={busy || availability !== "ready"} close={() => setMovementId(null)} run={run} money={money} /> : null}
+    {movement ? <MovementEditor key={`${state.ownerId}:${movement.id}`} movement={movement} state={state} busy={busy || availability !== "ready"} progress={saveProgress} close={() => setMovementId(null)} saveReview={saveReview} canNext={activityScope === "needs-attention" && Boolean(nextReviewMovement(state, movement.id))} money={money} /> : null}
+    {bulkGroup ? <SimilarReview rows={bulkGroup} state={state} busy={busy} progress={saveProgress} close={() => setBulkGroup(null)} saveReview={async review => { const ok = await saveReview(review); if (ok) setBulkGroup(null); return ok; }} money={money} /> : null}
   </div></AccountsError.Provider>;
 }
 
@@ -174,14 +237,41 @@ export function movementDirectionLabel(direction: CashMovement["direction"]): st
 function MovementList({ rows, accounts, money, open, empty }: { rows: CashMovement[]; accounts: FinancialAccount[]; money: (value: number, currency?: string) => string; open: (id: string) => void; empty?: ReactNode }) {
   const [page, setPage] = useState(0);
   const window = accountListPage(rows, page);
-  const accountLabels = useMemo(() => new Map(accounts.map((account) => [account.id, account.label])), [accounts]);
-  if (!rows.length) return empty ?? <div className="alfred-accounts-empty"><h3>No activity yet</h3><p>Recorded movements will appear here.</p></div>;
-  return <><div className="alfred-accounts-movements"><table><caption className="sr-only">Account activity</caption><thead><tr><th>Date & time</th><th>Movement</th><th>Account</th><th>Status</th><th className="is-numeric">Amount</th></tr></thead><tbody>{window.rows.map((row) => <tr key={row.id}><td className="alfred-accounts-tableDate"><time dateTime={row.occurredAt ?? row.date}>{row.occurredAt ? date(row.occurredAt) : row.date}</time>{!row.occurredAt ? <span>Time not recorded</span> : null}</td><td><button className="alfred-accounts-tableMovement" onClick={() => open(row.id)} aria-label={`Open ${row.description}`}><span className={`alfred-accounts-directionIcon is-${row.direction}`} aria-hidden="true"><Glyph kind="arrow" /></span><span className="alfred-accounts-tableCopy"><strong>{row.description}</strong><small>{row.category}</small></span><span className="alfred-accounts-rowChevron" aria-hidden="true">›</span></button></td><td className="alfred-accounts-tableAccount">{accountLabels.get(row.accountId ?? "") ?? "Unassigned"}</td><td><span className={`alfred-accounts-status is-${row.status}`}>{movementStatusLabel(row.status)}</span></td><td className={`is-numeric is-${row.direction}`}><strong>{row.direction === "out" ? "−" : row.direction === "in" ? "+" : ""}{money(row.amountMinor,row.currency)}</strong><span>{movementDirectionLabel(row.direction)}</span>{row.feeMinor ? <span>Fee {money(row.feeMinor,row.currency)}</span> : null}{row.taxMinor ? <span>Tax {money(row.taxMinor,row.currency)}</span> : null}</td></tr>)}</tbody></table><div className="alfred-accounts-mobileMovements">{window.rows.map((row) => <button className="alfred-accounts-movementRow" key={row.id} onClick={() => open(row.id)} aria-label={`Open ${row.description}`}><span className={`alfred-accounts-directionIcon is-${row.direction}`} aria-hidden="true"><Glyph kind="arrow" /></span><span className="alfred-accounts-rowCopy"><strong>{row.description}</strong><span>{accountLabels.get(row.accountId ?? "") ?? "Unassigned"} · {row.category}</span><small>{row.occurredAt ? date(row.occurredAt) : row.date}</small><span className={`alfred-accounts-status is-${row.status}`}>{movementStatusLabel(row.status)}</span></span><span className="alfred-accounts-rowAmount"><strong className={`is-${row.direction}`}>{row.direction === "out" ? "−" : row.direction === "in" ? "+" : ""}{money(row.amountMinor,row.currency)}</strong><small>{movementDirectionLabel(row.direction)}</small>{row.feeMinor ? <small>Fee {money(row.feeMinor,row.currency)}</small> : null}</span><span className="alfred-accounts-rowChevron" aria-hidden="true">›</span></button>)}</div></div><AccountPageControls {...window} label="Movements" onPage={setPage} /></>;
+  const accountLabels = useMemo(() => new Map(accounts.map(account => [account.id, account.label])), [accounts]);
+  const days = useMemo(() => movementDayGroups(window.rows), [window.rows]);
+  if (!rows.length) return empty ?? <p className="alfred-accounts-smallNote">No movements to show.</p>;
+  return <><div className="alfred-accounts-movements">
+    <table><caption className="sr-only">Account activity</caption><thead><tr><th>Date &amp; time</th><th>Movement</th><th>Account</th><th>Status</th><th className="is-numeric">Amount</th></tr></thead>
+      {days.map(([day, items], groupIndex) => <tbody key={`${day}:${groupIndex}`} aria-label={readableMovementDay(day)}>{items.map((row, index) => <tr key={row.id} className={index === 0 ? "alfred-accounts-dayStart" : undefined}>
+        <td className="alfred-accounts-tableDate">{index === 0 ? <strong>{readableMovementDay(day)}</strong> : null}<time dateTime={row.occurredAt ?? row.date}>{row.occurredAt ? movementClock(row.occurredAt) : "Time not recorded"}</time></td>
+        <td><button className="alfred-accounts-tableMovement" onClick={() => open(row.id)} aria-label={`Open ${row.description}`}><span className={`alfred-accounts-directionIcon is-${row.direction}`} aria-hidden="true"><Glyph kind="arrow" /></span><span className="alfred-accounts-tableCopy"><strong>{row.description}</strong><small>{row.category}</small></span><span className="alfred-accounts-rowChevron" aria-hidden="true">›</span></button></td>
+        <td className="alfred-accounts-tableAccount">{accountLabels.get(row.accountId ?? "") ?? "Unassigned"}</td><td><span className={`alfred-accounts-status is-${row.status}`}>{movementStatusLabel(row.status)}</span></td>
+        <td className={`is-numeric is-${row.direction}`}><strong>{row.direction === "out" ? "−" : row.direction === "in" ? "+" : ""}{money(row.amountMinor,row.currency)}</strong><span>{movementDirectionLabel(row.direction)}</span>{row.feeMinor ? <span>Fee {money(row.feeMinor,row.currency)}</span> : null}{row.taxMinor ? <span>Tax {money(row.taxMinor,row.currency)}</span> : null}</td>
+      </tr>)}</tbody>)}
+    </table>
+    <div className="alfred-accounts-mobileMovements">{days.map(([day, items], groupIndex) => <div className="alfred-accounts-dayGroup" key={`${day}:${groupIndex}`}><h4>{readableMovementDay(day)}</h4>{items.map(row => <button className="alfred-accounts-movementRow" key={row.id} onClick={() => open(row.id)} aria-label={`Open ${row.description}`}><span className={`alfred-accounts-directionIcon is-${row.direction}`} aria-hidden="true"><Glyph kind="arrow" /></span><span className="alfred-accounts-rowCopy"><strong>{row.description}</strong><span>{accountLabels.get(row.accountId ?? "") ?? "Unassigned"} · {row.category}</span><small>{row.occurredAt ? movementClock(row.occurredAt) : "Time not recorded"}</small><span className={`alfred-accounts-status is-${row.status}`}>{movementStatusLabel(row.status)}</span></span><span className="alfred-accounts-rowAmount"><strong className={`is-${row.direction}`}>{row.direction === "out" ? "−" : row.direction === "in" ? "+" : ""}{money(row.amountMinor,row.currency)}</strong><small>{movementDirectionLabel(row.direction)}</small>{row.feeMinor ? <small>Fee {money(row.feeMinor,row.currency)}</small> : null}</span><span className="alfred-accounts-rowChevron" aria-hidden="true">›</span></button>)}</div>)}</div>
+  </div><AccountPageControls {...window} label="Movements" onPage={setPage} /></>;
+}
+function movementClock(value: string): string { const parsed = new Date(value); return Number.isNaN(parsed.valueOf()) ? value : new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "Africa/Accra", timeZoneName: "short" }).format(parsed); }
+function FilterChip({ label, clear }: { label: string; clear: () => void }) { return <button type="button" onClick={clear} aria-label={`Remove filter ${label}`}><span>{label}</span><span aria-hidden="true">×</span></button>; }
+function ReviewSummary({ review, state, money }: { review: AccountReview; state: AccountingState; money: (value: number, currency?: string) => string }) {
+  const account = (id: string | null) => state.accounts.find(item => item.id === id)?.label ?? "Unassigned";
+  return <div className="alfred-accounts-changeSummary">{review.movements.map(item => <article key={item.id}><h3>{item.description}</h3><p>{readableMovementDay(item.date)} · {money(item.amountMinor, item.currency)}</p><dl>
+    {item.before.accountId !== item.after.accountId ? <div><dt>Account</dt><dd><span>{account(item.before.accountId)}</span><span aria-hidden="true">→</span><strong>{account(item.after.accountId)}</strong></dd></div> : null}
+    {item.before.category !== item.after.category ? <div><dt>Category</dt><dd><span>{item.before.category || "Uncategorised"}</span><span aria-hidden="true">→</span><strong>{item.after.category}</strong></dd></div> : null}
+    {item.before.status !== item.after.status ? <div><dt>Status</dt><dd><span>{movementStatusLabel(item.before.status)}</span><span aria-hidden="true">→</span><strong>{movementStatusLabel(item.after.status)}</strong></dd></div> : null}
+  </dl></article>)}</div>;
+}
+function ChangeReceipt({ receipt, state, money, busy, open, undo, dismiss }: { receipt: AccountChangeReceipt; state: AccountingState; money: (value: number, currency?: string) => string; busy: boolean; open: (id: string) => void; undo: () => void; dismiss: () => void }) {
+  return <section className="alfred-accounts-changeReceipt" aria-label="Saved change receipt"><header><div><h2>Change saved</h2><p>{receipt.movements.length === 1 ? "One payment updated" : `${receipt.movements.length} payments updated`}</p></div><Button variant="ghost" size="icon" onClick={dismiss} aria-label="Dismiss change receipt">×</Button></header><ReviewSummary review={{ ownerId: receipt.ownerId, revision: receipt.revision, movements: receipt.movements, commands: [] }} state={state} money={money} /><div className="alfred-accounts-receiptFooter"><Button size="sm" disabled={busy} onClick={() => open(receipt.movements[0].id)}>View entry</Button><Button size="sm" disabled={busy || !canUndoReceipt(state, receipt)} onClick={undo}>Undo this change</Button>{!canUndoReceipt(state, receipt) ? <span>Undo is available only while this is the latest confirmed change.</span> : null}</div></section>;
 }
 
-function Modal({ title, children, close }: { title: string; children: ReactNode; close: () => void }) {
+function Modal({ title, children, close, busy = false }: { title: string; children: ReactNode; close: () => void; busy?: boolean }) {
+  const dismiss = () => { if (!busy) close(); };
   const ref = useRef<HTMLElement>(null);
   const error = useContext(AccountsError);
+  const previousTitle = useRef(title);
+  useEffect(() => { if (previousTitle.current !== title) { previousTitle.current = title; ref.current?.querySelector<HTMLElement>("header h2")?.focus(); } }, [title]);
   useEffect(() => {
     const modal = ref.current;
     const previous = document.activeElement instanceof HTMLElement ? document.activeElement : null;
@@ -200,15 +290,15 @@ function Modal({ title, children, close }: { title: string; children: ReactNode;
       fallback?.focus({ preventScroll: true });
     };
   }, []);
-  return <div className="alfred-accounts-modalBackdrop" onClick={(event) => { if (event.target === event.currentTarget) close(); }}><section ref={ref} className="alfred-accounts-modal" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onKeyDown={(event) => {
-    if (event.key === "Escape") { event.stopPropagation(); close(); }
+  return <div className="alfred-accounts-modalBackdrop" onClick={(event) => { if (event.target === event.currentTarget) dismiss(); }}><section ref={ref} className="alfred-accounts-modal" role="dialog" aria-modal="true" aria-label={title} tabIndex={-1} onKeyDown={(event) => {
+    if (event.key === "Escape") { event.stopPropagation(); dismiss(); }
     if (event.key === "Tab") {
       const focusable = Array.from(ref.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not(:disabled):not([type=hidden]),[role="combobox"]:not(:disabled),textarea:not(:disabled),summary,a[href],[tabindex="0"]') ?? []).filter((node) => node.getClientRects().length > 0);
       const first = focusable[0], last = focusable.at(-1);
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
-  }}><span className="alfred-accounts-sheetHandle" aria-hidden="true" /><header><h2>{title}</h2><button className={buttonClassName({ variant: "secondary", size: "icon" })} onClick={close} aria-label="Close dialog">×</button></header><div className="alfred-accounts-modalBody">{error ? <div className="alfred-accounts-message is-error" role="alert">{error}</div> : null}{children}</div></section></div>;
+  }}><span className="alfred-accounts-sheetHandle" aria-hidden="true" /><header><h2 tabIndex={-1}>{title}</h2><button className={buttonClassName({ variant: "secondary", size: "icon" })} onClick={dismiss} disabled={busy} aria-label="Close dialog">×</button></header><div className="alfred-accounts-modalBody">{error ? <div className="alfred-accounts-message is-error" role="alert">{error}</div> : null}{children}</div></section></div>;
 }
 type Run = (command: Command, message: string) => Promise<boolean>;
 function AccountEditor({ account, defaultCurrency, busy, close, run }: { account: FinancialAccount | "new"; defaultCurrency: string; busy: boolean; close: () => void; run: Run }) {
@@ -220,29 +310,51 @@ function AccountEditor({ account, defaultCurrency, busy, close, run }: { account
 function SnapshotEditor({ account, now, busy, close, run }: { account: FinancialAccount; now?: string; busy: boolean; close: () => void; run: Run }) {
   const [error,setError] = useState("");
   async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); try { const balanceMinor = toMinor(String(data.get("balance"))); const occurredAt = new Date(`${String(data.get("at"))}Z`).toISOString(); if (!Number.isSafeInteger(balanceMinor)) throw new Error("Enter a valid balance."); const ok = await run({ type: "record_snapshot", snapshot: { id: id(), accountId: account.id, balanceMinor, occurredAt, sourceId: String(data.get("source")).trim(), sourceMovementId: null } }, "Reported balance recorded. Reconciliation uses the source timestamp."); if (ok) close(); } catch(error) { setError(error instanceof Error ? error.message : "Check the balance and timestamp."); } }
-  return <Modal title={`Record ${account.label} balance`} close={close}><form data-preview-local-form="true" onSubmit={save}><p className="alfred-accounts-smallNote">Record the balance exactly as reported by the account. This adds evidence; it does not create income.</p><Field label={`Reported balance (${account.currency})`}><input autoFocus name="balance" required inputMode="decimal" placeholder="0.00" /></Field><Field label="Reported at (GMT / UTC)"><input name="at" type="datetime-local" required defaultValue={(now ?? new Date().toISOString()).slice(0,16)} /></Field><Field label="Evidence / reference"><input name="source" required maxLength={200} placeholder="Statement date or alert reference" /></Field>{error ? <p className="alfred-accounts-formError" role="alert">{error}</p> : null}<footer><div className="alfred-accounts-modalActions alfred-buttonGroup--mobileStack"><button className={buttonClassName({ variant: "secondary", size: "sm", className: "alfred-button--mobileFull" })} type="button" onClick={close}>Cancel</button><button className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary alfred-button--mobileFull" })} disabled={busy}>Record balance</button></div></footer></form></Modal>;
+  return <Modal title={`Record ${account.label} balance`} close={close}><form data-preview-local-form="true" onSubmit={save}><p className="alfred-accounts-smallNote">Record the balance exactly as reported by the account. This adds evidence; it does not create income.</p><Field label={`Reported balance (${account.currency})`}><input autoFocus name="balance" required inputMode="decimal" placeholder="0.00" /></Field><Field label="Reported at (GMT / UTC)"><TemporalInput name="at" type="datetime-local" required defaultValue={(now ?? new Date().toISOString()).slice(0,16)} /></Field><Field label="Evidence / reference"><input name="source" required maxLength={200} placeholder="Statement date or alert reference" /></Field>{error ? <p className="alfred-accounts-formError" role="alert">{error}</p> : null}<footer><div className="alfred-accounts-modalActions alfred-buttonGroup--mobileStack"><button className={buttonClassName({ variant: "secondary", size: "sm", className: "alfred-button--mobileFull" })} type="button" onClick={close}>Cancel</button><button className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary alfred-button--mobileFull" })} disabled={busy}>Record balance</button></div></footer></form></Modal>;
 }
-function MovementEditor({ movement, state, busy, close, run, money }: { movement: CashMovement; state: AccountingState; busy: boolean; close: () => void; run: Run; money: (value: number, currency?: string) => string }) {
-  const [editing, setEditing] = useState(false);
-  const editFields = useRef<HTMLDivElement>(null);
-  const editControl = useRef<HTMLButtonElement>(null);
-  useEffect(() => { if (editing) editFields.current?.querySelector<HTMLElement>('input:not([type=hidden]),[role="combobox"]')?.focus(); }, [editing]);
-  const [category,setCategory] = useState(movement.category);
-  const [custom,setCustom] = useState(false);
-  const [customName,setCustomName] = useState("");
-  const [categoryError,setCategoryError] = useState("");
+function MovementEditor({ movement, state, busy, progress, close, saveReview, canNext, money }: { movement: CashMovement; state: AccountingState; busy: boolean; progress: string; close: () => void; saveReview: (review: AccountReview, next?: boolean) => Promise<boolean>; canNext: boolean; money: (value: number, currency?: string) => string }) {
+  const [editing, setEditing] = useState(false), [review, setReview] = useState<AccountReview | null>(null);
+  const editFields = useRef<HTMLDivElement>(null), editControl = useRef<HTMLButtonElement>(null);
+  useEffect(() => { if (editing && !review) editFields.current?.querySelector<HTMLElement>('input:not([type=hidden]),[role="combobox"]')?.focus(); }, [editing, review]);
+  const [category, setCategory] = useState(movement.category), [accountId, setAccountId] = useState(movement.accountId ?? "");
+  const [status, setStatus] = useState(["transfer", "review"].includes(movement.status) ? "confirmed" : movement.status);
+  const [custom, setCustom] = useState(false), [customName, setCustomName] = useState(""), [categoryError, setCategoryError] = useState("");
   const [masked] = usePrivacyMask();
-  const choices = [...new Set([...(movement.direction === "in" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES), ...state.movements.map((item) => item.category)].filter(Boolean))].sort();
-  const linked = state.transfers.some((item) => [item.outgoing.movementId,item.incoming.movementId].includes(movement.id)) || state.settlements.some((item) => item.original.movementId === movement.id || item.returns.some((entry) => entry.movementId === movement.id));
-  async function classify(event: FormEvent<HTMLFormElement>) { event.preventDefault(); const data = new FormData(event.currentTarget); const selected = custom ? customName.trim() : category; setCategoryError(""); if (!selected) { setCategoryError("Enter a category name."); return; } if (custom && choices.some((value) => value.toLowerCase() === selected.toLowerCase())) { setCategoryError("That category already exists. Choose it from the existing categories."); return; } if (selected.length > 40 || /[\u0000-\u001f]/.test(selected)) { setCategoryError("Use a category name of 40 characters or fewer."); return; } const ok = await run({ type: "classify_movement", movement: reference(movement), status: String(data.get("status")) as "confirmed" | "review" | "hold" | "duplicate" | "excluded", category: selected }, custom ? `Category “${selected}” created and applied.` : "Movement classification updated."); if (ok) close(); }
-  const account = state.accounts.find((item) => item.id === movement.accountId);
-  return <Modal title="Transaction details" close={close}><div className={`alfred-accounts-receiptHero is-${movement.direction}`}><span className="alfred-accounts-receiptDirection"><span className="alfred-accounts-directionIcon" aria-hidden="true"><Glyph kind="arrow" /></span>{movementDirectionLabel(movement.direction)}</span><strong>{movement.direction === "out" ? "−" : movement.direction === "in" ? "+" : ""}{money(movement.amountMinor,movement.currency)}</strong><h3>{movement.description}</h3><p>{movement.occurredAt ? date(movement.occurredAt) : movement.date}{!movement.occurredAt ? " · Time not recorded" : ""}</p></div>
-    <dl className="alfred-accounts-receiptFacts"><div><dt>Account</dt><dd>{account?.label ?? "Unassigned"}</dd></div><div><dt>Category</dt><dd>{movement.category || "Uncategorised"}</dd></div><div><dt>Status</dt><dd><span className={`alfred-accounts-status is-${movement.status}`}>{movementStatusLabel(movement.status)}</span></dd></div>{movement.feeMinor ? <div><dt>Fee</dt><dd>{money(movement.feeMinor,movement.currency)}</dd></div> : null}{movement.taxMinor ? <div><dt>Tax</dt><dd>{money(movement.taxMinor,movement.currency)}</dd></div> : null}{movement.reportedBalanceMinor != null ? <div><dt>Balance after</dt><dd>{money(movement.reportedBalanceMinor,movement.currency)}</dd></div> : null}</dl>
-    {!editing ? <div className="alfred-accounts-receiptActions">{!linked ? <button ref={editControl} className={buttonClassName({ variant: "secondary", size: "md" })} onClick={() => setEditing(true)} disabled={busy}>Edit details</button> : <p className="alfred-accounts-smallNote">Linked to a transfer, refund or loan. Manage its link in Activity before changing its classification.</p>}</div> : <div ref={editFields} className="alfred-accounts-receiptEdit">
-    <Field label="Assigned account"><Select aria-label="Assigned account" value={movement.accountId ?? ""} disabled={busy || linked} onChange={(event) => { if (event.target.value) void run({ type: "assign_movement", movement: reference(movement), accountId: event.target.value }, "Movement assigned to the selected account."); }}><option value="" disabled>Choose an account</option>{state.accounts.filter((item) => item.currency === movement.currency).map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}</Select></Field>
-    {linked ? <p className="alfred-accounts-smallNote">This transaction is linked to a transfer, refund or loan. Remove that link before changing its account or category.</p> : <form data-preview-local-form="true" onSubmit={classify}><Field label="Category">{custom ? <input autoFocus value={customName} onChange={(event) => { setCustomName(event.target.value); setCategoryError(""); }} maxLength={40} required placeholder="New category name" aria-label="New category name" /> : <Select value={category} onChange={(event) => setCategory(event.target.value)}>{choices.map((value) => <option key={value}>{value}</option>)}</Select>}</Field><button className={buttonClassName({ variant: "ghost", size: "sm", className: "alfred-accounts-textButton" })} type="button" onClick={() => setCustom(!custom)}>{custom ? "Choose an existing category" : "+ Add category"}</button><Field label="Status"><Select name="status" defaultValue={["transfer", "review"].includes(movement.status) ? "confirmed" : movement.status}><option value="confirmed">Confirmed</option><option value="review">Needs review</option><option value="hold">On hold</option><option value="duplicate">Duplicate</option><option value="excluded">Excluded</option></Select></Field><p className="alfred-accounts-smallNote">Review, duplicate and excluded records do not count as ordinary income or spending. Outgoing holds provisionally count as spending; incoming holds do not count as income. A confirmed own-account transfer needs both sides linked in Activity.</p>{categoryError ? <p className="alfred-accounts-formError" role="alert">{categoryError}</p> : null}<footer><div className="alfred-accounts-modalActions alfred-buttonGroup--mobileStack"><button className={buttonClassName({ variant: "secondary", size: "sm", className: "alfred-button--mobileFull" })} type="button" onClick={() => { setEditing(false); requestAnimationFrame(() => editControl.current?.focus({ preventScroll: true })); }}>Cancel editing</button><button className={buttonClassName({ variant: "primary", size: "md", className: "alfred-accounts-primary alfred-button--mobileFull" })} disabled={busy || custom && !customName.trim()}>{custom ? "Create & apply category" : "Save classification"}</button></div></footer></form>}
-    </div>}
-    <details className="alfred-account-evidence"><summary>Original details</summary><dl>{movement.sourceLabel ? <div><dt>Sender</dt><dd>{movement.sourceLabel}</dd></div> : null}{movement.sourceText ? <div><dt>Original alert</dt><dd className="alfred-accounts-sourceText">{masked ? "Source alert hidden while amounts are masked." : movement.sourceText}</dd></div> : null}{movement.reportedBalanceBeforeMinor != null ? <div><dt>Balance before</dt><dd>{money(movement.reportedBalanceBeforeMinor,movement.currency)}</dd></div> : null}{movement.reportedBalanceMinor != null ? <div><dt>Balance after</dt><dd>{money(movement.reportedBalanceMinor,movement.currency)}</dd></div> : null}<div><dt>Fee (separate from principal)</dt><dd>{money(movement.feeMinor,movement.currency)}</dd></div></dl></details>
+  const choices = [...new Set([...(movement.direction === "in" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES), ...state.movements.map(item => item.category)].filter(Boolean))].sort();
+  const linked = movementIsLinked(state, movement), account = state.accounts.find(item => item.id === movement.accountId);
+  function prepare(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault(); setCategoryError(""); const selected = custom ? customName.trim() : category;
+    if (custom && choices.some(value => value.toLowerCase() === selected.toLowerCase())) { setCategoryError("That category already exists. Choose it from the list."); return; }
+    try { setReview(prepareMovementReview(state, movement.id, { accountId: accountId || null, category: selected, status })); }
+    catch (error) { setCategoryError(error instanceof Error ? error.message : "Check these details before reviewing."); }
+  }
+  return <Modal title={review ? "Review payment changes" : "Transaction details"} close={close} busy={busy}>
+    {review ? <><ReviewSummary review={review} state={state} money={money} /><p className="alfred-accounts-smallNote">Your payment amount, fee and original source stay attached to this record.</p>{review.revision !== state.revision && !busy ? <p className="alfred-accounts-formError" role="alert">Records changed after this review. Go back and check the latest details.</p> : null}<footer><div className="alfred-accounts-modalActions alfred-buttonGroup--mobileStack"><Button onClick={() => setReview(null)} disabled={busy}>Back</Button><Button variant="primary" disabled={busy || review.revision !== state.revision} onClick={() => void saveReview(review, canNext)}>{busy ? "Saving…" : canNext ? "Confirm & next" : "Confirm changes"}</Button></div></footer></> : <>
+      <div className={`alfred-accounts-receiptHero is-${movement.direction}`}><span className="alfred-accounts-receiptDirection"><span className="alfred-accounts-directionIcon" aria-hidden="true"><Glyph kind="arrow" /></span>{movementDirectionLabel(movement.direction)}</span><strong>{movement.direction === "out" ? "−" : movement.direction === "in" ? "+" : ""}{money(movement.amountMinor, movement.currency)}</strong><h3>{movement.description}</h3><p>{movement.occurredAt ? date(movement.occurredAt) : `${readableMovementDay(movement.date)} · Time not recorded`}</p></div>
+      <dl className="alfred-accounts-receiptFacts"><div><dt>Account</dt><dd>{account?.label ?? "Unassigned"}</dd></div><div><dt>Category</dt><dd>{movement.category || "Uncategorised"}</dd></div><div><dt>Status</dt><dd><span className={`alfred-accounts-status is-${movement.status}`}>{movementStatusLabel(movement.status)}</span></dd></div>{movement.feeMinor ? <div><dt>Fee</dt><dd>{money(movement.feeMinor,movement.currency)}</dd></div> : null}{movement.taxMinor ? <div><dt>Tax</dt><dd>{money(movement.taxMinor,movement.currency)}</dd></div> : null}{movement.reportedBalanceMinor != null ? <div><dt>Balance after</dt><dd>{money(movement.reportedBalanceMinor,movement.currency)}</dd></div> : null}</dl>
+      {!editing ? <div className="alfred-accounts-receiptActions">{!linked ? <button ref={editControl} type="button" className={buttonClassName({ variant: "secondary" })} onClick={() => setEditing(true)} disabled={busy}>Edit details</button> : <p className="alfred-accounts-smallNote">Linked to a transfer, refund or loan. Manage its link in Activity before changing its classification.</p>}</div> : <div ref={editFields} className="alfred-accounts-receiptEdit"><form data-preview-local-form="true" onSubmit={prepare}>
+        <Field label="Assigned account"><Select aria-label="Assigned account" value={accountId} disabled={busy || linked} onChange={event => setAccountId(event.target.value)}><option value="" disabled>Choose an account</option>{state.accounts.filter(item => item.currency === movement.currency).map(item => <option key={item.id} value={item.id}>{item.label}</option>)}</Select></Field>
+        <Field label="Category">{custom ? <input autoFocus value={customName} onChange={event => { setCustomName(event.target.value); setCategoryError(""); }} maxLength={40} required placeholder="New category name" aria-label="New category name" /> : <Select value={category} onChange={event => setCategory(event.target.value)}>{choices.map(value => <option key={value}>{value}</option>)}</Select>}</Field><Button variant="ghost" size="sm" onClick={() => setCustom(!custom)}>{custom ? "Choose an existing category" : "+ Add category"}</Button>
+        <Field label="Status"><Select name="status" value={status} onChange={event => setStatus(event.target.value as CashMovement["status"])}><option value="confirmed">Confirmed</option><option value="review">Needs review</option><option value="hold">On hold</option><option value="duplicate">Duplicate</option><option value="excluded">Excluded</option></Select></Field><p className="alfred-accounts-smallNote">Review, duplicate and excluded records do not count as ordinary income or spending. Outgoing holds count provisionally; incoming holds do not count as income.</p>
+        {categoryError ? <p className="alfred-accounts-formError" role="alert">{categoryError}</p> : null}<footer><div className="alfred-accounts-modalActions alfred-buttonGroup--mobileStack"><Button onClick={() => { setEditing(false); requestAnimationFrame(() => editControl.current?.focus({ preventScroll: true })); }} disabled={busy}>Cancel editing</Button><Button variant="primary" type="submit" disabled={busy || custom && !customName.trim()}>Review changes</Button></div></footer>
+      </form></div>}
+      <details className="alfred-account-evidence"><summary>Original details</summary><dl>{movement.sourceLabel ? <div><dt>Sender</dt><dd>{movement.sourceLabel}</dd></div> : null}{movement.sourceText ? <div><dt>Original alert</dt><dd className="alfred-accounts-sourceText">{masked ? "Source alert hidden while amounts are masked." : movement.sourceText}</dd></div> : null}{movement.reportedBalanceBeforeMinor != null ? <div><dt>Balance before</dt><dd>{money(movement.reportedBalanceBeforeMinor,movement.currency)}</dd></div> : null}{movement.reportedBalanceMinor != null ? <div><dt>Balance after</dt><dd>{money(movement.reportedBalanceMinor,movement.currency)}</dd></div> : null}<div><dt>Fee (separate from principal)</dt><dd>{money(movement.feeMinor,movement.currency)}</dd></div></dl></details>
+    </>}
+    {busy ? <p className="alfred-accounts-saveProgress" role="status">{progress || "Saving…"}</p> : null}
+  </Modal>;
+}
+function SimilarReview({ rows, state, busy, progress, close, saveReview, money }: { rows: CashMovement[]; state: AccountingState; busy: boolean; progress: string; close: () => void; saveReview: (review: AccountReview) => Promise<boolean>; money: (value: number, currency?: string) => string }) {
+  const [selected, setSelected] = useState<string[]>([]), [category, setCategory] = useState(rows[0]?.category ?? "Other"), [review, setReview] = useState<AccountReview | null>(null), [error, setError] = useState("");
+  const choices = [...new Set([...(rows[0]?.direction === "in" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES), ...rows.map(row => row.category)])].sort();
+  function prepare() { try { setError(""); setReview(prepareSimilarReview(state, selected, category)); } catch (error) { setError(error instanceof Error ? error.message : "Check the selected payments."); } }
+  return <Modal title={review ? "Review selected changes" : "Review similar payments"} close={close} busy={busy}>
+    {review ? <><ReviewSummary review={review} state={state} money={money} /><p className="alfred-accounts-smallNote">Only the selected categories change. Accounts, statuses, amounts and fees are kept.</p>{review.revision !== state.revision && !busy ? <p role="alert" className="alfred-accounts-formError">Records changed. Go back and review the latest selection.</p> : null}<footer><div className="alfred-accounts-modalActions alfred-buttonGroup--mobileStack"><Button disabled={busy} onClick={() => setReview(null)}>Back</Button><Button variant="primary" disabled={busy || review.revision !== state.revision} onClick={() => void saveReview(review)}>{busy ? "Saving…" : `Apply ${review.movements.length} category changes`}</Button></div></footer></> : <>
+      <p className="alfred-accounts-smallNote">{rows[0]?.description} · {rows[0]?.currency} · {rows.length} matching payments. Select each payment you want to change.</p>
+      <label className="alfred-accounts-bulkSelect"><input type="checkbox" checked={selected.length === rows.length} onChange={event => setSelected(event.target.checked ? rows.map(row => row.id) : [])} /><span>Select all {rows.length} shown payments</span></label>
+      <div className="alfred-accounts-bulkRows">{rows.map(row => <label className="alfred-accounts-bulkSelect" key={row.id}><input type="checkbox" checked={selected.includes(row.id)} onChange={event => setSelected(current => event.target.checked ? [...current, row.id] : current.filter(id => id !== row.id))} /><span><strong>{readableMovementDay(row.date)} · {money(row.amountMinor, row.currency)}</strong><small>{row.category || "Uncategorised"} · {movementStatusLabel(row.status)}</small></span></label>)}</div>
+      <Field label="New category"><Select value={category} onChange={event => setCategory(event.target.value)}>{choices.map(value => <option key={value}>{value}</option>)}</Select></Field>
+      {error ? <p role="alert" className="alfred-accounts-formError">{error}</p> : null}<footer><div className="alfred-accounts-modalActions alfred-buttonGroup--mobileStack"><Button disabled={busy} onClick={close}>Cancel</Button><Button variant="primary" disabled={busy || selected.length === 0} onClick={prepare}>Review {selected.length} selected</Button></div></footer>
+    </>}{busy ? <p className="alfred-accounts-saveProgress" role="status">{progress || "Saving…"}</p> : null}
   </Modal>;
 }
 

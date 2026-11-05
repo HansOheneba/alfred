@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 import { buttonClassName } from "@/app/components/button-styles";
 import { Select } from "@/app/components/select";
+import { TemporalInput } from "@/app/components/temporal-input";
 import { Spinner } from "@/app/components/status";
 import { Button, Dialog, DialogActions, Field, inputClass, sendJson } from "@/app/components/ui";
 import { EXPENSE_CATEGORIES, normalizeCategory } from "@/lib/finance/categories";
@@ -90,12 +91,12 @@ function OverviewPlanAction({ kind, currency, today, budgets }: { kind: "budget"
         {draft.kind === "budget" ? <>
           <Field label="Category"><Select value={draft.category} onChange={event => setDraft({ ...draft, category: event.target.value })}>{EXPENSE_CATEGORIES.map(category => <option key={category} value={category}>{category}</option>)}</Select></Field>
           <Field label={`Monthly amount (${currency})`}><input className={inputClass} autoFocus inputMode="decimal" required value={draft.amount} onChange={event => setDraft({ ...draft, amount: event.target.value })} placeholder="0.00" /></Field>
-          <Field label="Month"><input className={inputClass} type="month" required value={draft.period} onChange={event => setDraft({ ...draft, period: event.target.value })} /></Field>
+          <Field label="Month"><TemporalInput type="month" required value={draft.period} onChange={event => setDraft({ ...draft, period: event.target.value })} /></Field>
         </> : <>
           <Field label="Goal name"><input className={inputClass} autoFocus required maxLength={80} value={draft.name} onChange={event => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. A new laptop" /></Field>
           <Field label={`Target amount (${currency})`}><input className={inputClass} inputMode="decimal" required value={draft.targetAmount} onChange={event => setDraft({ ...draft, targetAmount: event.target.value })} placeholder="0.00" /></Field>
           <Field label={`Saved so far (${currency})`}><input className={inputClass} inputMode="decimal" value={draft.currentAmount} onChange={event => setDraft({ ...draft, currentAmount: event.target.value })} /></Field>
-          <Field label="Target date (optional)"><input className={inputClass} type="date" value={draft.targetDate} onChange={event => setDraft({ ...draft, targetDate: event.target.value })} /></Field>
+          <Field label="Target date (optional)"><TemporalInput type="date" value={draft.targetDate} onChange={event => setDraft({ ...draft, targetDate: event.target.value })} /></Field>
         </>}
         {error ? <p className="alfred-overview-actionError" role="alert">{error}</p> : null}
         <DialogActions><Button onClick={close}>Cancel</Button><Button variant="primary" type="submit">Review</Button></DialogActions>

@@ -6,17 +6,21 @@ import { useState, type FormEvent } from "react";
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip } from "recharts";
 
 import { Button, Card, Dialog, DialogActions, EmptyState, Field, categoryColor, inputClass } from "@/app/components/ui";
+import { TemporalInput } from "@/app/components/temporal-input";
 import { Spinner } from "@/app/components/status";
 import { Select } from "@/app/components/select";
 import { formatMinor } from "@/lib/finance/money";
+import type { IncludedAccountCash } from "@/lib/finance/accounting/cash-summary";
 import { INVESTMENT_KINDS, KIND_LABELS, type InvestmentKind } from "@/lib/investments/kinds";
+import { trackedAssets } from "@/lib/investments/tracked-assets";
 import type { Contribution } from "@/lib/investments/store";
 import type { InvestmentView, Portfolio } from "@/lib/investments/value";
 import "./investment-empty-state.css";
 
 export type InvestmentsData = {
   portfolio: Portfolio;
-  cash: { label: string; balance: number; at: string }[];
+  cash: IncludedAccountCash;
+  timeZone?: string;
   contributions: (Contribution & { investment: string })[];
 };
 
@@ -68,8 +72,7 @@ async function post(body: unknown): Promise<{ ok: true; portfolio: Portfolio } |
 export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
   const [portfolio, setPortfolio] = useState(initial.portfolio);
   const [adding, setAdding] = useState(false);
-  const firstUse = portfolio.items.length === 0 && initial.cash.length === 0;
-  const cash = initial.cash.reduce((sum, item) => sum + item.balance, 0);
+  const firstUse = portfolio.items.length === 0 && initial.cash.availability === "ready" && initial.cash.accountCount === 0;
   const maturing = portfolio.items.filter((item) => item.maturity && item.maturity.daysLeft >= -7).sort((a, b) => a.maturity!.date.localeCompare(b.maturity!.date));
 
   return (
@@ -95,45 +98,7 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
         <p className="alfred-investments-firstUseNote">No investment values are recorded yet.</p>
       </section> : null}
 
-      {!firstUse ? <section className="grid overflow-hidden rounded-2xl border border-line bg-surface md:grid-cols-[1.3fr_1fr]">
-        <div className="p-5 sm:p-6">
-          <p className="text-sm font-medium text-muted">Net worth</p>
-          <p className="mt-2">
-            <BigMoney value={cash + portfolio.totalGhs} />
-          </p>
-          <p className="mt-3 text-sm text-muted">
-            <span className="amount">{money(cash)}</span> in your accounts · <span className="amount">{money(portfolio.totalGhs)}</span> invested
-          </p>
-          {initial.cash.length > 0 ? (
-            <p className="mt-1 text-xs text-faint">
-              Accounts:{" "}
-              {initial.cash.map((item, index) => (
-                <span key={item.label}>
-                  {index > 0 ? " · " : ""}
-                  {item.label} <span className="amount">{money(item.balance)}</span>
-                </span>
-              ))}
-              , from your latest bank texts
-            </p>
-          ) : null}
-        </div>
-        <dl className="grid grid-cols-2 gap-px border-t border-line bg-line md:grid-cols-1 md:border-l md:border-t-0">
-          <div className="bg-surface p-4 sm:px-6">
-            <dt className="text-xs text-muted">Investments are worth</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">{money(portfolio.totalGhs)}</dd>
-          </div>
-          <div className="bg-surface p-4 sm:px-6">
-            <dt className="text-xs text-muted">You put in</dt>
-            <dd className="mt-1 text-lg font-semibold tabular-nums">{portfolio.investedGhs === null ? "Unknown cost basis" : money(portfolio.investedGhs)}</dd>
-          </div>
-          <div className="col-span-2 bg-surface p-4 sm:px-6 md:col-span-1">
-            <dt className="text-xs text-muted">Gain so far</dt>
-            <dd className="mt-1 text-lg font-semibold">
-              <Gain gain={portfolio.gainGhs} base={portfolio.investedGhs} />
-            </dd>
-          </div>
-        </dl>
-      </section> : null}
+      {!firstUse ? <InvestmentAssetsSummary cash={initial.cash} portfolio={portfolio} timeZone={initial.timeZone} /> : null}
       {!firstUse && portfolio.investedGhs === null ? <p className="text-xs leading-5 text-muted">Some imported investments have a reported value without a complete contribution history. Their cost basis and gains stay unknown.</p> : null}
 
       {firstUse ? null : portfolio.items.length === 0 ? (
@@ -212,6 +177,43 @@ export function InvestmentsClient({ initial }: { initial: InvestmentsData }) {
       <AddInvestment open={adding} onClose={() => setAdding(false)} onSaved={setPortfolio} />
     </div>
   );
+}
+
+export function InvestmentAssetsSummary({ cash, portfolio, timeZone = "UTC" }: { cash: IncludedAccountCash; portfolio: Portfolio; timeZone?: string }) {
+  const assets = trackedAssets(cash, portfolio);
+  const stamp = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone });
+  const cashNote = cash.availability === "unavailable" ? "Account balances could not be loaded. Refresh to try again."
+    : cash.availability === "migration-required" ? "Account balances are not available until account storage is set up."
+    : !cash.count ? `No cash accounts are included in ${cash.currency}. Add or include an account to complete this total.`
+    : cash.missingCount ? `${cash.missingCount} of ${cash.count} included account${cash.count === 1 ? " needs" : "s need"} a current reported balance.`
+    : `${cash.count} included account${cash.count === 1 ? "" : "s"} · Reported balances, not live`;
+  const totalNote = assets.reason === "cash-unavailable" ? "The combined total stays unavailable until all included cash balances are known."
+    : assets.reason === "currency-unavailable" ? `The ${cash.currency} cash balance cannot be combined with GHS investments without an exchange rate.`
+    : assets.reason === "investment-unavailable" ? "Some investments have no value in GHS yet, so the combined total stays unavailable."
+    : "Included cash accounts + recorded investment values";
+  return <section className="alfred-investments-assets" aria-label="Tracked assets">
+    <div className="alfred-investments-assetsMain">
+      <h2>Tracked assets</h2>
+      <p className="alfred-investments-assetsValue">{assets.totalMinorGhs === null ? <span className="alfred-investments-assetsUnavailable">Total unavailable</span> : <span className="amount"><BigMoney value={assets.totalMinorGhs / 100} /></span>}</p>
+      <p className="alfred-investments-assetsNote">{totalNote}</p>
+      <p className="alfred-investments-assetsScope">Debts, loans and assets you haven&apos;t recorded are excluded. This is not your complete net worth.</p>
+      <div className="alfred-investments-cashSummary">
+        <div><h3>Cash accounts · {cash.currency}</h3><strong className="amount">{cash.totalMinor === null ? "Balance unavailable" : formatMinor(cash.totalMinor, cash.currency)}</strong></div>
+        <p>{cashNote}</p>
+        {cash.totalMinor === null && cash.knownSubtotalMinor !== null ? <p>Known balances: <span className="amount">{formatMinor(cash.knownSubtotalMinor, cash.currency)}</span> · Partial total</p> : null}
+        {cash.oldestReportedAt ? <p>Oldest included report: <time dateTime={cash.oldestReportedAt}>{stamp.format(new Date(cash.oldestReportedAt))}</time></p> : null}
+        {cash.excludedCount > 0 ? <p>{cash.excludedCount} account{cash.excludedCount === 1 ? " is" : "s are"} excluded or in another currency.</p> : null}
+        {cash.accounts.length > 0 ? <details><summary>See included accounts</summary><ul>{cash.accounts.map((account) => <li key={account.id}><div><span>{account.label}</span>{account.reportedAt ? <time dateTime={account.reportedAt}>{stamp.format(new Date(account.reportedAt))}</time> : <small>Current reported balance needed</small>}</div><strong className="amount">{account.balanceMinor === null ? "—" : formatMinor(account.balanceMinor, cash.currency)}</strong></li>)}</ul></details> : null}
+        {cash.currency === "USD" && assets.cashMinorGhs !== null && portfolio.usdGhs !== null ? <p>Combined total uses <span className="amount">{money(portfolio.usdGhs)}</span> per US$1, the same rate as this portfolio.</p> : null}
+        <Link href="/accounts">Manage accounts <span aria-hidden="true">↗</span></Link>
+      </div>
+    </div>
+    <dl className="alfred-investments-assetsBreakdown">
+      <div><dt>{assets.unknownInvestmentCount > 0 ? "Known investment values" : "Investments are worth"}</dt><dd className="amount">{money(portfolio.totalGhs)}</dd>{assets.unknownInvestmentCount > 0 ? <p>{assets.unknownInvestmentCount} investment{assets.unknownInvestmentCount === 1 ? " needs" : "s need"} a value in GHS.</p> : null}</div>
+      <div><dt>You put in</dt><dd className={assets.investedGhs === null ? "" : "amount"}>{assets.investedGhs === null ? "Unknown cost basis" : money(assets.investedGhs)}</dd>{assets.unknownBasisCount > 0 ? <p>Complete contribution history or currency conversion is missing for {assets.unknownBasisCount} investment{assets.unknownBasisCount === 1 ? "" : "s"}.</p> : null}</div>
+      <div><dt>Gain so far</dt><dd className={assets.gainGhs === null ? "" : "amount"}>{assets.gainGhs === null ? "Unknown gain" : <Gain gain={assets.gainGhs} base={assets.investedGhs} />}</dd></div>
+    </dl>
+  </section>;
 }
 
 function Allocation({ portfolio }: { portfolio: Portfolio }) {
@@ -396,7 +398,7 @@ function AddInvestment({ open, onClose, onSaved }: { open: boolean; onClose: () 
         <Field label="Name">
           <input className={inputClass} value={form.name} onChange={(event) => set({ name: event.target.value })} placeholder="Risevest, 91-day T-bill, Databank Epack…" maxLength={80} required />
         </Field>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Kind">
             <Select className={inputClass} value={form.kind} onChange={(event) => set({ kind: event.target.value as InvestmentKind, currency: event.target.value === "us_stocks" ? "USD" : "GHS" })}>
               {INVESTMENT_KINDS.map((kind) => (
@@ -414,16 +416,16 @@ function AddInvestment({ open, onClose, onSaved }: { open: boolean; onClose: () 
           </Field>
         </div>
         {fixed ? (
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Amount">
               <input className={inputClass} inputMode="decimal" value={form.principal} onChange={(event) => set({ principal: event.target.value })} placeholder="5000" />
             </Field>
             <Field label="Rate %">
               <input className={inputClass} inputMode="decimal" value={form.rate} onChange={(event) => set({ rate: event.target.value })} placeholder="24" />
             </Field>
-            <Field label="Matures">
-              <input className={inputClass} type="date" value={form.maturesOn} onChange={(event) => set({ maturesOn: event.target.value })} />
-            </Field>
+            <div className="sm:col-span-2"><Field label="Matures">
+              <TemporalInput type="date" value={form.maturesOn} onChange={(event) => set({ maturesOn: event.target.value })} />
+            </Field></div>
           </div>
         ) : (
           <Field label="Worth now (optional)" hint="Or tell Alfred in chat later, or send a screenshot of your investment app.">

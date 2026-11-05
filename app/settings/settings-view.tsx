@@ -6,12 +6,13 @@ import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
 import { SettingsSectionSkeleton } from "@/app/components/page-skeletons";
 import { Button, Card, Field, inputClass } from "@/app/components/ui";
+import { TemporalInput } from "@/app/components/temporal-input";
 import { Select } from "@/app/components/select";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
 import { AutomationsSection } from "@/app/settings/automations-section";
-import { resolveSettingsSection, SETTINGS_SECTIONS, SETTINGS_SECTION_DESCRIPTIONS, SettingsNavigation, type SettingsSectionId } from "@/app/settings/settings-navigation";
+import { resolveSettingsSection, settingsNavigationStatuses, SETTINGS_SECTIONS, SETTINGS_SECTION_DESCRIPTIONS, SettingsNavigation, type SettingsSectionId } from "@/app/settings/settings-navigation";
 import { DataSection } from "@/app/settings/data-section";
 import { AccountRulesSection } from "@/app/settings/account-rules-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
@@ -135,7 +136,7 @@ export function SettingsView({
       </header>
 
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
-        <SettingsNavigation section={section} onChoose={choose} />
+        <SettingsNavigation section={section} onChoose={choose} statuses={settingsNavigationStatuses(saved, finance.value?.bank)} />
 
         <div id="alfred-settings-detail" role="region" aria-label={SETTINGS_SECTIONS.find(item => item.id === section)?.label ?? "Settings"} className="alfred-settings-detail min-w-0 flex-1">
           <Button variant="ghost" className="alfred-settings-mobileBack" onClick={showSections}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>Back to settings</Button>
@@ -349,13 +350,13 @@ function Reminder({
       <label className="sr-only" htmlFor={`${id}-time`}>
         {label} time
       </label>
-      <input
+      <TemporalInput
         id={`${id}-time`}
         type="time"
         value={time}
         disabled={!enabled}
         onChange={(event) => onTime(event.target.value)}
-        className={`${inputClass} w-32 disabled:opacity-50`}
+        style={{ width: "8rem", flexShrink: 0 }}
       />
     </div>
   );

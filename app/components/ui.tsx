@@ -5,6 +5,7 @@ import { cloneElement, isValidElement, useEffect, useId, useRef, type ButtonHTML
 import { Spinner } from "@/app/components/status";
 import { buttonClassName, type ButtonSize, type ButtonVariant } from "./button-styles";
 import { Select } from "./select";
+import { TemporalInput } from "./temporal-input";
 import "./dialog.css";
 
 // Category hues from the My Money palette: distinct, but muted enough to sit beside the teal.
@@ -54,10 +55,10 @@ export function Field({ label, hint, error, children }: { label: string; hint?: 
   let control = children;
   // Associate direct native controls without changing custom components, refs or form behavior.
   if (isValidElement<{ "aria-labelledby"?: string; "aria-describedby"?: string; "aria-invalid"?: boolean | "true" | "false"; "aria-errormessage"?: string }>(children)
-    && (children.type === Select || typeof children.type === "string" && ["input", "select", "textarea"].includes(children.type))) {
+    && (children.type === Select || children.type === TemporalInput || typeof children.type === "string" && ["input", "select", "textarea"].includes(children.type))) {
     const description = [children.props["aria-describedby"], hint ? hintId : null, error ? errorId : null].filter(Boolean).join(" ");
     control = cloneElement(children, {
-      ...(children.type === Select ? { "aria-labelledby": children.props["aria-labelledby"] || labelId } : {}),
+      ...(children.type === Select || children.type === TemporalInput ? { "aria-labelledby": children.props["aria-labelledby"] || labelId } : {}),
       ...(description ? { "aria-describedby": description } : {}),
       ...(error ? { "aria-invalid": true, "aria-errormessage": errorId } : {}),
     });

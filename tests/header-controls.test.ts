@@ -3,6 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppShell, AppearanceToggle, PrivacyToggle } from "@/app/components/app-shell";
 import { BROWSER_PREFERENCES_LOCK } from "@/lib/portability/browser-preferences-lock";
+import { ChatShell } from "@/app/chat/chat-shell";
+import { ChatContextProvider } from "@/app/chat/chat-context-control";
 
 const runtime = vi.hoisted(() => ({ direct: false }));
 vi.mock("react", async load => {
@@ -24,6 +26,23 @@ beforeEach(() => {
 afterEach(() => { runtime.direct = false; vi.unstubAllGlobals(); });
 
 describe("compact header display controls", () => {
+  it("keeps loading Chat navigation as a closed submenu without adding a header control or chat bar", () => {
+    const markup = renderToStaticMarkup(createElement(ChatShell, { name: "" }, "Loading sample conversation"));
+    const header = markup.match(/<header[\s\S]*?<\/header>/)?.[0];
+    expect(header).toContain('aria-current="page" aria-haspopup="menu" aria-expanded="false"');
+    expect(header).not.toContain('aria-label="Show context"');
+    expect(header).not.toContain("alfred-headerContext");
+    expect(markup).not.toContain("alfred-production-chat-toolbar");
+  });
+
+  it("does not add a context action to other sections even inside a Chat provider", () => {
+    const props: Parameters<typeof AppShell>[0] = { current: "dashboard", name: "Sample", children: "Sample overview" };
+    const markup = renderToStaticMarkup(createElement(ChatContextProvider, { initiallyAvailable: true }, createElement(AppShell, props)));
+    expect(markup).not.toContain('aria-label="Show context"');
+    expect(markup.match(/href="\/chat"/g)).toHaveLength(2);
+    expect(markup).not.toContain("alfred-chatNav-trigger");
+  });
+
   it.each(["dashboard", "chat", "settings"] as const)("removes the profile avatar on %s while keeping both navigations and labelled icon controls", current => {
     const props: Parameters<typeof AppShell>[0] = { current, name: "Fictional reviewer", children: "Sample content" };
     const markup = renderToStaticMarkup(createElement(AppShell, props));

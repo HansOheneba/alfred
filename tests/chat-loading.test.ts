@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ChatPanel } from "@/app/chat/chat-panel";
 import { ChatLoadingState } from "@/app/chat/chat-loading";
+import { ChatShell } from "@/app/chat/chat-shell";
 import ChatPage from "@/app/chat/page";
 import { AuthForm } from "@/app/auth-form";
 import { GET as contextRoute } from "@/app/api/chat/context/route";
@@ -45,6 +46,7 @@ const ledger: Ledger = {
   accounting: { availability: "ready", revision: 0, balances: buildAccountingView(emptyAccountingState(OWNER), "GHS").balances, loans: [], issues: [] },
 };
 const history: ThreadMessage[] = [{ id: "synthetic-assistant", role: "assistant", text: "Your existing conversation is still here.", channel: "web", createdAt: "2026-11-02T12:00:00.000Z", clientId: null }];
+const renderPanel = (props: Parameters<typeof ChatPanel>[0]) => renderToStaticMarkup(createElement(ChatShell, { name: props.name, contextAvailable: props.financialsEmpty !== true }, createElement(ChatPanel, props)));
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -101,11 +103,11 @@ describe("optional Chat finance context", () => {
   });
 
   it("keeps existing history and the composer usable before finance context has loaded", () => {
-    const markup = renderToStaticMarkup(createElement(ChatPanel, { ownerId: OWNER, name: "Fictional reviewer", initialMessages: history }));
+    const markup = renderPanel({ ownerId: OWNER, name: "Fictional reviewer", initialMessages: history });
     expect(markup).toContain("Your existing conversation is still here.");
     expect(markup).toContain('id="alfred-message"');
     expect(markup).toContain('aria-label="Send"');
-    expect(markup).toContain('aria-label="Show context"');
+    expect(markup).toContain('aria-haspopup="menu"');
     expect(markup).not.toContain("Start with an expense or income, or");
     expect(markup).not.toContain("GH₵0.00");
     expect(markup).not.toContain("No transactions");
@@ -113,7 +115,7 @@ describe("optional Chat finance context", () => {
   });
 
   it("preserves supplied choice buttons and links alongside the usable composer", () => {
-    const markup = renderToStaticMarkup(createElement(ChatPanel, { ownerId: OWNER, name: "Fictional reviewer", initialMessages: history, initialChoices: [[{ label: "Food", choice: "b:fictional:Food" }, { label: "Manage categories", href: "/accounts?tab=needs-attention" }]] }));
+    const markup = renderPanel({ ownerId: OWNER, name: "Fictional reviewer", initialMessages: history, initialChoices: [[{ label: "Food", choice: "b:fictional:Food" }, { label: "Manage categories", href: "/accounts?tab=needs-attention" }]] });
     expect(markup).toContain("Answer Alfred&#x27;s question");
     expect(markup).toContain(">Food</button>");
     expect(markup).toContain('href="/accounts?tab=needs-attention"');
@@ -122,10 +124,10 @@ describe("optional Chat finance context", () => {
   });
 
   it("still offers a first conversation without claiming an unknown financial state is empty", () => {
-    const markup = renderToStaticMarkup(createElement(ChatPanel, { ownerId: OWNER, name: "Fictional reviewer", initialMessages: [], ledger: null }));
+    const markup = renderPanel({ ownerId: OWNER, name: "Fictional reviewer", initialMessages: [], ledger: null });
     expect(markup).toContain("A purchase, a payday, a plan. Where shall we start?");
     expect(markup).toContain('id="alfred-message"');
-    expect(markup).toContain('aria-label="Show context"');
+    expect(markup).toContain('aria-haspopup="menu"');
     expect(markup).not.toContain("GH₵0.00");
     expect(markup).not.toContain("Start with an expense or income, or");
   });
@@ -152,6 +154,8 @@ describe("Chat server page critical path", () => {
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Send"/);
     expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-label="Attach a screenshot"/);
     expect(html).not.toContain("A purchase, a payday");
+    expect(html).toContain('<h1 class="sr-only">Chat</h1>');
+    expect(html).not.toContain("alfred-production-chat-toolbar");
   });
 
   it("renders the authenticated Chat without starting optional history or finance queries", async () => {

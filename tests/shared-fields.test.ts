@@ -4,6 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import { Field, inputClass } from "@/app/components/ui";
 import { Select } from "@/app/components/select";
+import { TemporalInput } from "@/app/components/temporal-input";
 import { AuthForm } from "@/app/auth-form";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ push: vi.fn(), refresh: vi.fn(), replace: vi.fn() }) }));
@@ -12,6 +13,36 @@ const field = (props: Parameters<typeof Field>[0]) => createElement(Field, props
 const renderField = (props: Parameters<typeof Field>[0]) => renderToStaticMarkup(field(props));
 
 describe("shared accessible native fields", () => {
+  it.each([
+    ["date", "2026-11-13"], ["month", "2026-11"], ["time", "08:30"],
+    ["datetime-local", "2026-11-13T08:30"], ["week", "2026-W46"],
+  ] as const)("keeps %s values and validation on the native input inside its sizing shell", (type, value) => {
+    const markup = renderField({ label: "When", hint: "Your local time", error: "Review this value", children: createElement(TemporalInput, { type, id: "when", name: "when", defaultValue: value, required: true, min: value, step: 1, "aria-describedby": "existing-help", style: { width: "8rem" } }) });
+    const input = /<input[^>]*>/.exec(markup)![0];
+    const hintId = /<span id="([^"]+)" class="alfred-field-hint"/.exec(markup)![1];
+    const errorId = /<span id="([^"]+)" class="alfred-field-hint alfred-field-hint--error"/.exec(markup)![1];
+    expect(input).toContain(`type="${type}"`);
+    expect(input).toContain(`value="${value}"`);
+    for (const constraint of ['id="when"', 'name="when"', 'required=""', `min="${value}"`, 'step="1"']) expect(input).toContain(constraint);
+    expect(input).toContain(`aria-describedby="existing-help ${hintId} ${errorId}"`);
+    expect(input).toContain(`aria-errormessage="${errorId}"`);
+    expect(input).toContain('aria-invalid="true"');
+    expect(input).toMatch(/aria-labelledby="[^"]+-label"/);
+    expect(input).not.toContain("style=");
+    expect(markup).toContain('style="width:8rem"');
+  });
+
+  it("keeps disabled and readonly temporal state native without adding an extra focus target", () => {
+    const markup = renderToStaticMarkup(createElement("form", null,
+      createElement(TemporalInput, { type: "time", disabled: true, defaultValue: "08:00" }),
+      createElement(TemporalInput, { type: "date", readOnly: true, defaultValue: "2026-11-13" }),
+    ));
+    expect(markup).toMatch(/<input[^>]*disabled=""/);
+    expect(markup).toMatch(/<input[^>]*readOnly=""/);
+    expect(markup.match(/<input/g)).toHaveLength(2);
+    expect(markup).not.toContain("tabindex=");
+  });
+
   it("names a custom picker from its visible Field label and connects hint and error text", () => {
     const markup = renderField({ label: "Account", hint: "Choose a saved account", error: "Choose an available account", children: createElement(Select, { value: "", required: true, name: "account" }, createElement("option", { value: "wallet" }, "Sample wallet")) });
     const labelId = /<span id="([^"]+)" class="alfred-field-label"/.exec(markup)![1];

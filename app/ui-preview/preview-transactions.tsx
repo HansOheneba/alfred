@@ -7,6 +7,7 @@ import { AccountingRowAction, isAccountingRow } from "@/app/dashboard/accounting
 import { Spinner } from "@/app/components/status";
 import { buttonClassName } from "@/app/components/button-styles";
 import { Button, Card, ConfirmDialog, Dialog, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
+import { TemporalInput } from "@/app/components/temporal-input";
 import type { LedgerRow } from "@/lib/finance/analytics";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { formatDisplayDate } from "@/lib/finance/dates";
@@ -359,7 +360,7 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
           </select>
         </Field>
         <Field label="Date">
-          <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+          <TemporalInput type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
         </Field>
         {type === "expense" && category !== "Fees" && row.minor > 0 ? (
           <Field

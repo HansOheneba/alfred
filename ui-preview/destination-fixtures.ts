@@ -2,12 +2,16 @@ import type { InvestmentsData } from "@/app/investments/investments-client";
 import type { AboutNote } from "@/lib/notebook/store";
 import type { KnownPerson } from "@/lib/web/people";
 import type { ReviewItem } from "@/lib/web/review";
+import { accountBalances } from "@/lib/finance/accounting/accounts";
+import { includedAccountCash } from "@/lib/finance/accounting/cash-summary";
+import { previewAccountingFixture } from "./accounting-fixture";
 
 import { previewLedger, previewToday } from "./fixture";
 
 /** Artificial companion data for navigating the local UI study. Never seed it. */
 export const previewInvestments: InvestmentsData = {
-  cash: previewLedger.bank.balances.map((item) => ({ label: item.label, balance: Number(item.balance), at: item.at })),
+  cash: includedAccountCash({ availability: "ready", balances: accountBalances(previewAccountingFixture, previewLedger.currency) }, previewLedger.currency),
+  timeZone: "Africa/Accra",
   portfolio: {
     totalGhs: 5230,
     investedGhs: 5000,

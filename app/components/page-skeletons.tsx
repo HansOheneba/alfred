@@ -31,8 +31,9 @@ export function DashboardSkeleton() {
     <LoadingHeading title="Overview" action />
     <div className="alfred-loading-overviewSummary"><MetricPlaceholder balance /><MetricPlaceholder /><MetricPlaceholder /></div>
     <div className="alfred-loading-card alfred-loading-weekly"><Skeleton className="alfred-loading-label" /><Skeleton className="alfred-loading-copy" /><Skeleton className="alfred-loading-weeklyBar" /></div>
-    <div className="alfred-loading-charts">{[0, 1, 2].map(index => <div className="alfred-loading-card" key={index}><Skeleton className="alfred-loading-label" /><Skeleton className="alfred-loading-chart" /></div>)}</div>
-    <div className="alfred-loading-card"><Skeleton className="alfred-loading-label" /><RowsPlaceholder /></div>
+    <div className="alfred-loading-card alfred-loading-overviewTransactions"><div className="alfred-loading-activityHeading"><Skeleton className="alfred-loading-label" /><Skeleton className="alfred-loading-filter" /></div><RowsPlaceholder /></div>
+    <div className="alfred-loading-overviewPlans">{[0, 1, 2, 3].map(index => <div className="alfred-loading-card" key={index}><Skeleton className="alfred-loading-label" /><Skeleton className="alfred-loading-copy" /><Skeleton className="alfred-loading-field" /></div>)}</div>
+    <div className="alfred-loading-card alfred-loading-overviewInsights"><Skeleton className="alfred-loading-label" /><Skeleton className="alfred-loading-copy" /></div>
   </LoadingFrame>;
 }
 
