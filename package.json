@@ -34,6 +34,7 @@
     "zod": "^4.6.5"
   },
   "devDependencies": {
+    "@anthropic-ai/sdk": "^1.5.0",
     "@electric-sql/pglite": "^0.5.14",
     "@tailwindcss/turbopack": "^4",
     "@types/node": "^22",

@@ -258,11 +258,19 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
       .flatMap((answer) => answer.messageIds.map((id) => ({ message: waiting!.listed.find((message) => message.id === id), label: answer.label })))
       .filter((item): item is Proposal => Boolean(item.message));
     const said = [text, ...(people ?? []), ...remembered];
+    const fits = (item: Proposal) => groundedPaymentLabel(text, item.message, item.label) || proposableLabel(text, item.message, item.label, said);
+    // A right reading with an embellished note ("Mtcgame purchase on my card") keeps the reading and drops the note.
+    const cleaned = proposals.map((item) => fits(item) ? item : fits({ ...item, label: withoutDetails(item.label) }) ? { ...item, label: withoutDetails(item.label) } : item);
     const decision = decidePaymentAnswer({
-      text, asked: focused, proposals, nearby: nearbyIds(focused, waiting!.listed),
+      text, asked: focused, proposals: cleaned, nearby: nearbyIds(focused, waiting!.listed),
       grounded: groundedPaymentLabel, proposable: (words, message, label) => proposableLabel(words, message, label, said),
     });
-    const proposed = decision.kind === "propose" ? await proposeLabels(ctx, decision.items, ctx.profile, text) : null;
+    // Filing goes through the model's own labels, so a reading that only fits once its note is dropped is confirmed instead.
+    const nearby = nearbyIds(focused, waiting!.listed);
+    const trimmed = decision.kind === "file" && cleaned.some((item, index) => item !== proposals[index])
+      ? cleaned.filter((item) => item.message.id === focused.id || nearby.has(item.message.id)) : null;
+    const proposed = decision.kind === "propose" ? await proposeLabels(ctx, decision.items, ctx.profile, text)
+      : trimmed?.length ? await proposeLabels(ctx, trimmed, ctx.profile, text) : null;
     if (proposed) return keepNoticeFocus({ ...proposed, intent: "bank:label" });
     if (decision.kind !== "file") {
       const again = await askAgain(ingest, ctx.profile, focused);
@@ -629,4 +637,11 @@ function groundedInLookups(delivery: Delivery, turn: Turn): Delivery {
   if (keepsFacts(delivery.text, [...results, turn.text, turn.cue.snapshot].join("\n"))) return delivery;
   logInfo("lookup_reply_rejected", { userId: turn.ctx.profile.profileId });
   return { ...delivery, text: ["Here's what I found:", ...results.slice(0, 8)].join("\n") };
+}
+
+/** The same label without the model's free-text extras, which are the part most often not in the person's words. */
+function withoutDetails(label: Proposal["label"]): Proposal["label"] {
+  const plain: Record<string, unknown> = { ...label };
+  for (const key of ["description", "note"]) if (key in plain) plain[key] = null;
+  return plain as Proposal["label"];
 }

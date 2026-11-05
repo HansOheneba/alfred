@@ -169,3 +169,17 @@ describe("a typed yes to a proposal in the question flow, after an earlier alert
     expect(await openConfirmationFor(state.store, state.owner.profileId, after, NOW)).toBeNull();
   });
 });
+
+describe("a right reading with an embellished note", () => {
+  it("keeps the reading and drops the note instead of refusing", async () => {
+    const state = setup((request) => ({ type: "label_payments", answers: [{ items: [request.waiting!.current], action: "lent", person: "George", description: "Mtcgame purchase on my card" }] }));
+    const charge = await state.payment(2, { direction: "out", amount: "332.19", counterparty: "MTCGAME.COM", occurredAt: "2026-11-04T18:18:00.000Z" });
+    await state.notice(charge);
+    const reply = await handleProfileTurn(state.owner, { text: "that was George using my card, he owes me", clientId: "embellished-1", replyToPayment: { bankMessageId: charge.id, requiresPurpose: true } }, state.deps);
+    expect(reply.text).not.toContain("haven't changed this payment");
+    expect(reply.text).toContain("money you lent George");
+    expect(reply.text).not.toContain("Mtcgame purchase");
+    await handleProfileTurn(state.owner, { decision: "confirm", actionId: reply.actionId!, clientId: "embellished-2" }, state.deps);
+    expect(loanBalances(await state.loans.list(state.owner.profileId))).toMatchObject([{ person: "George", owed: "332.19" }]);
+  });
+});

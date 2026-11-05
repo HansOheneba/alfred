@@ -178,7 +178,9 @@ describe("replying to a proactive payment-purpose question", () => {
     await state.notice(target);
     const result = await handleProfileTurn(state.owner, { text, clientId: `ungrounded-purpose-${category}-${description.replaceAll(" ", "-")}` }, state.deps);
     expect(result.ledgerChanged).toBe(false);
-    expect(result.text).toContain("haven't changed this payment");
+    // Either Alfred asks again, or it offers the purpose they named with the invented detail dropped, for a yes first.
+    if (result.actionId) expect(result.text).not.toContain(`(${description})`);
+    else expect(result.text).toContain("haven't changed this payment");
     expect(result.messages?.find(message => message.role === "assistant")?.paymentNotice).toEqual({ bankMessageId: target.id, requiresPurpose: true });
     expect(await state.store.listTransactions(state.owner.profileId)).toEqual([]);
     expect((await state.bank.getMessage(state.owner.profileId, target.id))?.status).toBe("needs_label");
