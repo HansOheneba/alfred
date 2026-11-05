@@ -10,6 +10,9 @@ import { remember } from "@/lib/learning/log";
 /** One captured payment and the label Alfred read from the person's words. */
 export type Proposal = { message: BankMessage; label: Label };
 
+/** How long a proposed reading of a payment can still be confirmed. */
+const PROPOSAL_TTL_MS = 24 * 60 * 60_000;
+
 /** How long either side of the asked payment another alert counts as "around the same time". */
 const NEARBY_MS = 2 * 60 * 60_000;
 
@@ -117,7 +120,8 @@ export async function proposeLabels(ctx: ActionContext, proposals: Proposal[], p
   }
   const lines = usable.map((item) => `• ${waitingLine(item.message, profile)}: ${describeLabel(item.message, item.label)}`);
   const text = [usable.length === 1 ? "Here's how I read that:" : "Here's how I read those:", ...lines, "", "Save this? Nothing changes until you confirm."].join("\n");
-  return saveConfirmation(ctx, text, {
+  // A reading of a payment stays answerable for a day: people come back to it later.
+  return saveConfirmation({ ...ctx, pendingTtlMs: PROPOSAL_TTL_MS }, text, {
     type: "label_payments",
     originUpdateId: String(ctx.updateId),
     items,

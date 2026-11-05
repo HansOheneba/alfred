@@ -1,0 +1,77 @@
+{
+  "id": "what-do-you-need-then-yes",
+  "title": "A side question, then 'Yes that's it', long after the proposal expired",
+  "source": "Hans, 2026-11-05 13:48: 'couldn't tell which waiting payments' after Alfred offered in chat to file both",
+  "tags": [
+    "payments",
+    "conversation",
+    "real-failure"
+  ],
+  "now": "2026-11-05T13:47:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "topUp",
+        "direction": "in",
+        "amount": "1300.00",
+        "counterparty": "GCB prepaid card top-up",
+        "occurredAt": "2026-11-03T10:09:00.000Z",
+        "asked": true
+      },
+      {
+        "ref": "charge",
+        "direction": "out",
+        "amount": "1307.48",
+        "counterparty": "",
+        "occurredAt": "2026-11-03T10:09:30.000Z"
+      }
+    ],
+    "messages": [
+      {
+        "role": "user",
+        "body": "I told you the 1300 was me topping up my card and the next was a subscription to Claude with that money"
+      },
+      {
+        "role": "assistant",
+        "body": "Here's how I read those:\n• GH₵1,300.00 onto your GCB card · Tue 3 Nov: your own money moving between your accounts, not income or spending\n• GH₵1,307.48 on your GCB card · Tue 3 Nov: Subscriptions (Claude subscription)\n\nSave this? Nothing changes until you confirm.",
+        "intent": "bank:label"
+      },
+      {
+        "role": "assistant",
+        "body": "Next (17 more after this): GH₵1,300.00 came in onto your GCB card · Tue 3 Nov, 10:09. What was it?",
+        "intent": "bank:label"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "say": "What do you need from me",
+      "expect": {
+        "notReply": "couldn't tell which"
+      }
+    },
+    {
+      "say": "Yes that's it",
+      "expect": {
+        "notReply": "couldn't tell which|nothing waiting"
+      }
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "payments": {
+      "topUp": "transfer",
+      "charge": "recorded"
+    },
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "1307.48",
+        "category": "Subscriptions"
+      }
+    ]
+  }
+}
