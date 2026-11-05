@@ -284,7 +284,8 @@ async function confirmationAfterBoundary(deps: TurnDeps, ctx: ActionContext, opt
   const origin = String(clientTurnUpdateId(last.clientId));
   const intents = (last.intent ?? "").split("+");
   const matching = (await ctx.store.listPendingActions(ctx.profile.profileId)).filter(pending => {
-    if (pending.userId !== ctx.profile.profileId || pending.chatId !== String(ctx.chatId) || pending.status !== "pending" || pending.actionType === "account_rule_command" || Date.parse(pending.expiresAt) <= ctx.now.getTime() || !intents.includes(pending.actionType)) return false;
+    // A proposal is shown under a bank:label message, so its type is never the message's intent; the same-turn check below still binds it.
+    if (pending.userId !== ctx.profile.profileId || pending.chatId !== String(ctx.chatId) || pending.status !== "pending" || pending.actionType === "account_rule_command" || Date.parse(pending.expiresAt) <= ctx.now.getTime() || !(intents.includes(pending.actionType) || pending.actionType === "label_payments")) return false;
     try {
       const payload = JSON.parse(pending.payloadJson) as { type?: unknown; originUpdateId?: unknown };
       return payload.type === pending.actionType && payload.originUpdateId === origin;

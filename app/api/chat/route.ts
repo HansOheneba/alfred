@@ -8,6 +8,8 @@ import { openAccount } from "@/lib/accounts/settings-store";
 import { NOT_INVITED } from "@/lib/auth/invites";
 import { LIMITS } from "@/lib/config";
 import { getStudioSettings } from "@/lib/env";
+import { openConfirmationFor } from "@/lib/finance/pending";
+import { createSupabaseFinanceStore } from "@/lib/supabase/finance-store";
 import { logError } from "@/lib/log";
 import { DbRateLimiter } from "@/lib/security/db-rate-limit";
 import { createStudioDeps, handleProfileTurn, openChoices } from "@/lib/studio/handle";
@@ -21,8 +23,9 @@ import { pushConfiguration } from "@/lib/notifications/push";
 
 export const maxDuration = 60;
 
-function present(message: ChatMessageRecord) {
+function present(message: ChatMessageRecord, actionId: string | null = null) {
   return {
+    ...(actionId ? { actionId } : {}),
     id: message.id,
     role: message.role,
     text: message.body,
@@ -34,6 +37,11 @@ function present(message: ChatMessageRecord) {
     paymentNotice:message.paymentNotice,
     newTopic:message.newTopic,
   };
+}
+
+/** Yes and No for Alfred's last message survive a reload; failing to look them up never blocks the history. */
+async function openAction(settings: Parameters<typeof createSupabaseFinanceStore>[0], ownerId: string, last: ChatMessageRecord | undefined): Promise<string | null> {
+  return chatReadDeadline(openConfirmationFor(createSupabaseFinanceStore(settings), ownerId, last, new Date()), 2500).catch((error) => (logError("web_chat_open_action", error), null));
 }
 
 export async function GET(request?: Request): Promise<Response> {
@@ -60,7 +68,8 @@ export async function GET(request?: Request): Promise<Response> {
     }
     if (part === "history") {
       const history = await chatReadDeadline(createSupabaseMessageLog(settings.supabase).listRecent(user.id, 80), 8000);
-      return Response.json({ ok: true, ownerId: user.id, messages: history.map(present), part }, { headers });
+      const actionId = await openAction(settings.supabase, user.id, history.at(-1));
+      return Response.json({ ok: true, ownerId: user.id, messages: history.map((message, index) => present(message, index === history.length - 1 ? actionId : null)), part }, { headers });
     }
     if (part === "choices") {
       // No 80-message history or accounting hydration is needed to offer the
@@ -88,7 +97,8 @@ export async function GET(request?: Request): Promise<Response> {
     const choices = profile
       ? await chatReadDeadline(openChoices(profile, createStudioDeps(settings), paymentEntry?.state === "ready" ? paymentEntry.message : requestedPayment.length ? undefined : history.at(-1)), 2500).catch((error) => (logError("web_chat_choices", error), []))
       : [];
-    return Response.json({ ok: true, ownerId: user.id, messages: history.map(present), choices, ...(requestedPayment.length ? { paymentEntry } : {}) }, { headers });
+    const actionId = await openAction(settings.supabase, user.id, history.at(-1));
+    return Response.json({ ok: true, ownerId: user.id, messages: history.map((message, index) => present(message, index === history.length - 1 ? actionId : null)), choices, ...(requestedPayment.length ? { paymentEntry } : {}) }, { headers });
   } catch (error) {
     logError("web_chat_history", error);
     return Response.json({ ok: false, text: userFacingError(error) }, { status: 500, headers });
@@ -153,7 +163,7 @@ export async function POST(request: Request): Promise<Response> {
     if (!turn) return Response.json({ ok: false, text: "Send a text message." }, { status: 400 });
     const result = await handleProfileTurn(profile, turn, createStudioDeps(settings));
     if (result.pending) {
-      return Response.json({ ok: false, text: result.text, messages: (result.messages ?? []).map(present) }, { status: 409 });
+      return Response.json({ ok: false, text: result.text, messages: (result.messages ?? []).map((message) => present(message)) }, { status: 409 });
     }
     // A committed reply does not wait for device delivery. The authenticated
     // scheduler recovers registration failures and serverless interruptions.
@@ -165,7 +175,7 @@ export async function POST(request: Request): Promise<Response> {
       ok: true,
       text: result.text,
       actionId: result.actionId ?? null,
-      messages: (result.messages ?? []).map(present),
+      messages: (result.messages ?? []).map((message) => present(message)),
       choices: result.choices ?? [],
       ledgerChanged: result.ledgerChanged ?? true,
     });

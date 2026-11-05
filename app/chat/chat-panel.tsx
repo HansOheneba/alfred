@@ -37,6 +37,8 @@ type ServerMessage = {
   ledgerChanged?: boolean;
   paymentNotice?: ChatMessageRecord["paymentNotice"];
   newTopic?: boolean;
+  /** Alfred's open confirmation on this message, so Yes and No survive a reload. */
+  actionId?: string | null;
 };
 
 const QUICK_ACTIONS: (Suggestion & { description: string; tone: "expense" | "income" })[] = [
@@ -858,5 +860,6 @@ function serverMessage(message: ServerMessage): ThreadMessage {
     chart: message.chart ?? null,
     paymentNotice: message.paymentNotice,
     newTopic: message.newTopic,
+    ...(message.actionId ? { actionId: message.actionId } : {}),
   };
 }
