@@ -35,6 +35,7 @@ import { actionsOf, type FinanceAction, type InterpretedAction } from "@/lib/fin
 import type { FinanceStore } from "@/lib/finance/store";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { createLookup } from "@/lib/conversation/lookups";
+import { rememberedAnswers } from "@/lib/conversation/remembered";
 import { remember } from "@/lib/learning/log";
 import { logInfo } from "@/lib/log";
 import { aboutForPrompt, type NotebookStore } from "@/lib/notebook/store";
@@ -175,6 +176,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
   // The payment Alfred is asking about: the alert being replied to, or the question Alfred just asked in chat.
   const askedAbout = waiting?.current && (waiting.exactQuestion || (noticeFocus === undefined && await alfredAskedAboutPayment(deps.messages, ctx.profile.profileId, options.excludeClientId))) ? waiting.current : null;
   const proposal = askedAbout ? await openProposalText(deps.messages, ctx, askedAbout.id, options.excludeClientId) : null;
+  const remembered = askedAbout && deps.bank ? await rememberedAnswers({ bank: deps.bank, store: ctx.store, loans: deps.loans }, ctx.profile, askedAbout) : [];
   const earlier = noticeFocus?.requiresPurpose ? await saidAboutPayment(deps.messages, ctx.profile.profileId, noticeFocus.bankMessageId, options.excludeClientId) : [];
   const lookup = createLookup({ store: ctx.store, bank: deps.bank, loans: deps.loans, investments: deps.investments, notebook: deps.notebook, people: deps.people }, ctx.profile);
   const request = (said: string): Parameters<typeof interpretWithContext>[0] => ({
@@ -203,6 +205,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
               "Alfred shows the person its reading and asks before saving, so choose the label that matches what they mean in their own words: money out that someone will pay back is lent to that person, money moved onto their own card or account is own_transfer.",
               "lent only fits money OUT. When someone owes them for something paid from the card or account this money went onto, put lent on that later OUT payment, and keep this payment as own_transfer.",
               "A spending category never fits money IN. When money came onto their card or account to pay for something (\"that's what I used to pay for Claude\"), this payment is own_transfer and the category goes on the OUT payment it paid for, usually the one right after it.",
+              remembered.length ? `How they filed payments like this one before: ${remembered.join("; ")}. If this one looks the same, or they say it's the same, propose the same reading; their own words always win.` : "",
               earlier.length ? `Earlier about this payment they said: ${earlier.map((item) => `"${item}"`).join(", then ")}. Read the new message together with that.` : "",
               proposal ? `Alfred already showed this reading, still waiting for a yes: "${proposal.replace(/\s+/g, " ").slice(0, 400)}". If the new message corrects or adds to it, answer with the full corrected set of labels.` : "",
               "If the purpose is unclear, ask; never invent a person or purpose they didn't give, or log the same payment again.",
@@ -254,7 +257,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     const proposals = actions.flatMap((item) => item.type === "label_payments" ? resolvedFrom(item.answers, waiting!.listed) : [])
       .flatMap((answer) => answer.messageIds.map((id) => ({ message: waiting!.listed.find((message) => message.id === id), label: answer.label })))
       .filter((item): item is Proposal => Boolean(item.message));
-    const said = [text, ...(people ?? [])];
+    const said = [text, ...(people ?? []), ...remembered];
     const decision = decidePaymentAnswer({
       text, asked: focused, proposals, nearby: nearbyIds(focused, waiting!.listed),
       grounded: groundedPaymentLabel, proposable: (words, message, label) => proposableLabel(words, message, label, said),

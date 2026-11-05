@@ -77,6 +77,13 @@ async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain)
     });
     if (saved) refs.set(payment.ref, saved.id);
     if (saved && payment.asked) await bank.updateMessage(OWNER_ID, saved.id, { askedAt: now.toISOString() });
+    if (saved && payment.filedAs) {
+      const transactionId = `7a1b2c3d-5555-4555-8555-${String(index + 1).padStart(12, "0")}`;
+      await deps.store.appendTransaction({ transactionId, createdAt: payment.occurredAt, transactionDate: payment.occurredAt.slice(0, 10), userId: OWNER_ID,
+        type: payment.direction === "out" ? "expense" : "income", amount: payment.amount, currency: "GHS", category: payment.filedAs.category, description: payment.filedAs.description,
+        paymentMethod: "", notes: "", status: "active", updatedAt: payment.occurredAt, sourceUpdateId: `bank:${saved.id}` });
+      await bank.updateMessage(OWNER_ID, saved.id, { status: "recorded", transactionId });
+    }
   }
   for (const investment of evalCase.setup.investments) {
     await deps.investments!.create(OWNER_ID, { name: investment.name, kind: investment.kind, currency: "GHS", investedBefore: investment.investedBefore });

@@ -1,0 +1,67 @@
+{
+  "id": "same-as-last-month",
+  "title": "A second Claude charge, answered 'same as last month'",
+  "source": "PR 5: Alfred learns from how payments were filed before",
+  "tags": [
+    "memory",
+    "payments",
+    "subscriptions"
+  ],
+  "now": "2026-11-05T15:00:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "october",
+        "direction": "out",
+        "amount": "1290.10",
+        "counterparty": "",
+        "occurredAt": "2026-10-03T10:09:00.000Z",
+        "filedAs": {
+          "category": "Subscriptions",
+          "description": "Claude subscription"
+        }
+      },
+      {
+        "ref": "november",
+        "direction": "out",
+        "amount": "1307.48",
+        "counterparty": "",
+        "occurredAt": "2026-11-03T10:09:00.000Z",
+        "asked": true
+      }
+    ],
+    "messages": [
+      {
+        "role": "assistant",
+        "body": "Next: GH₵1,307.48 on your GCB card · Tue 3 Nov, 10:09. What was it?",
+        "intent": "bank:label"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "say": "same as last month"
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "payments": {
+      "november": "recorded"
+    },
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "1290.10",
+        "category": "Subscriptions"
+      },
+      {
+        "type": "expense",
+        "amount": "1307.48",
+        "category": "Subscriptions"
+      }
+    ]
+  }
+}

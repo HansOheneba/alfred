@@ -23,6 +23,8 @@ const paymentSchema = z.object({
   status: z.literal("needs_label").default("needs_label"),
   /** Alfred asked about this one in chat ("Next: … What was it?"), not through an alert. */
   asked: z.boolean().optional(),
+  /** Already filed earlier under this category, the way the person labelled it. */
+  filedAs: z.object({ category: z.string(), description: z.string() }).optional(),
 });
 
 const stepSchema = z.object({
