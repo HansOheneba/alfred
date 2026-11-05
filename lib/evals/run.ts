@@ -25,6 +25,18 @@ export type CaseResult = { id: string; title: string; tags: string[]; passed: bo
 
 const OWNER_ID = "00000000-0000-4000-8000-0000000e0a10";
 
+/** Words that say Alfred couldn't do what was asked. */
+const STUCK = /\b(?:couldn't|could not|can't|cannot|doesn't fit|didn't catch|isn't one of|not sure what you|unable to)\b/i;
+
+/**
+ * A dead end: Alfred says it couldn't do something, saved nothing, and offers
+ * no way forward (no Confirm, no answer buttons, no question). Checked on every
+ * step of every case, so a new dead end fails even where nobody wrote a test for it.
+ */
+export function isDeadEnd(reply: { text: string; asksToConfirm: boolean; choices: number }, savedSomething: boolean): boolean {
+  return !savedSomething && !reply.asksToConfirm && reply.choices === 0 && !reply.text.includes("?") && STUCK.test(reply.text);
+}
+
 /** One fresh, in-memory person with only this case's books. Nothing here touches a real database. */
 async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain) {
   const owner = { profileId: OWNER_ID, telegramUserId: null, chatId: null, preferredName: evalCase.name, timezone: "Africa/Accra", currency: "GHS", communicationPreference: "concise", toneNote: "" } as unknown as UserProfile;
@@ -139,7 +151,9 @@ export async function runCase(evalCase: EvalCase, settings: StudioSettings, brai
     const asksToConfirm = Boolean(result.actionId);
     const expect = step.expect;
     if (expect.asksToConfirm !== undefined && expect.asksToConfirm !== asksToConfirm) stepProblems.push(expect.asksToConfirm ? "expected Confirm/Cancel, got none" : "asked to confirm when it shouldn't");
-    if (expect.savesNothing && (await snapshot(deps)) !== before) stepProblems.push("saved something when it should have saved nothing");
+    const savedSomething = (await snapshot(deps)) !== before;
+    if (expect.savesNothing && savedSomething) stepProblems.push("saved something when it should have saved nothing");
+    if (isDeadEnd({ text: result.text, asksToConfirm, choices: result.choices?.flat().length ?? 0 }, savedSomething)) stepProblems.push("dead end: said it couldn't, saved nothing, offered no way forward");
     if (expect.reply && !new RegExp(expect.reply, "i").test(result.text)) stepProblems.push(`reply didn't match /${expect.reply}/`);
     if (expect.notReply && new RegExp(expect.notReply, "i").test(result.text)) stepProblems.push(`reply matched forbidden /${expect.notReply}/`);
     steps.push({ said: step.say ?? `[${step.tap}]`, reply: result.text, asksToConfirm, problems: stepProblems });

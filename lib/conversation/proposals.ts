@@ -26,6 +26,41 @@ export function nearbyPayments(current: BankMessage, listed: BankMessage[], prof
     .map(({ message, number }) => `${number}. ${message.direction === "in" ? "IN" : "OUT"} ${waitingLine(message, profile)} at ${timeOf(message, profile)}`);
 }
 
+/** Ids of waiting payments close in time to the one being asked about. */
+export function nearbyIds(current: BankMessage, listed: BankMessage[]): Set<string> {
+  const at = Date.parse(current.occurredAt);
+  return new Set(listed.filter((message) => message.id !== current.id && message.ownerId === current.ownerId && Math.abs(Date.parse(message.occurredAt) - at) <= NEARBY_MS).map((message) => message.id));
+}
+
+/**
+ * What to do with the model's labels when Alfred has asked about one payment.
+ * The same rule applies whether the person is replying to an alert or to
+ * Alfred's question in chat:
+ * - file: their words name this payment's purpose, so file it now (with undo);
+ * - propose: the reading fits their words without naming it, or also covers a
+ *   payment from around the same time, so show it and wait for a yes;
+ * - ask: nothing usable, so ask again with the answer buttons. Never a dead end.
+ * Labels for other, older payments the person named are left to the normal path.
+ */
+export type AnswerDecision = { kind: "file" } | { kind: "propose"; items: Proposal[] } | { kind: "ask" };
+
+export function decidePaymentAnswer(input: {
+  text: string;
+  asked: BankMessage;
+  proposals: Proposal[];
+  nearby: Set<string>;
+  grounded: (text: string, message: BankMessage, label: Label) => boolean;
+  proposable: (text: string, message: BankMessage, label: Label) => boolean;
+}): AnswerDecision {
+  const { text, asked, nearby } = input;
+  const relevant = input.proposals.filter((item) => item.message.id === asked.id || nearby.has(item.message.id));
+  if (relevant.length === 0) return input.proposals.length > 0 ? { kind: "file" } : { kind: "ask" };
+  if (relevant.every((item) => item.message.id === asked.id && fitsDirection(item.message, item.label) && input.grounded(text, item.message, item.label))) return { kind: "file" };
+  const fit = relevant.filter((item) => fitsDirection(item.message, item.label) && (input.grounded(text, item.message, item.label) || input.proposable(text, item.message, item.label)));
+  if (fit.length === relevant.length && fit.some((item) => item.message.id === asked.id)) return { kind: "propose", items: fit };
+  return { kind: "ask" };
+}
+
 function timeOf(message: BankMessage, profile: UserProfile): string {
   return new Intl.DateTimeFormat("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: profile.timezone }).format(new Date(message.occurredAt));
 }
@@ -35,7 +70,7 @@ export function fitsDirection(message: BankMessage, label: Label): boolean {
   if (label.kind === "lent" || label.kind === "paid_back") return message.direction === "out";
   if (label.kind === "repaid" || label.kind === "borrowed" || label.kind === "refund") return message.direction === "in";
   if (label.kind === "category") return Boolean(normalizeCategory(label.category, message.direction === "in" ? "income" : "expense"));
-  return label.kind !== "skip";
+  return true;
 }
 
 /** "money you lent George", said the way a person would. */

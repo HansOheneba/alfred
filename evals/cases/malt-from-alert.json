@@ -1,0 +1,45 @@
+{
+  "id": "malt-from-alert",
+  "title": "A one-word item named in reply to an alert",
+  "source": "Same answer as ask-after-promising-later, through the alert path: both paths must agree",
+  "tags": [
+    "payments",
+    "consistency"
+  ],
+  "now": "2026-10-31T05:20:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "ellen",
+        "direction": "out",
+        "amount": "22.50",
+        "counterparty": "ELLEN OHENEWA OBENG-DARKO",
+        "occurredAt": "2026-10-31T05:15:00.000Z",
+        "source": "momo"
+      }
+    ],
+    "notice": "ellen"
+  },
+  "steps": [
+    {
+      "say": "malt",
+      "replyTo": "ellen"
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "payments": {
+      "ellen": "recorded"
+    },
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "22.50",
+        "category": "Food"
+      }
+    ]
+  }
+}

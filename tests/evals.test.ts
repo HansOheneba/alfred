@@ -3,7 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { InterpretRequest } from "@/lib/ai/deepseek";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER, type StudioSettings } from "@/lib/config";
 import { evalCaseSchema, loadCases } from "@/lib/evals/cases";
-import { runCase, summarize } from "@/lib/evals/run";
+import { isDeadEnd, runCase, summarize } from "@/lib/evals/run";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 
 const SETTINGS: StudioSettings = {
@@ -71,5 +71,19 @@ describe("eval runner", () => {
       { id: "b", title: "b", tags: ["loans", "safety"], passed: false, problems: ["x"], steps: [], seconds: 1 },
     ]);
     expect(summary).toMatchObject({ total: 2, passed: 1, passRate: 0.5, byTag: { loans: 0.5, safety: 0 } });
+  });
+});
+
+describe("dead ends", () => {
+  it("flags a refusal that saves nothing and offers no way forward", () => {
+    expect(isDeadEnd({ text: "That category doesn't fit. Pick one from the list.", asksToConfirm: false, choices: 0 }, false)).toBe(true);
+  });
+  it("allows the same words when Alfred offers buttons, a confirmation or a question", () => {
+    expect(isDeadEnd({ text: "That category doesn't fit.", asksToConfirm: false, choices: 5 }, false)).toBe(false);
+    expect(isDeadEnd({ text: "I couldn't match that. Save this instead?", asksToConfirm: true, choices: 0 }, false)).toBe(false);
+    expect(isDeadEnd({ text: "I couldn't tell which one. Was it the 350?", asksToConfirm: false, choices: 0 }, false)).toBe(false);
+  });
+  it("allows ordinary answers", () => {
+    expect(isDeadEnd({ text: "You owe Kwame GH₵200.00.", asksToConfirm: false, choices: 0 }, false)).toBe(false);
   });
 });
