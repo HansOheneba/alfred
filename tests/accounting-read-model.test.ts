@@ -13,7 +13,7 @@ import type { TransactionRecord } from "@/lib/finance/types";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), raw: vi.fn(), messages: vi.fn(), rules: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/supabase/finance-store", () => ({ listRawTransactions: mocks.raw }));
-vi.mock("@/lib/bank/store", () => ({ createSupabaseBankStore: () => ({ listMessages: mocks.messages }) }));
+vi.mock("@/lib/bank/store", () => ({ listAccountingBankMessages: (_settings: unknown, ownerId: string) => mocks.messages(ownerId) }));
 vi.mock("@/lib/account-rules/store", () => ({ loadAccountRules: mocks.rules }));
 
 const OWNER = "00000000-0000-4000-8000-000000000001";

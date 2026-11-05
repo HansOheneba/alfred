@@ -8,6 +8,7 @@ import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/
 import { loadOverview } from "@/lib/web/overview";
 import { parseOverviewTransactionFilters } from "@/lib/web/activity-handoff";
 import { overviewViewFromParams } from "./overview-view";
+import { DurableDisplayUpdating } from "@/lib/finance/accounting/durable-read";
 
 type DashboardSearchParams = Promise<Record<string, string | string[] | undefined>>;
 
@@ -49,6 +50,7 @@ async function DashboardScreen({ searchParams }: { searchParams?: DashboardSearc
     const view = overviewViewFromParams(params);
     overview = await loadOverview(account.profile, account.settings, { preset: view.preset, category: view.category, filters: parseOverviewTransactionFilters(params.toString()) });
   } catch (error) {
+    if(error instanceof DurableDisplayUpdating)return <AppShell current="dashboard" ownerId={account.userId} name={name}><div className="alfred-ui-dashboard text-sm text-muted" role="status"><p>{error.message}</p><a href="/dashboard" className="mt-3 inline-flex underline">Try again</a></div></AppShell>;
     return (
       <AppShell current="dashboard" ownerId={account.userId} name={name}>
         <p className="alfred-ui-dashboard text-sm text-danger" role="alert">

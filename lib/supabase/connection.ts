@@ -8,7 +8,7 @@ import { DatabaseError } from "@/lib/errors";
 types.setTypeParser(1082, (value) => value);
 
 type Candidate = { address: string; port: number };
-type PoolEntry = Candidate & { pool: Pool; settings: SupabaseSettings; retired: boolean };
+type PoolEntry = Candidate & { pool: Pool; settings: SupabaseSettings; retired: boolean; acquiredClients: Set<PoolClient> };
 const pools = new Map<string, PoolEntry>();
 let preferred: PoolEntry | null = null;
 type TransactionScope = { client: PoolClient; settings: SupabaseSettings; active: boolean; connectionFailed: boolean; failure?: DatabaseError };
@@ -20,6 +20,7 @@ const DNS_TTL_MS = 60_000;
 // never race query execution against a timer or replay it on another connection.
 const ACQUISITION_BUDGET_MS = 8_000;
 const ACQUISITION_ATTEMPT_MS = 2_000;
+const POOL_MAX_CLIENTS = 3;
 let resolved: { host: string; addresses: string[]; at: number } | null = null;
 let dnsGeneration = 0;
 
@@ -63,12 +64,20 @@ function poolFor(settings: SupabaseSettings, address: string, port: number): Poo
     user: settings.user,
     password: settings.password,
     database: settings.database,
-    max: 3,
+    max: POOL_MAX_CLIENTS,
     idleTimeoutMillis: 10_000,
-    connectionTimeoutMillis: ACQUISITION_ATTEMPT_MS,
+    // pg-pool applies this to both connection creation and its FIFO checkout
+    // queue. The outer bound below keeps new connection attempts at two seconds,
+    // while a healthy saturated pool can use the full acquisition budget.
+    connectionTimeoutMillis: ACQUISITION_BUDGET_MS,
     ssl: { rejectUnauthorized: false, servername: settings.host },
   });
-  const entry: PoolEntry = { pool, settings: { ...settings }, address, port, retired: false };
+  const entry: PoolEntry = { pool, settings: { ...settings }, address, port, retired: false, acquiredClients: new Set() };
+  // totalCount includes clients whose handshake has not finished. Only acquire
+  // proves a connected client is doing work; release/remove ends that checkout.
+  pool.on("acquire", (client: PoolClient) => entry.acquiredClients.add(client));
+  pool.on("release", (_error: Error | undefined, client: PoolClient) => entry.acquiredClients.delete(client));
+  pool.on("remove", (client: PoolClient) => entry.acquiredClients.delete(client));
   pool.on("error", () => invalidatePool(entry));
   pools.set(key, entry);
   return entry;
@@ -79,6 +88,13 @@ function unreachable(error: unknown): boolean {
   const message = error instanceof Error ? error.message : "";
   return ["ENETUNREACH", "EHOSTUNREACH", "ETIMEDOUT", "ECONNREFUSED", "ECONNRESET", "EPIPE", "08000", "08001", "08003", "08006", "57P01", "57P02", "57P03"].includes(code)
     || /^(?:timeout exceeded when trying to connect|Connection terminated due to connection timeout|Connection terminated unexpectedly|Connection terminated|timeout expired|Cannot use a pool after calling end on the pool)$/i.test(message);
+}
+
+function checkoutTimeout(error: unknown): boolean {
+  return error instanceof Error && /^(?:timeout exceeded when trying to connect|Connection terminated due to connection timeout)$/i.test(error.message);
+}
+function activeClients(entry: PoolEntry): number {
+  return entry.acquiredClients.size;
 }
 
 function boundedAcquisition<T>(operation: Promise<T>, milliseconds: number, late?: (value: T) => void): Promise<T> {
@@ -134,11 +150,12 @@ async function acquireClient(settings: SupabaseSettings): Promise<{ client: Pool
     const remaining = deadline - Date.now();
     if (remaining <= 0) break;
     const entry = poolFor(settings, candidate.address, candidate.port);
+    const queued = entry.pool.totalCount >= POOL_MAX_CLIENTS && entry.pool.idleCount === 0 && activeClients(entry) > 0;
     try {
-      const client = await boundedAcquisition(entry.pool.connect(), Math.min(remaining, ACQUISITION_ATTEMPT_MS), (lateClient) => {
-        // The checkout cannot be cancelled via pg's public API. A late client
-        // has never run SQL and must be destroyed instead of leaking a slot.
-        lateClient.release(true);
+      const client = await boundedAcquisition(entry.pool.connect(), queued ? remaining : Math.min(remaining, ACQUISITION_ATTEMPT_MS), (lateClient) => {
+        // pg's public API cannot cancel a checkout. Return a late unused client
+        // to a healthy pool, or destroy it when that pool has been retired.
+        lateClient.release(entry.retired);
       });
       if (entry.retired) {
         client.release(true);
@@ -149,6 +166,12 @@ async function acquireClient(settings: SupabaseSettings): Promise<{ client: Pool
       return { client, entry };
     } catch (error) {
       lastError = error;
+      // Queue pressure is not proof that this address or its healthy active
+      // clients are unreachable. Preserve the pool, preference and DNS cache.
+      if (checkoutTimeout(error) && (queued || activeClients(entry) > 0)) {
+        if (queued) throw failedQuery(error);
+        continue;
+      }
       if (!full(error) && !unreachable(error)) throw failedQuery(error);
       invalidatePool(entry);
     }

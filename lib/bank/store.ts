@@ -144,6 +144,13 @@ function fromRow(row: MessageRow): BankMessage {
   };
 }
 
+/** Complete accounting source collection. Review/inbox listMessages intentionally retains its UI limit. */
+export async function listAccountingBankMessages(settings: SupabaseSettings, ownerId: string): Promise<BankMessage[]> {
+  const rows = await query<MessageRow>(settings, `select ${columns} from public.bank_messages
+    where owner_id=$1::uuid order by occurred_at desc,id`, [ownerId]);
+  return rows.map(fromRow);
+}
+
 /** Bounded automatic-transfer preflight. Never fetches an owner's full message history per arriving SMS. */
 export type BankTransferWindow = { messages: BankMessage[]; complete: boolean };
 export async function listBankTransferWindow(settings: SupabaseSettings, ownerId: string, newBankIds: string[]): Promise<BankTransferWindow> {

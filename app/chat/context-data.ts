@@ -6,7 +6,8 @@ export const CHAT_SESSION_CHANGED = "Your session changed. Reload this page to c
 /** Verify the response belongs to the owner who opened this conversation. */
 export async function loadOwnedChatContext(ownerId: string, signal: AbortSignal, request: typeof fetch = fetch): Promise<ChatContext> {
   const response = await request("/api/chat/context", { cache: "no-store", credentials: "same-origin", signal });
-  const payload = await response.json() as { ok?: boolean; ownerId?: string; context?: unknown };
+  const payload = await response.json() as { ok?: boolean; ownerId?: string; context?: unknown;updating?:boolean;text?:string };
+  if(response.status===202&&payload.updating===true)throw new Error(typeof payload.text==='string'?payload.text:'Alfred is updating your financial view. Please try again shortly.');
   if (!response.ok || payload.ok !== true || !payload.context) throw new Error(CHAT_CONTEXT_ERROR);
   if (payload.ownerId !== ownerId) throw new Error(CHAT_SESSION_CHANGED);
   const parsed = chatContextSchema.safeParse(payload.context);

@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo } from "react";
+import { useMemo, useRef } from "react";
 import { ChatPanel } from "@/app/chat/chat-panel";
 import { TURN_STREAM } from "@/app/chat/turn-stream";
 import type { DrawnChart } from "@/lib/finance/charts";
@@ -10,12 +10,12 @@ const STEPS = [["Reading your message", 700], ["Drawing your chart", 900], ["Put
 
 /** The real chat with a closed sample connection: steps arrive over time, then a reply with a chart. Nothing is sent anywhere. */
 export function StreamingChatPreview({ chart, reply }: { chart: DrawnChart; reply: string }) {
+  const sequenceRef = useRef(0);
   const request = useMemo<typeof fetch>(() => {
-    let sequence = 0;
     return async (input, options) => {
       if (!options?.method || options.method === "GET") return Response.json({ ok: true, ownerId, messages: [], choices: [] });
       const body = JSON.parse(String(options.body)) as { text?: string; clientId?: string };
-      sequence += 1;
+      const sequence = ++sequenceRef.current;
       const clientId = body.clientId ?? `sample-${sequence}`;
       const createdAt = new Date(Date.parse("2026-11-20T12:00:00.000Z") + sequence * 1000).toISOString();
       const messages = [

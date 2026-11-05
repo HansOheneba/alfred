@@ -295,7 +295,7 @@ describe("deterministic owner-account transfers through durable ingest", () => {
     expect((await db.query<{ amount: string }>("select amount::text from transactions")).rows).toEqual([{ amount: "0.38" }]);
   });
 
-  it("does not mistake a competitor outside the latest 200 source rows for a unique pair", async () => {
+  it("does not mistake a competitor outside the latest 200 inbox rows for a unique pair", async () => {
     await seedPending(incoming("200.00"), "2026-11-04T12:09:00Z");
     const competitor = await seedPending(outgoing("200.00", "88123457"), "2026-11-04T11:59:00Z");
     await db.query(`insert into bank_messages(owner_id,source,channel,external_id,text_hash,direction,kind,amount,fee,currency,counterparty,balance,occurred_at,status,raw,read_by)
@@ -305,11 +305,12 @@ describe("deterministic owner-account transfers through durable ingest", () => {
     const window = await listBankTransferWindow(settings, OWNER, result.durableMessageIds);
     expect(window.complete).toBe(true); expect(window.messages.map((row) => row.id)).toContain(competitor);
     const loaded = await loadAccountingState(settings, OWNER);
-    expect(loaded.bankMessages?.some((row) => row.id === competitor)).toBe(false);
+    expect(loaded.bankMessages?.some((row) => row.id === competitor)).toBe(true);
+    expect(loaded.state.movements.find((row) => row.id === `bank:${competitor}`)?.sourceMissing).not.toBe(true);
     expect(loaded.bankMessages?.some((row) => row.id === result.durableMessageIds[0])).toBe(true);
     expect((await db.query<{ status: string }>("select status from bank_messages where id=any($1::uuid[])", [[competitor, ...result.durableMessageIds]])).rows.every((row) => row.status === "needs_label")).toBe(true);
     expect(loaded.state).toMatchObject({ revision: 0, transfers: [], audit: [] });
-    expect(await createTransferConversationDeps(settings).inspect(OWNER, result.durableMessageIds[0])).toMatchObject({ status: "unavailable" });
+    expect(await createTransferConversationDeps(settings).inspect(OWNER, result.durableMessageIds[0])).toMatchObject({ status: "ambiguous" });
   });
 
   it("defers an overflowing complete-window check instead of falling back to a truncated set", async () => {

@@ -9,6 +9,13 @@ import { zonedYmd } from "@/lib/finance/dates";
 import { loadLedgerSnapshot } from "./ledger";
 import { buildOverviewSummary } from "./overview-summary";
 import { filterOverviewTransactions, OVERVIEW_PAGE_SIZE, overviewTransactionQueryKey, type OverviewTransactionPage, type OverviewTransactionQuery } from "./overview-transactions";
+import { durableDisplayEnabled, DurableDisplayUpdating, type DurableBundle } from "@/lib/finance/accounting/durable-read";
+import { readDurableOverview, readDurableOverviewPage, overviewSummaryFromFacts, type DurableOverviewFacts } from "./durable-overview";
+import { loadDurablePlanning, durablePlanningLedger } from "./durable-planning";
+import { readDurableInsightFacts } from "./durable-insight-query";
+import { getGettingStartedState } from "@/app/components/getting-started-state";
+import { createSupabasePinStore } from "@/lib/finance/pins";
+import { logError } from "@/lib/log";
 
 const querySchema = z.strictObject({
   preset: z.enum(["this_month", "last_month", "last_3_months", "last_6_months", "this_year", "all"]),
@@ -21,6 +28,13 @@ export class InvalidOverviewPage extends Error {
 }
 export class OverviewChanged extends Error {
   constructor() { super("Your financial records changed. Refresh Overview before loading more transactions."); }
+}
+function parsedCursor(cursor: string | null) {
+  if (!cursor) return null;
+  try {
+    if (cursor.length > 1200 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error("Invalid cursor");
+    return cursorSchema.parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
+  } catch { throw new InvalidOverviewPage(); }
 }
 export function parseOverviewTransactionQuery(params: URLSearchParams): OverviewTransactionQuery {
   const allowed = new Set(["range", "category", "tx_q", "tx_type", "tx_category", "tx_sort", "cursor"]);
@@ -35,12 +49,8 @@ export function overviewTransactionPage(profile: UserProfile, accounting: Accoun
   const query = querySchema.parse(input), queryKey = overviewTransactionQueryKey(query), version = reportVersion(profile, accounting, rows, today);
   const queryHash = createHash("sha256").update(queryKey).digest("hex");
   let offset = 0;
-  if (cursor) {
-    let value: z.infer<typeof cursorSchema>;
-    try {
-      if (cursor.length > 1200 || !/^[A-Za-z0-9_-]+$/.test(cursor)) throw new Error("Invalid cursor");
-      value = cursorSchema.parse(JSON.parse(Buffer.from(cursor, "base64url").toString("utf8")));
-    } catch { throw new InvalidOverviewPage(); }
+  const value=parsedCursor(cursor);
+  if (value) {
     if (value.version !== version || value.queryHash !== queryHash) throw new OverviewChanged();
     offset = value.offset;
   }
@@ -57,7 +67,36 @@ export function overviewTransactionPage(profile: UserProfile, accounting: Accoun
   };
 }
 
+export function durableOverviewPage(profile:UserProfile,today:string,input:OverviewTransactionQuery,bundle:DurableBundle<DurableOverviewFacts['page']>,cursor:string|null=null):OverviewTransactionPage {
+ const query=querySchema.parse(input),queryKey=overviewTransactionQueryKey(query),queryHash=createHash('sha256').update(queryKey).digest('hex');
+ const version=createHash('sha256').update(JSON.stringify([profile.profileId,profile.currency,today,bundle.manifest.revision,bundle.manifest.sourceVersion,'durable',bundle.manifest.projectorVersion,bundle.token])).digest('hex');
+ const selected=parsedCursor(cursor),offset=selected?.offset??0;
+ if(selected&&(selected.version!==version||selected.queryHash!==queryHash))throw new OverviewChanged();
+ const page=bundle.data;
+ if(!Array.isArray(page.rows)||page.rows.length>15||!Number.isSafeInteger(page.total)||page.total<page.rows.length||!Array.isArray(page.categories))throw new Error('The transaction display could not be verified.');
+ if(offset>page.total)throw new OverviewChanged();
+ return {...page,version,queryKey,categories:[...page.categories].sort(),nextCursor:offset+page.rows.length<page.total?Buffer.from(JSON.stringify({offset:offset+page.rows.length,version,queryHash})).toString('base64url'):null};
+}
+
 export async function loadOverview(profile: UserProfile, settings: StudioSettings, query: OverviewTransactionQuery) {
+  query=querySchema.parse(query);
+  if(durableDisplayEnabled()){
+    const today=zonedYmd(new Date(),profile.timezone);
+    const [bundle,resources,pins]=await Promise.all([readDurableOverview(settings.supabase,profile,today,query),loadDurablePlanning(profile,settings),createSupabasePinStore(settings.supabase).list(profile.profileId).catch((error:unknown)=>(logError('pins_list',error),[]))]);
+    if(bundle){
+      const facts=await readDurableInsightFacts(settings.supabase,profile,today,resources.bills,resources.held.map(row=>`bank:${row.id}`));
+      if(!facts||facts.token!==bundle.token)throw new DurableDisplayUpdating();
+      const ledger=durablePlanningLedger(profile,today,bundle.manifest,resources,facts.data);
+      if(pins.length){
+        const { readDurablePinnedCharts }=await import('./durable-pinned-charts');
+        const pinned=await readDurablePinnedCharts(settings.supabase,profile,today,pins);
+        if(!pinned||pinned.token!==bundle.token)throw new DurableDisplayUpdating();
+        ledger.pinned=pinned.data;
+      }
+      const setup=getGettingStartedState(ledger,{hasTransaction:bundle.manifest.ledger.count>0});
+      return {ledger,summary:overviewSummaryFromFacts(bundle,today,profile.currency,setup),firstPage:durableOverviewPage(profile,today,query,{...bundle,data:bundle.data.page})};
+    }
+  }
   const { ledger, accounting } = await loadLedgerSnapshot(profile, settings, { receipts: false });
   const summary = buildOverviewSummary(ledger), firstPage = overviewTransactionPage(profile, accounting, ledger.rows, ledger.today, query);
   // Complete rows stay on the server. Detail rows cross the boundary once in firstPage.
@@ -66,7 +105,11 @@ export async function loadOverview(profile: UserProfile, settings: StudioSetting
 
 /** Full source-coherent accounting precedes filtering/pagination; never page raw inputs or mutate state. */
 export async function loadOverviewTransactionPage(profile: UserProfile, settings: StudioSettings, query: OverviewTransactionQuery, cursor: string | null) {
+  query=querySchema.parse(query);
+  const today=zonedYmd(new Date(),profile.timezone),offset=parsedCursor(cursor)?.offset??0;
+  const bundle=await readDurableOverviewPage(settings.supabase,profile,today,query,offset);
+  if(bundle)return durableOverviewPage(profile,today,query,bundle,cursor);
   const accounting = await loadAccountingReadModel(settings.supabase, profile.profileId);
   const transactions = accounting.availability === "ready" ? projectAccountingTransactions(accounting.rawTransactions, accounting.state) : accounting.rawTransactions;
-  return overviewTransactionPage(profile, accounting, toLedgerRows(transactions), zonedYmd(new Date(), profile.timezone), query, cursor);
+  return overviewTransactionPage(profile, accounting, toLedgerRows(transactions), today, query, cursor);
 }

@@ -106,6 +106,20 @@ describe("Accounts read client confirmed mutations", () => {
 });
 
 describe("Accounts read client stale-view fences", () => {
+  it("hides previous financial facts and blocks held commands while the durable model is updating", async () => {
+    mocks.request.mockRejectedValueOnce(new AccountsViewRequestError("Alfred is updating your financial view.", 202));
+    const root = screen(), oldRun = root.run;
+    (root.componentNamed("Pager").props.onPage as (page: number) => void)(1); await flush(); root.render();
+    expect(text(root.tree)).not.toContain("Total account balance");
+    expect(root.componentNamed("AccountsErrorState").props).toMatchObject({ title: "Updating account records", retryLabel: "Check latest records" });
+    await expect(oldRun([commands[0]], "Fictional unsafe edit.")).resolves.toBe(false);
+    expect(mocks.request).toHaveBeenCalledOnce();
+    mocks.request.mockResolvedValueOnce(display(fixture(), "fictional-source:ready"));
+    (root.componentNamed("AccountsErrorState").props.onRetry as () => void)(); await flush(); root.render();
+    expect(root.currentView.sourceVersion).toBe("fictional-source:ready");
+    expect(new URLSearchParams(mocks.request.mock.calls[1][0].query).has("expectedRevision")).toBe(false);
+  });
+
   it("does not start a main-page GET while a command is being saved", async () => {
     const pending = deferred<AccountsReadView>(); mocks.request.mockReturnValue(pending.promise);
     const root = screen(), run = root.run, pager = root.componentNamed("Pager");

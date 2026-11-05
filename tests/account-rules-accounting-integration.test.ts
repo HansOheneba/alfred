@@ -7,7 +7,7 @@ import { emptyAccountingState } from "@/lib/finance/accounting/types";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), raw: vi.fn(), messages: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/supabase/finance-store", () => ({ listRawTransactions: mocks.raw }));
-vi.mock("@/lib/bank/store", () => ({ createSupabaseBankStore: () => ({ listMessages: mocks.messages }) }));
+vi.mock("@/lib/bank/store", () => ({ listAccountingBankMessages: (_settings: unknown, ownerId: string) => mocks.messages(ownerId) }));
 const OWNER = "00000000-0000-4000-8000-000000000001";
 const RULE = "00000000-0000-4000-8000-000000000010";
 const NOW = "2026-11-02T12:00:00.000Z";

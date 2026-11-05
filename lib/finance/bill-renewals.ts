@@ -30,7 +30,7 @@ export function renewalSuggestionBillDraft(suggestion: RenewalSuggestion): Pick<
 
 const monthIndex = (date: Date) => date.getUTCFullYear() * 12 + date.getUTCMonth();
 
-function estimateCadence(
+export function estimateRenewalCadence(
   dates: string[],
   amountsMinor: number[],
   today: string,
@@ -85,6 +85,17 @@ function estimateCadence(
   return { date: nextDate, cadence, stable, observations: recent.length };
 }
 
+/** The same service identity used by renewal detection, before amount/date filtering. */
+export function renewalGroupForTransaction(tx: Pick<TransactionRecord, "description" | "category">): { id: string; name: string } | null {
+  const matched = KNOWN_SERVICES.find(([, , pattern]) => pattern.test(tx.description));
+  const id = matched
+    ? matched[0]
+    : tx.category === "Subscriptions" || tx.category === "Utilities" || tx.category === "Rent & home"
+      ? tx.description.trim().toLowerCase()
+      : null;
+  return id ? { id, name: matched ? matched[1] : tx.description.trim() } : null;
+}
+
 /**
  * Finds recurring bills and subscriptions from the person's recorded expenses,
  * excluding any already saved in `savedBills`.
@@ -102,14 +113,9 @@ export function detectRenewalCandidates(
     if (tx.status !== "active" || tx.type !== "expense" || tx.currency !== currency) continue;
     const minor = toMinor(tx.amount);
     if (minor <= 0 || tx.transactionDate > today) continue;
-    const matched = KNOWN_SERVICES.find(([, , pattern]) => pattern.test(tx.description));
-    const key = matched
-      ? matched[0]
-      : tx.category === "Subscriptions" || tx.category === "Utilities" || tx.category === "Rent & home"
-        ? tx.description.trim().toLowerCase()
-        : null;
-    if (!key) continue;
-    const name = matched ? matched[1] : tx.description.trim();
+    const identity = renewalGroupForTransaction(tx);
+    if (!identity) continue;
+    const { id: key, name } = identity;
     if (savedNames.has(name.toLowerCase())) continue;
     const group = groups.get(key) ?? { id: key, name, records: [] };
     group.records.push(tx);
@@ -119,7 +125,7 @@ export function detectRenewalCandidates(
   const suggestions: RenewalSuggestion[] = [];
   for (const group of groups.values()) {
     const sorted = [...group.records].sort((a, b) => a.transactionDate.localeCompare(b.transactionDate));
-    const estimate = estimateCadence(
+    const estimate = estimateRenewalCadence(
       sorted.map((item) => item.transactionDate),
       sorted.map((item) => toMinor(item.amount)),
       today,

@@ -12,7 +12,7 @@ import { buildAlfredExport } from "@/lib/portability/export";
 const mocks = vi.hoisted(() => ({ query: vi.fn(), raw: vi.fn(), messages: vi.fn(), rules: vi.fn() }));
 vi.mock("@/lib/supabase/connection", () => ({ query: mocks.query }));
 vi.mock("@/lib/supabase/finance-store", () => ({ listRawTransactions: mocks.raw }));
-vi.mock("@/lib/bank/store", () => ({ createSupabaseBankStore: () => ({ listMessages: mocks.messages }) }));
+vi.mock("@/lib/bank/store", () => ({ listAccountingBankMessages: (_settings: unknown, ownerId: string) => mocks.messages(ownerId) }));
 vi.mock("@/lib/account-rules/store", () => ({ loadAccountRules: mocks.rules }));
 
 const OWNER = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa", OTHER = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb", THIRD = "cccccccc-cccc-4ccc-8ccc-cccccccccccc";
@@ -227,8 +227,11 @@ describe("display-cache isolation from complete financial writes and exports", (
     expect(full.state).toEqual(stored);
     const saved = await saveAccountingAction(settings, OWNER, { type: "undo", expectedRevision: 2, requestId: "cache-undo:complete-history" });
     expect(saved.state.accounts[0].label).toBe("Fictional cash 1");
-    expect(saved.state.audit.at(-1)?.before.accounts[0].label).toBe("Fictional cash 2");
-    expect(saved.state.audit[0].before.accounts).toHaveLength(1);
+    expect(saved.state.audit.at(-1)?.before.accounts).toEqual([]);
+    expect(saved.state.audit[0].before.accounts).toEqual([]);
+    const authoritativeSaved = await loadAccountingState(settings, OWNER);
+    expect(authoritativeSaved.state.audit.at(-1)?.before.accounts[0].label).toBe("Fictional cash 2");
+    expect(authoritativeSaved.state.audit[0].before.accounts).toHaveLength(1);
     const exported = await buildAlfredExport(settings, OWNER);
     const native = exported.datasets["alfred.native"];
     const exportedState = native.tables.accountingStates[0].state as AccountingState;
@@ -239,6 +242,6 @@ describe("display-cache isolation from complete financial writes and exports", (
     expect(afterEvent.audit.at(-1)?.before.accounts[0].label).toBe("Fictional cash 2");
     expect(mocks.query.mock.calls.some(([, sql]) => sql === DISPLAY_STAMP_SQL)).toBe(false);
     expect(mocks.query.mock.calls.some(([, sql]) => sql === "select state from public.accounting_states where owner_id=$1::uuid")).toBe(true);
-    expect(mocks.query.mock.calls.some(([, sql]) => sql.includes("jsonb_set"))).toBe(false);
+    expect(mocks.query.mock.calls.some(([, sql]) => sql.includes("as before from public.accounting_states"))).toBe(true);
   });
 });

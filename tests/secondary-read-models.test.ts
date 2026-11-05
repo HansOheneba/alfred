@@ -1,20 +1,24 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { StatsPanel } from "@/app/chat/stats-panel";
 import { buildChatContext, chatContextSchema } from "@/lib/web/chat-context";
 import { loadChatContext, loadSettingsBank, loadSettingsBudgets, loadSettingsGoals } from "@/lib/web/secondary-read-models";
 import type { Ledger } from "@/lib/web/ledger";
+import { buildAccountingDisplayModel } from "@/lib/finance/accounting/display-builder";
+import { buildDisplayInsightFacts } from "@/lib/finance/display-insight-facts";
 import { emptyAccountingState } from "@/lib/finance/accounting/types";
 import type { StudioSettings } from "@/lib/config";
 import { expense, profile } from "./helpers";
 
-const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), accounting: vi.fn(), budgets: vi.fn(), goals: vi.fn(), messages: vi.fn(), metadata: vi.fn() }));
+const mocks = vi.hoisted(() => ({ snapshot: vi.fn(), accounting: vi.fn(), budgets: vi.fn(), goals: vi.fn(), messages: vi.fn(), metadata: vi.fn(), insightFacts: vi.fn(), planning: vi.fn() }));
 vi.mock("@/lib/web/ledger", () => ({ loadLedgerSnapshot: mocks.snapshot }));
 vi.mock("@/lib/finance/accounting/persisted-store", () => ({ loadAccountingReadModel: mocks.accounting }));
 vi.mock("@/lib/supabase/finance-store", () => ({ createSupabaseFinanceStore: () => ({ listBudgets: mocks.budgets, listSavingsGoals: mocks.goals }) }));
-vi.mock("@/lib/bank/store", async original => ({ ...await original<typeof import("@/lib/bank/store")>(), createSupabaseBankStore: () => ({ listMessages: mocks.messages }) }));
+vi.mock("@/lib/bank/store", async original => ({ ...await original<typeof import("@/lib/bank/store")>(), listAccountingBankMessages: (_settings: unknown, ownerId: string) => mocks.messages(ownerId), createSupabaseBankStore: () => ({ listMessages: mocks.messages }) }));
 vi.mock("@/lib/web/ledger-bank-metadata", () => ({ loadLedgerBankMetadata: mocks.metadata }));
+vi.mock("@/lib/web/durable-insight-query", () => ({ readDurableInsightFacts: mocks.insightFacts }));
+vi.mock("@/lib/web/durable-planning", async original => ({ ...await original<typeof import("@/lib/web/durable-planning")>(), loadDurablePlanning: mocks.planning }));
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn() }) }));
 const OWNER = "42";
 const settings = { supabase: {} } as StudioSettings;
@@ -87,5 +91,40 @@ describe("section-specific Settings source reads", () => {
   it("propagates failed source reads instead of publishing invented empty resources", async () => {
     mocks.goals.mockRejectedValue(new Error("Synthetic source unavailable"));
     await expect(loadSettingsGoals(owner, settings)).rejects.toThrow("unavailable");
+  });
+});
+
+
+describe("durable Chat category ranking", () => {
+  afterEach(() => { vi.useRealTimers(); vi.unstubAllEnvs(); });
+
+  const cases: { name: string; categories: [string, number][]; expected: string[] }[] = [
+    { name: "an empty month", categories: [], expected: [] },
+    { name: "fewer than four shuffled categories", categories: [["Transport", 100], ["Rent", 2000], ["Food", 1000]], expected: ["Rent", "Food", "Transport"] },
+    { name: "more than four categories with a tie at the cutoff", categories: [["Transport", 100], ["Zeta", 400], ["Food", 1000], ["Alpha", 400], ["Rent", 2000], ["Utilities", 800]], expected: ["Rent", "Food", "Utilities", "Alpha"] },
+  ];
+  it.each(cases)("matches canonical Chat for $name without mutating source facts", async ({ categories, expected }) => {
+    vi.stubEnv("ALFRED_DURABLE_DISPLAY", "true");
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(new Date("2026-11-05T12:00:00Z"));
+    const transactions = categories.map(([category, minor], index) => ({
+      ...expense({ transactionId: `fictional-category-${index}`, category, amount: (minor / 100).toFixed(2), transactionDate: "2026-11-03" }), rowNumber: index,
+    }));
+    const facts = buildDisplayInsightFacts({ userId: OWNER, currency: "GHS", today: "2026-11-05", range: { start: "2026-11-01", end: "2026-11-30" }, transactions });
+    // SQL aggregates have no ordering guarantee; deliberately retain the shuffled fixture order.
+    facts.categories = categories.map(([category]) => facts.categories.find(item => item.category === category)!);
+    const original = structuredClone(facts.categories);
+    const manifest = buildAccountingDisplayModel({ state: emptyAccountingState(OWNER), rawTransactions: transactions, availability: "ready", sourceVersion: null }).manifest;
+    mocks.planning.mockResolvedValue({ budgets: [], goals: [], loans: [], bills: [], held: [], metadata: empty().bank });
+    mocks.insightFacts.mockResolvedValue({ token: "1", manifest, data: { insights: facts, renewals: [], budgetSpending: [], reviewIds: [], days: [] } });
+    const canonical = empty();
+    canonical.rows = transactions.map(item => ({ id: item.transactionId, date: item.transactionDate, type: item.type, minor: Math.round(Number(item.amount) * 100), amount: item.amount, currency: item.currency, category: item.category, description: item.description, paymentMethod: item.paymentMethod }));
+
+    const context = await loadChatContext(owner, settings);
+
+    expect(context.month.categories.map(item => item.category)).toEqual(expected);
+    expect(context.month.categories).toEqual(buildChatContext(canonical).month.categories);
+    expect(facts.categories).toEqual(original);
+    expect(mocks.snapshot).not.toHaveBeenCalled();
   });
 });

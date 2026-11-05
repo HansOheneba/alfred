@@ -1,5 +1,7 @@
+import { loadAccountsReadView } from "@/lib/finance/accounting/durable-accounts";
+import { DurableDisplayUpdating } from "@/lib/finance/accounting/durable-read";
 import { parseAccountsReadQuery, projectAccountsReadView, AccountsReadViewError, type AccountsReadQuery } from "@/lib/finance/accounting/read-view";
-import { loadAccountingReadModel, saveAccountingAction } from "@/lib/finance/accounting/persisted-store";
+import { saveAccountingAction } from "@/lib/finance/accounting/persisted-store";
 import { accountingActionSchema, MAX_ACCOUNTING_COMMAND_BYTES } from "@/lib/finance/accounting/schema";
 import { actionFingerprint } from "@/lib/finance/accounting/reducer";
 import { AccountingError, type AccountingAction } from "@/lib/finance/accounting/types";
@@ -8,6 +10,7 @@ import { requireOwner } from "@/lib/web/api";
 const json = (body: unknown, status = 200) => Response.json(body, { status, headers: { "Cache-Control": "no-store" } });
 const unconfirmed = () => json({ ok: false, code: "unconfirmed", text: "The save could not be confirmed. It may have completed. Reload the latest records before making another change." }, 500);
 function failure(error: unknown) {
+  if (error instanceof DurableDisplayUpdating) return json({ ok: false, code: "updating", text: error.message }, 202);
   if (error instanceof AccountsReadViewError) return json({ ok: false, text: error.message }, error.status);
   if (error instanceof AccountingError) {
     if (error.code === "ownership") return json({ ok: false, text: "Those financial records are unavailable in your account." }, 403);
@@ -27,9 +30,7 @@ export async function GET(request: Request) {
     const owner = await requireOwner();
     if (owner instanceof Response) { owner.headers.set("Cache-Control", "no-store"); return owner; }
     const query = selection(request, owner.profile.currency);
-    const result = await loadAccountingReadModel(owner.settings.supabase, owner.profile.profileId);
-    if (result.state.ownerId !== owner.profile.profileId) throw new AccountsReadViewError("Those financial records are unavailable in your account.", 403);
-    return json({ ok: true, view: projectAccountsReadView(result, query) });
+    return json({ ok: true, view: await loadAccountsReadView(owner.settings.supabase, owner.profile.profileId, query) });
   } catch (error) { return failure(error); }
 }
 

@@ -4,9 +4,10 @@ import { AppShell } from "@/app/components/app-shell";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { AccountsClient } from "./accounts-client";
 import { AccountsErrorState, AccountsLoading } from "./accounts-status";
-import { projectAccountsReadView, type AccountsReadView } from "@/lib/finance/accounting/read-view";
-import { loadAccountingReadModel } from "@/lib/finance/accounting/persisted-store";
-import { ownedPaymentMovement, paymentTargetRequest } from '@/lib/notifications/payment-target';
+import { type AccountsReadView } from "@/lib/finance/accounting/read-view";
+import { loadAccountsReadView } from "@/lib/finance/accounting/durable-accounts";
+import { DurableDisplayUpdating } from "@/lib/finance/accounting/durable-read";
+import { paymentTargetRequest } from '@/lib/notifications/payment-target';
 
 type PageProps = { searchParams?: Promise<{ payment?: string | string[] }> };
 export default function AccountsPage({ searchParams }: PageProps = {}) {
@@ -22,18 +23,14 @@ async function AccountsScreen({ searchParams }: PageProps = {}) {
   if (account.kind === "signed-out") redirect("/");
   if (account.kind === "error") return <AppShell current="accounts" name=""><AccountsErrorState message={account.message} /></AppShell>;
   let initialView: AccountsReadView | null = null;
-  let paymentRequest = requestedPayment;
+  const paymentRequest = requestedPayment;
+  let initialError = "", initialUpdating = false;
   let version = "unavailable";
   try {
-    const result = await loadAccountingReadModel(account.settings.supabase, account.profile.profileId);
-    if (result.state.ownerId !== account.profile.profileId) throw new Error("Account ownership changed.");
-    initialView = projectAccountsReadView(result, { currency: account.profile.currency, section: "activity", page: 0 });
-    if (paymentRequest.requested && !ownedPaymentMovement(result.state, account.profile.profileId, paymentRequest.id)) {
-      paymentRequest = { requested: true, id: null };
-    }
+    initialView = await loadAccountsReadView(account.settings.supabase, account.profile.profileId, { currency: account.profile.currency, section: "activity", page: 0 });
     // A router refresh must install its newly read state, including legacy sources
     // that have no accounting source version yet. Nothing is cached between owners.
     version = crypto.randomUUID();
-  } catch { /* A failed read is an error, never an empty financial state. */ }
-  return <AppShell current="accounts" ownerId={account.userId} name={account.profile.preferredName.trim()}><AccountsClient key={`${account.profile.profileId}:${version}`} defaultCurrency={account.profile.currency} initialView={initialView} initialError={initialView ? "" : "Your account records could not be loaded. Try again shortly."} paymentRequest={paymentRequest} expectedOwnerId={account.profile.profileId} /></AppShell>;
+  } catch (error) { if (error instanceof DurableDisplayUpdating) { initialUpdating = true; initialError = error.message; } /* Never replace a failed read with empty financial records. */ }
+  return <AppShell current="accounts" ownerId={account.userId} name={account.profile.preferredName.trim()}><AccountsClient key={`${account.profile.profileId}:${version}`} defaultCurrency={account.profile.currency} initialView={initialView} initialUpdating={initialUpdating} initialError={initialView ? "" : initialError || "Your account records could not be loaded. Try again shortly."} paymentRequest={paymentRequest} expectedOwnerId={account.profile.profileId} /></AppShell>;
 }

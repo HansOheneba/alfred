@@ -14,11 +14,11 @@ import { ownedPaymentMovement, type PaymentTargetRequest } from '@/lib/notificat
 import { dispatchAccounting, requestAccounting, UNCONFIRMED_SAVE_MESSAGE, type AccountsPayload } from "./accounting-request";
 
 export type { AccountsPayload } from "./accounting-request";
-export function AccountsClient(props: { defaultCurrency: string; initialView?: AccountsReadView | null; initialPayload?: AccountsPayload | null; initialError?: string; paymentRequest?: PaymentTargetRequest; expectedOwnerId?: string }) {
-  if ("initialView" in props) return <AccountsReadClient key={props.expectedOwnerId ?? props.initialView?.ownerId ?? ""} initialView={props.initialView ?? null} initialError={props.initialError} expectedOwnerId={props.expectedOwnerId ?? ""} defaultCurrency={props.defaultCurrency} paymentUnavailable={props.paymentRequest?.requested && !props.paymentRequest.id} />;
+export function AccountsClient(props: { defaultCurrency: string; initialView?: AccountsReadView | null; initialPayload?: AccountsPayload | null; initialError?: string; initialUpdating?: boolean; paymentRequest?: PaymentTargetRequest; expectedOwnerId?: string }) {
+  if ("initialView" in props) return <AccountsReadClient key={props.expectedOwnerId ?? props.initialView?.ownerId ?? ""} initialView={props.initialView ?? null} initialError={props.initialError} initialUpdating={props.initialUpdating} expectedOwnerId={props.expectedOwnerId ?? ""} defaultCurrency={props.defaultCurrency} paymentUnavailable={props.paymentRequest?.requested && !props.paymentRequest.id} />;
   return <CompleteAccountsClient {...props} initialPayload={props.initialPayload ?? null} />;
 }
-function CompleteAccountsClient({ defaultCurrency, initialPayload, initialError = "", paymentRequest, expectedOwnerId }: { defaultCurrency: string; initialPayload: AccountsPayload | null; initialError?: string; paymentRequest?: PaymentTargetRequest; expectedOwnerId?: string }) {
+function CompleteAccountsClient({ defaultCurrency, initialPayload, initialError = "", paymentRequest, expectedOwnerId }: { defaultCurrency: string; initialPayload: AccountsPayload | null; initialError?: string; initialUpdating?: boolean; paymentRequest?: PaymentTargetRequest; expectedOwnerId?: string }) {
   const [payload,setPayload] = useState(initialPayload);
   const [error,setError] = useState(initialError);
   const [loading,setLoading] = useState(false);

@@ -325,8 +325,7 @@ function reconcile(state: AccountingState, account: FinancialAccount, snapshots:
 }
 
 /** Reported cash total, not income minus spending and not net worth. Missing snapshots stay unknown. */
-export function accountBalances(state: AccountingState, requestedCurrency: string): { accounts: AccountBalanceRow[]; totalMinor: number | null; knownSubtotalMinor: number | null; count: number; missingCount: number; excludedCount: number } {
-  currency(requestedCurrency);
+export function accountBalanceFacts(state: AccountingState): AccountBalanceRow[] {
   validateAccountData(state);
   const movementsById=new Map(state.movements.map((movement) => [movement.id,movement]));
   const snapshotsByAccount=new Map<string,BalanceSnapshot[]>();
@@ -341,6 +340,13 @@ export function accountBalances(state: AccountingState, requestedCurrency: strin
     const snapshots = (snapshotsByAccount.get(account.id) ?? []).sort((a, b) => Date.parse(a.occurredAt) - Date.parse(b.occurredAt));
     return { account, snapshot: snapshots.at(-1) ?? null, reconciliation: reconcile(state, account, snapshots) };
   });
+  return accounts;
+}
+
+/** Reported cash total, retaining unknown balances and requested-currency precision checks. */
+export function accountBalances(state: AccountingState, requestedCurrency: string): { accounts: AccountBalanceRow[]; totalMinor: number | null; knownSubtotalMinor: number | null; count: number; missingCount: number; excludedCount: number } {
+  currency(requestedCurrency);
+  const accounts = accountBalanceFacts(state);
   const included = accounts.filter((row) => row.account.includeInCash && row.account.currency === requestedCurrency);
   const known = included.filter((row) => row.snapshot !== null);
   const missingCount = included.length - known.length;

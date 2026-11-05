@@ -27,6 +27,7 @@ export async function readOverviewTransactions(config: RemoteOverviewTransaction
     return await chatReadDeadline((async () => {
       const response = await request(`/api/overview/transactions?${params}`, { method: "GET", credentials: "same-origin", cache: "no-store", signal: controller.signal });
       const payload = await response.json();
+      if(response.status===202&&payload?.updating===true){const changed=new OverviewReadChanged();changed.message=typeof payload.text==='string'?payload.text:'Alfred is updating your financial view. Please try again shortly.';throw changed;}
       if (response.status === 409 && payload?.stale === true) throw new OverviewReadChanged();
       if (!response.ok || payload?.ok !== true) throw new Error(typeof payload?.text === "string" ? payload.text : "Your transactions could not be loaded. Please try again.");
       if (payload.ownerId !== config.ownerId) throw new Error("Your signed-in account changed. Reload Overview before continuing.");
@@ -82,7 +83,7 @@ export function useOverviewTransactionPage(config: RemoteOverviewTransactions | 
         setState({ ...base, page: { ...result, rows: [...page.rows, ...result.rows] }, loading: false });
       }
     } catch (error) {
-      if (!controller.signal.aborted) setState({ ...base, loading: false, error: error instanceof Error ? error.message : "Your transactions could not be loaded.", stale: error instanceof OverviewReadChanged });
+      if (!controller.signal.aborted) setState({ ...base, page:error instanceof OverviewReadChanged?{...base.page,rows:[],nextCursor:null}:base.page, loading: false, error: error instanceof Error ? error.message : "Your transactions could not be loaded.", stale: error instanceof OverviewReadChanged });
     } finally { more.current = false; }
   }
   return config ? { page, loading: current?.loading ?? !initial, error: current?.error ?? "", stale: current?.stale ?? false, loadMore, retry: () => setRetry(value => value + 1) } : null;

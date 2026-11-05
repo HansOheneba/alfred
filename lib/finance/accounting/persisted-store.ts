@@ -1,5 +1,5 @@
 import type { SupabaseSettings } from "../../config";
-import { createSupabaseBankStore, listBankTransferWindow, type BankMessage, type BankTransferWindow } from "../../bank/store";
+import { listAccountingBankMessages, listBankTransferWindow, type BankMessage, type BankTransferWindow } from "../../bank/store";
 import { listRawTransactions } from "../../supabase/finance-store";
 import { query } from "../../supabase/connection";
 import { loadAccountRules } from "../../account-rules/store";
@@ -30,9 +30,14 @@ export async function loadAccountingState(settings:SupabaseSettings,ownerId:stri
   return loadAccounting(settings,ownerId,providedRaw,transferPivotIds,includeImportedProviderFacts,FULL_STATE_SQL);
 }
 
-/** Display/reporting reads only. Mutations, Undo and exports must load the complete audit before-state. */
+/** Cached display/reporting reads only. Commands read uncached sources; exports retain complete audit history. */
 export async function loadAccountingReadModel(settings:SupabaseSettings,ownerId:string):Promise<AccountingResult> {
-  return readAccountingDisplayCached(settings,ownerId,() => loadAccounting(settings,ownerId,undefined,undefined,true,READ_MODEL_SQL));
+  return readAccountingDisplayCached(settings,ownerId,() => loadAccountingProjectionSource(settings,ownerId));
+}
+
+/** Worker input only: capture publication baseline BEFORE this complete uncached source read. */
+export async function loadAccountingProjectionSource(settings:SupabaseSettings,ownerId:string):Promise<AccountingResult> {
+  return loadAccounting(settings,ownerId,undefined,undefined,true,READ_MODEL_SQL);
 }
 
 async function loadAccounting(settings:SupabaseSettings,ownerId:string,providedRaw:TransactionRecord[]|undefined,transferPivotIds:string[]|undefined,includeImportedProviderFacts:boolean,stateSql:string):Promise<AccountingResult> {
@@ -43,7 +48,7 @@ async function loadAccounting(settings:SupabaseSettings,ownerId:string,providedR
     availability==="ready" ? query<{state:AccountingState}>(settings,stateSql,[ownerId]) : Promise.resolve([]),
     // For a source-coherent accounting read, fetch fresh rows inside the two version observations.
     availability==="ready" || !providedRaw ? listRawTransactions(settings,ownerId) : Promise.resolve(providedRaw),
-    createSupabaseBankStore(settings).listMessages(ownerId),
+    listAccountingBankMessages(settings,ownerId),
     ready[0]?.portability_ready ? query<{movement:CashMovement}>(settings,"select movement from public.imported_finance_sources where owner_id=$1::uuid order by movement_id",[ownerId]) : Promise.resolve([]),
     loadAccountRules(settings,ownerId),
     transferPivotIds?.length ? listBankTransferWindow(settings,ownerId,transferPivotIds) : Promise.resolve(undefined),
@@ -62,7 +67,10 @@ async function loadAccounting(settings:SupabaseSettings,ownerId:string,providedR
 }
 
 export async function saveAccountingAction(settings:SupabaseSettings,ownerId:string,action:AccountingAction):Promise<AccountingResult> {
-  const current=await loadAccountingState(settings,ownerId);
+  const compact = (await query<{ready:boolean}>(settings,
+    "select to_regprocedure('public.alfred_write_accounting_state_compact(uuid,bigint,text,text,text,jsonb)') is not null and to_regprocedure('public.alfred_compact_accounting_schema_20261105_v1()') is not null as ready"))[0]?.ready === true;
+  // This is an uncached authoritative source read. A display generation is never a mutation base.
+  const current=compact ? await loadAccounting(settings,ownerId,undefined,undefined,true,READ_MODEL_SQL) : await loadAccountingState(settings,ownerId);
   if (current.availability!=="ready") return current;
   // A durable event log, beyond the bounded in-memory undo history, enforces permanent request IDs.
   const prior=await query<{action_fingerprint:string}>(settings,"select action_fingerprint from public.accounting_events where owner_id=$1::uuid and request_id=$2",[ownerId,action.requestId]);
@@ -71,9 +79,22 @@ export async function saveAccountingAction(settings:SupabaseSettings,ownerId:str
     if (prior[0].action_fingerprint!==fingerprint) throw new AccountingError("This request ID was used for a different action.","conflict");
     return current;
   }
+  if (compact && action.type === "undo" && action.expectedRevision === current.state.revision) {
+    const { accountingUndoTarget } = await import("./reducer");
+    const target = accountingUndoTarget(current.state), index = current.state.audit.indexOf(target);
+    const { before: _omitted, ...metadata } = target;
+    void _omitted;
+    const [history] = await query<{before:import("./types").AccountingData}>(settings,
+      `select state#>array['audit',$3::text,'before'] as before from public.accounting_states
+       where owner_id=$1::uuid and revision=$2::bigint
+         and ((state#>array['audit',$3::text]) - 'before')=$4::jsonb`,
+      [ownerId,current.state.revision,index,JSON.stringify(metadata)]);
+    if (!history?.before) throw new AccountingError("Financial records changed while loading Undo history. Refresh before saving.","stale");
+    current.state = {...current.state,audit:current.state.audit.map((entry,position) => position === index ? {...entry,before:history.before} : entry)};
+  }
   const next=applyAccountingAction(current.state,action);
   const rows=await query<{result:{status:"saved"|"duplicate"|"stale"|"conflict"|"source_changed";state?:AccountingState}}>(settings,
-    "select public.alfred_write_accounting_state($1::uuid,$2::bigint,$3,$4,$5,$6::jsonb) as result",
+    compact ? "select public.alfred_write_accounting_state_compact($1::uuid,$2::bigint,$3,$4,$5,$6::jsonb) as result" : "select public.alfred_write_accounting_state($1::uuid,$2::bigint,$3,$4,$5,$6::jsonb) as result",
     [ownerId,action.expectedRevision,action.requestId,fingerprint,current.sourceVersion,JSON.stringify(next)]);
   const result=rows[0]?.result;
   if (result?.status==="conflict") throw new AccountingError("This request ID was used for a different action.","conflict");

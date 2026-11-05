@@ -224,6 +224,63 @@ export function drawChart(input: { query: ChartQuery; transactions: TransactionR
   };
 }
 
+export type ChartFrame = { key: string; label: string; range: DateRange };
+export type ChartPlan = { query: ChartQuery; measure: ChartMeasure; by: ChartBy; range: DateRange; before: DateRange | null; frames: ChartFrame[]; previousFrames: ChartFrame[] };
+export type ChartTallyFact = { key: string; label: string; minor: number; count: number; range?: DateRange };
+export type ChartFacts = { current: ChartTallyFact[]; previous: ChartTallyFact[]; totalMinor: number; previousTotalMinor: number; otherCurrencies: string[]; merchantRest?: { groups: number; minor: number; count: number } };
+
+/** Resolve relative dates and zero frames without reading any financial details. */
+export function planChart(query: ChartQuery, today: string): { ok: true; plan: ChartPlan } | { ok: false; message: string } {
+  const resolved = resolveQueryRange({ period: query.period, month: query.month, year: query.year, startDate: query.startDate, endDate: query.endDate, today });
+  if (!resolved.ok) return resolved;
+  const wanted: ChartBy = query.measure === "net" && !TIME.includes(query.by) ? "month" : query.by;
+  const range = (TIME.includes(wanted) || query.compare) && resolved.range.end > today && resolved.range.start <= today ? { start: resolved.range.start, end: today } : resolved.range;
+  const by = TIME.includes(wanted) ? fittingBy(wanted, range) : wanted, before = query.compare ? previousRange(range) : null;
+  const frames = (span: DateRange) => TIME.includes(by) ? buckets(span, by).map((range, index) => ({ key: String(index), range,
+    label: by === "month" ? `${MONTHS[Number(range.start.slice(5, 7)) - 1]}${range.start.slice(0, 4) === today.slice(0, 4) ? "" : ` ${range.start.slice(2, 4)}`}` : shortDay(range.start, today) })) : [];
+  return { ok: true, plan: { query, measure: query.measure, by, range, before, frames: frames(range), previousFrames: before ? frames(before) : [] } };
+}
+
+/** Canonical full-input fact oracle for bounded-reader parity tests; drawChart remains independent. */
+export function chartFactsForPlan(plan: ChartPlan, transactions: TransactionRecord[], userId: string, currency: string, today: string): ChartFacts {
+  const all = relevant(transactions, userId, plan.measure, plan.query.category ?? null), own = all.filter(row => row.currency === currency);
+  const current = tally(own, plan.range, plan.by, plan.measure, today), previous = plan.before ? tally(own, plan.before, plan.by, plan.measure, today) : new Map();
+  return { current: [...current].map(([key, value]) => ({ key, ...value })), previous: [...previous].map(([key, value]) => ({ key, ...value })),
+    totalMinor: [...current.values()].reduce((sum, value) => sum + value.minor, 0), previousTotalMinor: [...previous.values()].reduce((sum, value) => sum + value.minor, 0),
+    otherCurrencies: [...new Set(all.filter(row => row.currency !== currency && row.transactionDate >= plan.range.start && row.transactionDate <= plan.range.end).map(row => row.currency))] };
+}
+
+/** Format canonical aggregate facts. Merchant readers may provide seven groups and an explicit remainder. */
+export function formatChartFacts(plan: ChartPlan, facts: ChartFacts, currency: string, today: string): DrawnChart {
+  const { query, range, by, measure, before } = plan;
+  const current = new Map(facts.current.map(item => [item.key, item])), previous = before ? new Map(facts.previous.map(item => [item.key, item])) : null;
+  const what = query.category ? `${query.category} ${measure === "income" ? "income" : "spending"}` : measure === "net" ? "Money in less money out" : measure === "income" ? "Income" : "Spending";
+  const kind = measure === "income" ? "income" : "payments", between = (span: DateRange) => `from ${formatDisplayDate(span.start)} to ${formatDisplayDate(span.end)}`;
+  let rows: ChartRow[];
+  if (TIME.includes(by)) {
+    const previousList = previous ? [...previous.values()] : [];
+    rows = [...current.values()].map((item, index) => ({ label: item.label, minor: item.minor, count: item.count,
+      ...(previous ? { previous: previousList[index]?.minor ?? 0 } : {}),
+      ...(measure !== "net" && item.count ? { ask: `Show my ${query.category ? `${query.category} ` : ""}${kind} ${between(item.range!)}` } : {}) }));
+  } else {
+    for (const [key, item] of previous ?? []) if (!current.has(key)) current.set(key, { key, label: item.label, minor: 0, count: 0 });
+    const prior = (key: string) => previous?.get(key)?.minor ?? 0;
+    const sorted = [...current.entries()].sort(([leftKey, left], [rightKey, right]) => right.minor - left.minor || prior(rightKey) - prior(leftKey) || left.label.localeCompare(right.label));
+    const shown = by === "merchant" ? sorted.slice(0, MERCHANTS_SHOWN) : sorted;
+    rows = shown.map(([key, item]) => ({ label: item.label, minor: item.minor, count: item.count,
+      ...(previous ? { previous: previous.get(key)?.minor ?? 0 } : {}),
+      ask: by === "category" ? `Show my ${item.label} ${kind} ${between(range)}` : `Show my ${kind} ${measure === "income" ? "from" : "to"} ${item.label} ${between(range)}` }));
+    const rest = sorted.slice(shown.length), boundedRest = facts.merchantRest;
+    if (boundedRest && boundedRest.groups > 0) rows.push({ label: `${boundedRest.groups} more`, minor: boundedRest.minor, count: boundedRest.count });
+    else if (rest.length) rows.push({ label: `${rest.length} more`, minor: rest.reduce((sum, [, item]) => sum + item.minor, 0), count: rest.reduce((sum, [, item]) => sum + item.count, 0) });
+  }
+  const categorical = !TIME.includes(by);
+  const style: ChartStyle = query.style === "table" ? "table" : query.style === "donut" && categorical && measure !== "net" ? "donut" : query.style === "line" && !categorical ? "line" : !categorical && rows.length > 8 && !query.style ? "line" : "bar";
+  const byWords = { category: "by category", merchant: "by where it went", day: "by day", week: "by week", month: "by month" }[by];
+  return { kind: "chart", query, by, measure, style, currency, title: `${what} ${measure === "net" && by === "month" && query.by !== "month" ? "by month" : byWords}`, subtitle: spanLabel(range, today), rows, totalMinor: facts.totalMinor,
+    ...(before ? { previousTotalMinor: facts.previousTotalMinor, previousLabel: spanLabel(before, today) } : {}), ...(facts.otherCurrencies.length ? { otherCurrencies: facts.otherCurrencies } : {}) };
+}
+
 /** The reply that goes with a chart: the total, the biggest part, and the change when comparing. Every figure is from the chart. */
 export function chartSummary(chart: DrawnChart): string {
   const money = (minor: number) => formatMinor(minor, chart.currency);

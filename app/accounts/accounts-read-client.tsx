@@ -52,9 +52,10 @@ function PanelResult({ error, retry, children, ready }: { error?: string; retry:
   return error ? <p role="alert">{error} <Button size="sm" onClick={retry}>Retry</Button></p> : ready ? children : <p role="status">Loading records…</p>;
 }
 
-export function AccountsReadClient({ initialView, initialError = "", expectedOwnerId, defaultCurrency, paymentUnavailable = false }: { initialView: AccountsReadView | null; initialError?: string; expectedOwnerId: string; defaultCurrency: string; paymentUnavailable?: boolean }) {
+export function AccountsReadClient({ initialView, initialError = "", initialUpdating = false, expectedOwnerId, defaultCurrency, paymentUnavailable = false }: { initialView: AccountsReadView | null; initialError?: string; initialUpdating?: boolean; expectedOwnerId: string; defaultCurrency: string; paymentUnavailable?: boolean }) {
   const initialOwnedView = initialView?.ownerId === expectedOwnerId ? initialView : null;
   const [view, setView] = useState(initialOwnedView), [error, setError] = useState(initialError), [notice, setNotice] = useState("");
+  const [updating, setUpdating] = useState(initialUpdating);
   const [loading, setLoading] = useState(false), [busy, setBusy] = useState(false), [recovery, setRecovery] = useState(false), [readBlocked, setReadBlocked] = useState(!initialOwnedView);
   const [tab, setTab] = useState("accounts"), [filters, setFilters] = useState<ActivityFilters>({ ...emptyActivityFilters });
   const [editor, setEditor] = useState<FinancialAccount | "new" | null>(null), [snapshot, setSnapshot] = useState<FinancialAccount | null>(null);
@@ -73,8 +74,8 @@ export function AccountsReadClient({ initialView, initialError = "", expectedOwn
     try {
       const base = currentView.current ?? { currency: defaultCurrency, revision: 0, sourceVersion: null };
       const loaded = await requestAccountsView({ ownerId: expectedOwnerId, query: accountsViewQuery(base, next, !fresh && Boolean(currentView.current)) });
-      if (alive.current && token === reading.current) { currentView.current = loaded; setView(loaded); blocked.current = false; setReadBlocked(false); setMovement(null); setSimilar(null); setEditor(null); setSnapshot(null); setReceipt(null); }
-    } catch (error) { if (alive.current && token === reading.current) { blocked.current = true; setReadBlocked(true); setError(error instanceof Error ? error.message : "Records could not be loaded."); } }
+      if (alive.current && token === reading.current) { currentView.current = loaded; setView(loaded); setUpdating(false); blocked.current = false; setReadBlocked(false); setMovement(null); setSimilar(null); setEditor(null); setSnapshot(null); setReceipt(null); }
+    } catch (error) { if (alive.current && token === reading.current) { blocked.current = true; setReadBlocked(true); setUpdating(error instanceof AccountsViewRequestError && error.status === 202); setError(error instanceof Error ? error.message : "Records could not be loaded."); } }
     finally { if (alive.current && token === reading.current) setLoading(false); }
   }
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
@@ -145,6 +146,7 @@ export function AccountsReadClient({ initialView, initialError = "", expectedOwn
     } catch (error) { if (alive.current && token === detailRead.current) setError(error instanceof Error ? error.message : "Payments could not be loaded."); }
   }
   if (recovery) return <AccountsErrorState title="We couldn’t confirm that save." message={error} retryLabel="Reload latest records" onRetry={() => window.location.reload()} />;
+  if (updating) return <AccountsErrorState title="Updating account records" message={error || "Alfred is updating your financial view. Please try again shortly."} retryLabel="Check latest records" onRetry={() => { void load(selection.current, true); }} />;
   if (!view) return loading ? <AccountsLoading /> : <AccountsErrorState message={error || "Your account records could not be loaded."} onRetry={() => { void load(selection.current, true); }} />;
   const writable = !busy && !loading && !readBlocked && view.availability === "ready";
   const rows = ["activity", "attention"].includes(view.page.section) ? view.page.rows as AccountsReadMovement[] : [];

@@ -13,6 +13,18 @@ export function accountingData(state: AccountingState): AccountingData {
 }
 export function actionFingerprint(action: AccountingAction): string { return stableJson(action); }
 
+/** One canonical target/barrier decision for both Undo execution and its selective history read. */
+export function accountingUndoTarget(state: AccountingState): AccountingState["audit"][number] {
+  const active: typeof state.audit = [];
+  for (const event of state.audit) { if (event.action === "undo") active.pop(); else active.push(event); }
+  const previous = active.at(-1);
+  if (!previous) throw new AccountingError("There is no financial change to undo.", "not_found");
+  if (previous.action === "import" || previous.action === "undo_import") throw new AccountingError("Use the data import receipt to undo an import. Regular undo cannot cross an import boundary.", "conflict");
+  if (previous.action === "automatic_pair_transfer" || previous.action === "reject_automatic_transfer") throw new AccountingError("Ask Alfred in chat to review this transfer; regular undo cannot change its source classification.", "conflict");
+  if (["resolve_payment_no_money", "resolve_payment_return", "reopen_payment_resolution"].includes(previous.action)) throw new AccountingError("Ask Alfred in chat to review this payment resolution; regular undo cannot change its source classification.", "conflict");
+  return previous;
+}
+
 /** All mutations, including undo, are revision checked. Raw evidence never changes. */
 export function applyAccountingAction(state: AccountingState, action: AccountingAction, now = new Date().toISOString()): AccountingState {
   if (!action || typeof action.requestId !== "string" || !/^[\w:.-]{1,200}$/.test(action.requestId)) throw new AccountingError("A stable request ID is required.");
@@ -28,13 +40,7 @@ export function applyAccountingAction(state: AccountingState, action: Accounting
   validateAccountData(state);
   let next: AccountingState;
   if (action.type === "undo") {
-    const active:typeof state.audit=[];
-    for(const event of state.audit) {if(event.action==="undo") active.pop();else active.push(event);}
-    const previous = active.at(-1);
-    if (!previous) throw new AccountingError("There is no financial change to undo.","not_found");
-    if (previous.action === "import" || previous.action === "undo_import") throw new AccountingError("Use the data import receipt to undo an import. Regular undo cannot cross an import boundary.","conflict");
-    if (previous.action === "automatic_pair_transfer" || previous.action === "reject_automatic_transfer") throw new AccountingError("Ask Alfred in chat to review this transfer; regular undo cannot change its source classification.","conflict");
-    if (["resolve_payment_no_money","resolve_payment_return","reopen_payment_resolution"].includes(previous.action)) throw new AccountingError("Ask Alfred in chat to review this payment resolution; regular undo cannot change its source classification.","conflict");
+    const previous = accountingUndoTarget(state);
     const before = previous.before;
     // Fresh source imports are retained. Changed evidence must be reviewed, never overwritten by undo.
     for (const old of before.movements) {
