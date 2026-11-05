@@ -39,5 +39,5 @@ export function AccountsClient({ defaultCurrency, initialPayload, initialError =
   }
   if (!payload) return loading ? <AccountsLoading /> : <AccountsErrorState message={error || "Account records could not be loaded. Try again shortly."} onRetry={() => { void retry(); }} />;
   const payment = paymentRequest?.requested ? ownedPaymentMovement(payload.state, expectedOwnerId ?? '', paymentRequest.id) : null;
-  return <AccountsWorkspace state={payload.state} dispatch={dispatch} mode="live" availability={payload.availability} defaultCurrency={defaultCurrency} initialPaymentMovementId={payment?.id} paymentUnavailable={paymentRequest?.requested && !payment} subscriptions={<SubscriptionsPanel key={ownerId} resource={subscriptions} accounting={payload.state} />} />;
+  return <AccountsWorkspace key={ownerId} state={payload.state} dispatch={dispatch} mode="live" availability={payload.availability} defaultCurrency={defaultCurrency} initialPaymentMovementId={payment?.id} paymentUnavailable={paymentRequest?.requested && !payment} subscriptions={<SubscriptionsPanel key={ownerId} resource={subscriptions} accounting={payload.state} />} />;
 }

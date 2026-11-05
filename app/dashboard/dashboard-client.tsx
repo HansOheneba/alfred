@@ -14,7 +14,7 @@ const styles = {
   trends: "alfred-ui-trends", legend: "alfred-ui-legend", categories: "alfred-ui-categories",
   transactions: "alfred-ui-transactions",
 } as const;
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState, type MouseEvent } from "react";
 
 import { Card, Dialog, EmptyState, categoryColor } from "@/app/components/ui";
 import { BillsCard } from "@/app/dashboard/bills-card";
@@ -42,6 +42,8 @@ import {
 import { formatDisplayDate } from "@/lib/finance/dates";
 import { formatMinor, toMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
+import type { OverviewTransactionFilters } from "@/lib/web/activity-handoff";
+import { DEFAULT_OVERVIEW_VIEW, overviewScrollPosition, overviewViewFromParams, overviewViewHref, type OverviewView } from "./overview-view";
 import "./overview-mobile.css";
 
 const PRESETS = Object.keys(RANGE_LABELS) as RangePreset[];
@@ -53,12 +55,43 @@ function lastTwelveMonths(today: string) {
   return { start, end };
 }
 
-export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { ledger: Ledger; name: string; timeZone?: string }) {
+export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initialView = DEFAULT_OVERVIEW_VIEW, initialTransactionFilters }: { ledger: Ledger; name: string; timeZone?: string; initialView?: OverviewView; initialTransactionFilters?: OverviewTransactionFilters }) {
   const { currency, today } = ledger;
-  const [preset, setPreset] = useState<RangePreset>("this_month");
+  const [view, setView] = useState(initialView);
+  const { preset, category: selected, dailyMode, insightsOpen } = view;
   const [periodOpen, setPeriodOpen] = useState(false);
-  const [selected, setSelected] = useState<string | null>(null);
-  const [dailyMode, setDailyMode] = useState<"daily" | "cumulative">("daily");
+
+  useEffect(() => {
+    let frame = 0;
+    const restoreScroll = () => {
+      const top = overviewScrollPosition(window.history.state?.alfredOverviewScrollY);
+      if (top === null) return;
+      frame = requestAnimationFrame(() => { frame = requestAnimationFrame(() => window.scrollTo({ top, behavior: "instant" })); });
+    };
+    const restore = () => {
+      setView(overviewViewFromParams(new URLSearchParams(window.location.search)));
+      restoreScroll();
+    };
+    restoreScroll();
+    window.addEventListener("popstate", restore);
+    return () => { cancelAnimationFrame(frame); window.removeEventListener("popstate", restore); };
+  }, []);
+
+  function updateView(changes: Partial<OverviewView>) {
+    const next = { ...view, ...changes };
+    setView(next);
+    window.history.replaceState(window.history.state, "", overviewViewHref(window.location.href, next));
+  }
+
+  function rememberActivityPosition(event: MouseEvent<HTMLDivElement>) {
+    if (event.button !== 0 || event.metaKey || event.ctrlKey || event.shiftKey || event.altKey || event.defaultPrevented) return;
+    const anchor = event.target instanceof Element ? event.target.closest("a[href]") : null;
+    if (!anchor) return;
+    const target = new URL(anchor.getAttribute("href")!, window.location.href);
+    if (target.origin !== window.location.origin || target.pathname !== "/accounts") return;
+    const top = overviewScrollPosition(window.scrollY);
+    if (top !== null) window.history.replaceState({ ...window.history.state, alfredOverviewScrollY: top }, "");
+  }
 
   const rows = useMemo(() => ledger.rows.filter((row) => row.currency === currency), [ledger.rows, currency]);
   const otherCurrencyCount = ledger.rows.length - rows.length;
@@ -100,12 +133,11 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
   const rangeLabel = RANGE_LABELS[preset].toLowerCase();
 
   function toggle(category: string) {
-    setSelected((current) => (current === category ? null : category));
+    updateView({ category: selected === category ? null : category });
   }
 
   function chooseRange(value: RangePreset) {
-    setPreset(value);
-    setSelected(null);
+    updateView({ preset: value, category: null });
     setPeriodOpen(false);
   }
 
@@ -113,7 +145,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
   if (setup.canShowSetup || setup.showBlockedSetup) return <GettingStartedDashboard ledger={ledger} name={name} timeZone={timeZone} />;
 
   return (
-    <div className={styles.dashboard}>
+    <div className={styles.dashboard} onClickCapture={rememberActivityPosition}>
       <div className={styles.heading}>
         <div>
           <p className="text-xs text-muted">{formatDisplayDate(today)}</p>
@@ -159,6 +191,101 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
         <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
       </div>
 
+      {hasAny ? <div id="overview-transactions" tabIndex={-1} className={styles.transactions}><TransactionsTable rows={tableRows} category={selected} onClearCategory={() => updateView({ category: null })} rangeLabel={rangeLabel} range={range} currency={currency} initialFilters={initialTransactionFilters} timeZone={timeZone} /></div> : null}
+
+      <div className="alfred-ui-planningGrid grid gap-4 lg:grid-cols-2">
+        <BillsCard
+          showCategoryLink
+          bills={ledger.bills ?? []}
+          upcoming={ledger.upcomingBills ?? []}
+          suggestions={ledger.renewalSuggestions ?? []}
+          currency={currency}
+          today={today}
+        />
+        <Card title="Budgets · this month" action={<Link href="/settings#budgets" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
+          {budgets.length === 0 ? (
+            <OverviewQuickAction kind="budget" currency={currency} today={today} budgets={ledger.budgets} />
+          ) : (
+            <ul className="flex flex-col gap-4">
+              {budgets.map((budget) => {
+                const over = budget.remainingMinor < 0;
+                const used = budget.budgetMinor > 0 ? Math.min(100, Math.round((budget.spentMinor / budget.budgetMinor) * 100)) : 0;
+                return (
+                  <li key={budget.budgetId}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span>{budget.category}</span>
+                      <span className={`tabular-nums text-xs ${over ? "text-danger" : "text-muted"}`}>
+                        {formatMinor(budget.spentMinor, budget.currency)} of {formatMinor(budget.budgetMinor, budget.currency)}
+                      </span>
+                    </div>
+                    <div
+                      className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2"
+                      role="progressbar"
+                      aria-label={`${budget.category} budget used`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={used}
+                    >
+                      <div className={`h-full rounded-full ${over ? "bg-danger" : used >= 80 ? "bg-accent" : "bg-success"}`} style={{ width: `${over ? 100 : used}%` }} />
+                    </div>
+                    <p className={`mt-1 text-xs tabular-nums ${over ? "text-danger" : "text-muted"}`}>
+                      {over ? `${formatMinor(-budget.remainingMinor, budget.currency)} over` : `${formatMinor(budget.remainingMinor, budget.currency)} left`}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+      </div>
+
+      <div className="alfred-ui-planningGrid grid gap-4 lg:grid-cols-2">
+        <Card title="Savings goals" action={<Link href="/settings#goals" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
+          {goals.length === 0 ? (
+            <OverviewQuickAction kind="goal" currency={currency} today={today} />
+          ) : (
+            <ul className="flex flex-col gap-4">
+              {goals.map((goal) => {
+                const target = toMinor(goal.targetAmount);
+                const current = toMinor(goal.currentAmount);
+                const progress = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
+                return (
+                  <li key={goal.goalId}>
+                    <div className="flex items-baseline justify-between gap-3 text-sm">
+                      <span>
+                        {goal.name}
+                        {goal.status === "completed" ? <span className="ml-2 text-xs text-success">Done</span> : null}
+                      </span>
+                      <span className="tabular-nums text-xs text-muted">
+                        {compactMoney(current, goal.currency)} / {compactMoney(target, goal.currency)}
+                      </span>
+                    </div>
+                    <div
+                      className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2"
+                      role="progressbar"
+                      aria-label={`${goal.name} progress`}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-valuenow={progress}
+                    >
+                      <div className="h-full rounded-full bg-accent" style={{ width: `${progress}%` }} />
+                    </div>
+                    <p className="mt-1 text-xs text-muted">
+                      {progress}% saved{goal.targetDate ? ` · by ${formatDisplayDate(goal.targetDate)}` : ""}
+                    </p>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </Card>
+        <OwedCard owed={ledger.owed} owe={ledger.owe} currency={currency} today={today} />
+      </div>
+
+
+      <details className="alfred-ui-insightsDisclosure" open={insightsOpen} onToggle={(event) => { if (event.currentTarget.open !== insightsOpen) updateView({ insightsOpen: event.currentTarget.open }); }}>
+        <summary><span><strong>Insights</strong><span>Charts and spending breakdowns · {rangeLabel}</span></span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m6 9 6 6 6-6" /></svg></summary>
+        {insightsOpen ? <div className="alfred-ui-insightsContent">
       <div className="alfred-ui-insightsAndTrends">
       <MonthlyInsights insights={ledger.insights} />
 
@@ -179,7 +306,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
                   key={mode}
                   type="button"
                   aria-pressed={dailyMode === mode}
-                  onClick={() => setDailyMode(mode)}
+                  onClick={() => updateView({ dailyMode: mode })}
                   className={buttonClassName({ variant: dailyMode === mode ? "soft" : "ghost", size: "sm", className: "alfred-button--compact" })}
                 >
                   {mode === "daily" ? "Daily" : "Running total"}
@@ -198,7 +325,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
         title={`Where the money went · ${rangeLabel}`}
         action={
           selected ? (
-            <button type="button" onClick={() => setSelected(null)} className={buttonClassName({ variant: "ghost", size: "sm" })}>
+            <button type="button" onClick={() => updateView({ category: null })} className={buttonClassName({ variant: "ghost", size: "sm" })}>
               Clear selection
             </button>
           ) : null
@@ -240,6 +367,7 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
                   <p className="text-xs text-muted">
                     {percent(sumMinor(selectedRows), spent)} of spending · {selectedRows.length} transaction{selectedRows.length === 1 ? "" : "s"}
                   </p>
+                  <a href="#overview-transactions" className={buttonClassName({ variant: "secondary", size: "sm", className: "mt-4" })}>View {selected} transactions <span aria-hidden="true">↑</span></a>
                   <h3 className="mt-5 text-xs font-medium text-muted">Top places and things</h3>
                   <ul className="mt-2 flex flex-col gap-2">
                     {topDescriptions(selectedRows).map((item) => (
@@ -301,96 +429,8 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra" }: { l
         </Card>
       </div>
 
-      <div className="grid gap-4 lg:grid-cols-2">
-        <BillsCard
-          showCategoryLink
-          bills={ledger.bills ?? []}
-          upcoming={ledger.upcomingBills ?? []}
-          suggestions={ledger.renewalSuggestions ?? []}
-          currency={currency}
-          today={today}
-        />
-        <Card title="Budgets · this month" action={<Link href="/settings#budgets" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
-          {budgets.length === 0 ? (
-            <OverviewQuickAction kind="budget" currency={currency} today={today} budgets={ledger.budgets} />
-          ) : (
-            <ul className="flex flex-col gap-4">
-              {budgets.map((budget) => {
-                const over = budget.remainingMinor < 0;
-                const used = budget.budgetMinor > 0 ? Math.min(100, Math.round((budget.spentMinor / budget.budgetMinor) * 100)) : 0;
-                return (
-                  <li key={budget.budgetId}>
-                    <div className="flex items-baseline justify-between gap-3 text-sm">
-                      <span>{budget.category}</span>
-                      <span className={`tabular-nums text-xs ${over ? "text-danger" : "text-muted"}`}>
-                        {formatMinor(budget.spentMinor, budget.currency)} of {formatMinor(budget.budgetMinor, budget.currency)}
-                      </span>
-                    </div>
-                    <div
-                      className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2"
-                      role="progressbar"
-                      aria-label={`${budget.category} budget used`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={used}
-                    >
-                      <div className={`h-full rounded-full ${over ? "bg-danger" : used >= 80 ? "bg-accent" : "bg-success"}`} style={{ width: `${over ? 100 : used}%` }} />
-                    </div>
-                    <p className={`mt-1 text-xs tabular-nums ${over ? "text-danger" : "text-muted"}`}>
-                      {over ? `${formatMinor(-budget.remainingMinor, budget.currency)} over` : `${formatMinor(budget.remainingMinor, budget.currency)} left`}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-      </div>
-
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card title="Savings goals" action={<Link href="/settings#goals" className={buttonClassName({ variant: "ghost", size: "sm" })}>Manage</Link>}>
-          {goals.length === 0 ? (
-            <OverviewQuickAction kind="goal" currency={currency} today={today} />
-          ) : (
-            <ul className="flex flex-col gap-4">
-              {goals.map((goal) => {
-                const target = toMinor(goal.targetAmount);
-                const current = toMinor(goal.currentAmount);
-                const progress = target > 0 ? Math.min(100, Math.round((current / target) * 100)) : 0;
-                return (
-                  <li key={goal.goalId}>
-                    <div className="flex items-baseline justify-between gap-3 text-sm">
-                      <span>
-                        {goal.name}
-                        {goal.status === "completed" ? <span className="ml-2 text-xs text-success">Done</span> : null}
-                      </span>
-                      <span className="tabular-nums text-xs text-muted">
-                        {compactMoney(current, goal.currency)} / {compactMoney(target, goal.currency)}
-                      </span>
-                    </div>
-                    <div
-                      className="mt-2 h-2 overflow-hidden rounded-full bg-surface-2"
-                      role="progressbar"
-                      aria-label={`${goal.name} progress`}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-valuenow={progress}
-                    >
-                      <div className="h-full rounded-full bg-accent" style={{ width: `${progress}%` }} />
-                    </div>
-                    <p className="mt-1 text-xs text-muted">
-                      {progress}% saved{goal.targetDate ? ` · by ${formatDisplayDate(goal.targetDate)}` : ""}
-                    </p>
-                  </li>
-                );
-              })}
-            </ul>
-          )}
-        </Card>
-        <OwedCard owed={ledger.owed} owe={ledger.owe} currency={currency} today={today} />
-      </div>
-
-      {hasAny ? <div className={styles.transactions}><TransactionsTable rows={tableRows} category={selected} onClearCategory={() => setSelected(null)} rangeLabel={rangeLabel} timeZone={timeZone} /></div> : null}
+        </div> : null}
+      </details>
     </div>
   );
 }

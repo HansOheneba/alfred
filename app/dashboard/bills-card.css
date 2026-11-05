@@ -11,3 +11,13 @@
 .alfred-bill-form .alfred-dialog-actions { margin-top:8px; }
 .alfred-bills-emptyAction { display:flex; flex-direction:column; align-items:flex-start; gap:16px; padding:12px 0 4px; }
 .alfred-bills-emptyAction > p { color:var(--muted); font-size:14px; line-height:20px; }
+.alfred-bill-lastPayment { min-width:0; border:1px solid var(--line); border-radius:12px; padding:14px; background:var(--surface-2); }
+.alfred-bill-lastPayment dl,.alfred-bills-savedDetails dl { display:flex; flex-direction:column; gap:12px; margin:0; }
+.alfred-bill-lastPayment dl > div,.alfred-bills-savedDetails dl > div { display:flex; justify-content:space-between; align-items:baseline; gap:16px; min-width:0; font-size:14px; line-height:20px; }
+.alfred-bill-lastPayment dt,.alfred-bills-savedDetails dt { color:var(--muted); }
+.alfred-bill-lastPayment dd,.alfred-bills-savedDetails dd { min-width:0; text-align:right; overflow-wrap:anywhere; }
+.alfred-bill-lastPayment p,.alfred-bills-savedDetails > p,.alfred-bill-saveStatus { color:var(--muted); font-size:13px; line-height:20px; }
+.alfred-bill-lastPayment dl + p { margin-top:12px; }
+.alfred-bills-saveNotice { display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; margin-bottom:16px; padding:12px 14px; border:1px solid var(--line); border-radius:12px; background:var(--surface-2); font-size:14px; }
+.alfred-bills-saveNotice > p { min-width:0; overflow-wrap:anywhere; }
+.alfred-bills-savedDetails { display:flex; flex-direction:column; gap:20px; min-width:0; }

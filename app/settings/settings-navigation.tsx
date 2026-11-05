@@ -1,6 +1,8 @@
 "use client";
 
 import type { ReactNode } from "react";
+import type { AccountSettings } from "@/lib/accounts/settings-store";
+import type { LedgerBank } from "@/lib/web/ledger";
 import "./settings-navigation.css";
 
 export const SETTINGS_SECTIONS = [
@@ -18,6 +20,43 @@ export const SETTINGS_SECTIONS = [
 ] as const;
 
 export type SettingsSectionId = (typeof SETTINGS_SECTIONS)[number]["id"];
+
+export const SETTINGS_GROUPS = [
+  { id: "personal", label: "Personal", sections: ["profile", "replies", "app"] },
+  { id: "money", label: "Money", sections: ["budgets", "goals", "reminders", "rules"] },
+  { id: "connections", label: "Connections", sections: ["automations", "telegram", "bank"] },
+  { id: "data", label: "Data", sections: ["data"] },
+] as const satisfies readonly { id: string; label: string; sections: readonly SettingsSectionId[] }[];
+
+export type SettingsNavigationStatus = { text: string; tone?: "positive" };
+export type SettingsNavigationStatuses = Partial<Record<SettingsSectionId, SettingsNavigationStatus>>;
+
+/** Describe saved settings and already-loaded bank facts without starting another read. */
+export function settingsNavigationStatuses(
+  saved: Pick<AccountSettings, "telegramLocked" | "telegramUserId" | "morningEnabled" | "commuteEnabled" | "eveningEnabled" | "timezone">,
+  bank?: Pick<LedgerBank, "connected" | "lastUsedAt">,
+): SettingsNavigationStatuses {
+  const checkIns = [saved.morningEnabled, saved.commuteEnabled, saved.eveningEnabled].filter(Boolean).length;
+  const statuses: SettingsNavigationStatuses = {
+    telegram: saved.telegramLocked
+      ? { text: "Connected", tone: "positive" }
+      : { text: saved.telegramUserId.trim() ? "ID saved · finish connecting" : "Not connected" },
+    reminders: { text: checkIns ? `${checkIns} check-in${checkIns === 1 ? "" : "s"} enabled` : "Check-ins off" },
+  };
+  if (bank) {
+    if (!bank.connected) statuses.bank = { text: "Not set up" };
+    else {
+      let lastUsed = "";
+      if (bank.lastUsedAt && Number.isFinite(Date.parse(bank.lastUsedAt))) {
+        try {
+          lastUsed = new Intl.DateTimeFormat("en-GB", { day: "numeric", month: "short", year: "numeric", timeZone: saved.timezone }).format(new Date(bank.lastUsedAt));
+        } catch { /* Keep the known setup state if a stored timezone cannot be formatted. */ }
+      }
+      statuses.bank = { text: `Forwarding key ready${lastUsed ? ` · used ${lastUsed}` : ""}` };
+    }
+  }
+  return statuses;
+}
 
 export const SETTINGS_SECTION_DESCRIPTIONS: Record<SettingsSectionId, string> = {
   profile: "Your name, currency and preferences",
@@ -58,17 +97,24 @@ export function resolveSettingsSection(hash: string): SettingsSectionId | null {
   return SETTINGS_SECTIONS.find((item) => item.id === id)?.id ?? null;
 }
 
-export function SettingsNavigation({ section, onChoose }: {
+export function SettingsNavigation({ section, onChoose, statuses = {} }: {
   section: SettingsSectionId;
   onChoose: (section: SettingsSectionId) => void;
+  statuses?: SettingsNavigationStatuses;
 }) {
   return (
     <nav
       aria-label="Settings sections"
       className="alfred-settings-navigation"
     >
-      {SETTINGS_SECTIONS.map((item) => {
+      {SETTINGS_GROUPS.map((group) => <div key={group.id} role="group" aria-labelledby={`alfred-settings-group-${group.id}`} className="alfred-settings-navigationGroup">
+        <h2 id={`alfred-settings-group-${group.id}`} className="alfred-settings-navigationGroupTitle">{group.label}</h2>
+        <div className="alfred-settings-navigationGroupItems">
+      {group.sections.map((id) => {
+        const item = SETTINGS_SECTIONS.find((item) => item.id === id)!;
         const active = item.id === section;
+        const status = statuses[item.id];
+        const statusId = `alfred-settings-nav-status-${item.id}`;
         return (
           <button
             key={item.id}
@@ -78,14 +124,18 @@ export function SettingsNavigation({ section, onChoose }: {
             aria-current={active ? "page" : undefined}
             aria-label={item.label}
             aria-controls="alfred-settings-detail"
+            aria-describedby={status ? statusId : undefined}
+            data-has-status={status ? "true" : undefined}
             className="alfred-settings-navigationItem"
           >
             <SettingsIcon section={item.id} />
-            <span className="alfred-settings-navigationCopy"><span className="alfred-settings-navigationLabel">{item.label}</span><span className="alfred-settings-navigationDescription" aria-hidden="true">{SETTINGS_SECTION_DESCRIPTIONS[item.id]}</span></span>
+            <span className="alfred-settings-navigationCopy"><span className="alfred-settings-navigationLabel">{item.label}</span><span className="alfred-settings-navigationDescription" aria-hidden="true">{SETTINGS_SECTION_DESCRIPTIONS[item.id]}</span>{status ? <span id={statusId} className={`alfred-settings-navigationStatus${status.tone === "positive" ? " is-positive" : ""}`}>{status.text}</span> : null}</span>
             <svg className="alfred-settings-navigationChevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
           </button>
         );
       })}
+        </div>
+      </div>)}
     </nav>
   );
 }

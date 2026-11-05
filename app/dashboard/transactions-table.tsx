@@ -2,17 +2,23 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buttonClassName } from "@/app/components/button-styles";
 import { isAccountingRow } from "@/app/dashboard/accounting-row-action";
 import { Spinner } from "@/app/components/status";
 import { Select } from "@/app/components/select";
+import { TemporalInput } from "@/app/components/temporal-input";
 import { Button, Card, ConfirmDialog, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
 import type { LedgerRow } from "@/lib/finance/analytics";
 import { EXPENSE_CATEGORIES, INCOME_CATEGORIES } from "@/lib/finance/categories";
 import { formatDisplayDate } from "@/lib/finance/dates";
+import type { DateRange } from "@/lib/finance/dates";
 import { formatMinor } from "@/lib/finance/money";
+import { toMinor } from "@/lib/finance/money";
+import type { TransactionRecord } from "@/lib/finance/types";
+import { activityHref, overviewTransactionSearch, parseOverviewTransactionFilters, type OverviewTransactionFilters } from "@/lib/web/activity-handoff";
+import { prepareTransactionEdit, type TransactionEditReview } from "./transaction-edit-review";
 
 import "./transactions-table.css";
 
@@ -20,7 +26,7 @@ const PAGE = 15;
 const MOBILE_RECENT = 6;
 
 type Sort = "date-desc" | "date-asc" | "amount-desc" | "amount-asc";
-type TransactionFilters = { search: string; type: "all" | "expense" | "income"; category: string; sort: Sort };
+type TransactionFilters = OverviewTransactionFilters;
 const clearFilters: TransactionFilters = { search: "", type: "all", category: "all", sort: "date-desc" };
 
 export function filterOverviewTransactions(rows: LedgerRow[], filters: TransactionFilters): LedgerRow[] {
@@ -44,18 +50,24 @@ export function TransactionsTable({
   onClearCategory,
   rangeLabel,
   timeZone = "UTC",
+  range,
+  currency,
+  initialFilters = clearFilters,
 }: {
   rows: LedgerRow[];
   category: string | null;
   onClearCategory: () => void;
   rangeLabel: string;
   timeZone?: string;
+  range?: DateRange;
+  currency?: string;
+  initialFilters?: OverviewTransactionFilters;
 }) {
   const router = useRouter();
-  const [search, setSearch] = useState("");
-  const [type, setType] = useState<"all" | "expense" | "income">("all");
-  const [categoryFilter, setCategoryFilter] = useState("all");
-  const [sort, setSort] = useState<Sort>("date-desc");
+  const [search, setSearch] = useState(initialFilters.search);
+  const [type, setType] = useState<"all" | "expense" | "income">(initialFilters.type);
+  const [categoryFilter, setCategoryFilter] = useState(initialFilters.category);
+  const [sort, setSort] = useState<Sort>(initialFilters.sort);
   const [shown, setShown] = useState(PAGE);
   const [editing, setEditing] = useState<LedgerRow | null>(null);
   const [deleting, setDeleting] = useState<LedgerRow | null>(null);
@@ -64,6 +76,19 @@ export function TransactionsTable({
   const [filtersOpen, setFiltersOpen] = useState(false);
   const [draftFilters, setDraftFilters] = useState<TransactionFilters>({ ...clearFilters });
   const [details, setDetails] = useState<LedgerRow | null>(null);
+  const [notice, setNotice] = useState("");
+  const [savedEntry, setSavedEntry] = useState<LedgerRow | null>(null);
+  const [savedReview, setSavedReview] = useState<TransactionEditReview | null>(null);
+  const removing = useRef(false);
+
+  useEffect(() => {
+    const restore = () => {
+      const next = parseOverviewTransactionFilters(window.location.search);
+      setSearch(next.search); setType(next.type); setCategoryFilter(next.category); setSort(next.sort); setShown(PAGE); setFiltersOpen(false);
+    };
+    window.addEventListener("popstate", restore);
+    return () => window.removeEventListener("popstate", restore);
+  }, []);
 
   const activeCategory = category ?? (categoryFilter === "all" ? null : categoryFilter);
   const categories = useMemo(() => [...new Set(rows.map((row) => row.category))].sort(), [rows]);
@@ -76,27 +101,34 @@ export function TransactionsTable({
     setFiltersOpen(true);
   }
 
-  function applyFilters() {
-    setSearch(draftFilters.search);
-    setType(draftFilters.type);
-    setSort(draftFilters.sort);
-    setCategoryFilter(draftFilters.category);
-    if (category && draftFilters.category !== category) onClearCategory();
+  function commitFilters(next: TransactionFilters) {
+    setSearch(next.search); setType(next.type); setSort(next.sort); setCategoryFilter(next.category);
+    const query = overviewTransactionSearch(window.location.search, next);
+    window.history.replaceState(window.history.state, "", `${window.location.pathname}${query ? `?${query}` : ""}${window.location.hash}`);
+    if (category && next.category !== category) onClearCategory();
     setShown(PAGE);
     setFiltersOpen(false);
   }
+  function applyFilters() { commitFilters(draftFilters); }
+
+  const allHref = activityHref({ start: range?.start, end: range?.end, currency: currency ?? rows[0]?.currency, category: activeCategory ?? "", search, type, sort });
 
   async function remove() {
-    if (!deleting) return;
+    if (!deleting || removing.current) return;
+    removing.current = true;
     setBusy(true);
     setError("");
     try {
       await sendJson("/api/transactions", "DELETE", { transactionId: deleting.id });
+      setSavedEntry(null);
+      setSavedReview(null);
+      setNotice(`Removed ${deleting.description} on ${formatDisplayDate(deleting.date)}.`);
       setDeleting(null);
       router.refresh();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That transaction could not be removed.");
     } finally {
+      removing.current = false;
       setBusy(false);
     }
   }
@@ -109,17 +141,16 @@ export function TransactionsTable({
           Transactions <span className="font-normal text-muted">· {rangeLabel}</span>
         </span>
       }
-      action={<div className="alfred-transaction-headerActions"><Button size="sm" className="alfred-button--compact alfred-transaction-filterToggle" onClick={openFilters} aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"} aria-haspopup="dialog"><FilterIcon />Filters{activeFilterCount ? <span className="alfred-transaction-filterCount">{activeFilterCount}</span> : null}</Button><Link href="/accounts?tab=activity" aria-label="View all transactions" className={buttonClassName({ variant: "primary", size: "sm", className: "alfred-transaction-viewAll" })}><span className="alfred-transaction-viewAllLabel" aria-hidden="true">View all transactions</span><span className="alfred-transaction-viewAllShort" aria-hidden="true">View all</span></Link></div>}
+      action={<div className="alfred-transaction-headerActions"><Button size="sm" className="alfred-button--compact alfred-transaction-filterToggle" onClick={openFilters} aria-label={activeFilterCount ? `Filters, ${activeFilterCount} active` : "Filters"} aria-haspopup="dialog"><FilterIcon />Filters{activeFilterCount ? <span className="alfred-transaction-filterCount">{activeFilterCount}</span> : null}</Button><Link href={allHref} aria-label="View all transactions" className={buttonClassName({ variant: "primary", size: "sm", className: "alfred-transaction-viewAll" })}><span className="alfred-transaction-viewAllLabel" aria-hidden="true">View all transactions</span><span className="alfred-transaction-viewAllShort" aria-hidden="true">View all</span></Link></div>}
     >
 
-      {category ? (
-        <p className="mt-3 flex items-center gap-2 text-xs text-muted">
-          Showing <span className="rounded-full bg-accent-soft px-2 py-1 text-accent">{category}</span>
-          <button type="button" className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={onClearCategory}>
-            Clear
-          </button>
-        </p>
-      ) : null}
+      {activeFilterCount ? <div className="alfred-transaction-filterChips" aria-label="Active transaction filters">
+        {search.trim() ? <button type="button" onClick={() => commitFilters({ search: "", type, category: activeCategory ?? "all", sort })} aria-label={`Remove search filter ${search}`}>Search: {search}<span aria-hidden="true">×</span></button> : null}
+        {activeCategory ? <button type="button" onClick={() => commitFilters({ search, type, category: "all", sort })} aria-label={`Remove category filter ${activeCategory}`}>{activeCategory}<span aria-hidden="true">×</span></button> : null}
+        {type !== "all" ? <button type="button" onClick={() => commitFilters({ search, type: "all", category: activeCategory ?? "all", sort })} aria-label="Remove type filter">{type === "income" ? "Income" : "Expenses"}<span aria-hidden="true">×</span></button> : null}
+        {sort !== "date-desc" ? <button type="button" onClick={() => commitFilters({ search, type, category: activeCategory ?? "all", sort: "date-desc" })} aria-label="Reset transaction sort">{sort === "date-asc" ? "Oldest first" : sort === "amount-desc" ? "Largest first" : "Smallest first"}<span aria-hidden="true">×</span></button> : null}
+      </div> : null}
+      {notice ? <div className="alfred-transaction-saveNotice"><p role="status">{notice}</p>{savedEntry ? <Button size="sm" onClick={() => setDetails(savedEntry)}>View entry</Button> : null}{savedReview ? <TransactionChanges review={savedReview} /> : null}</div> : null}
 
       {error ? (
         <p className="mt-3 text-sm text-danger" role="alert">
@@ -208,8 +239,11 @@ export function TransactionsTable({
         <EditDialog
           row={editing}
           onClose={() => setEditing(null)}
-          onSaved={() => {
+          onSaved={(updated, changes) => {
             setEditing(null);
+            setSavedEntry(updated);
+            setSavedReview(changes);
+            setNotice(`Saved changes to ${updated.description} on ${formatDisplayDate(updated.date)}.`);
             router.refresh();
           }}
         />
@@ -221,7 +255,7 @@ export function TransactionsTable({
         body={
           deleting ? (
             <>
-              {deleting.description}, {formatMinor(deleting.minor, deleting.currency)} on {formatDisplayDate(deleting.date)}. It
+              {deleting.description}, <span className="amount">{formatMinor(deleting.minor, deleting.currency)}</span> on {formatDisplayDate(deleting.date)}. It
               will be removed from your totals on the website and in Telegram.
             </>
           ) : null
@@ -312,7 +346,14 @@ function TransactionRowContent({ row }: { row: LedgerRow }) {
   </>;
 }
 
-function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => void; onSaved: () => void }) {
+function TransactionChanges({ review }: { review: TransactionEditReview }) {
+  return <dl className="alfred-transaction-changes">{review.differences.map(change => {
+    const monetary = change.label === "Payment amount" || change.label === "Separate fee";
+    return <div key={change.label}><dt>{change.label}</dt><dd><span className={monetary ? "amount tabular-nums" : undefined}>{change.before}</span><span aria-hidden="true">→</span><strong className={monetary ? "amount tabular-nums" : undefined}>{change.after}</strong></dd></div>;
+  })}</dl>;
+}
+
+function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => void; onSaved: (updated: LedgerRow, review: TransactionEditReview) => void }) {
   const [type, setType] = useState(row.type);
   const [amount, setAmount] = useState(row.amount);
   const [description, setDescription] = useState(row.description);
@@ -321,39 +362,48 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
   const [includedFee, setIncludedFee] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
+  const [review, setReview] = useState<TransactionEditReview | null>(null);
+  const saving = useRef(false);
   const options: readonly string[] = type === "income" ? INCOME_CATEGORIES : EXPENSE_CATEGORIES;
 
+  function close() { if (!saving.current) onClose(); }
+  function prepare() {
+    const result = prepareTransactionEdit(row, { type, amount, description, category, date, includedFee });
+    if (!result.ok) { setError(result.error); return; }
+    if (!Object.keys(result.review.changes).length) { onClose(); return; }
+    setError(""); setReview(result.review);
+  }
   async function save() {
-    const changes: Record<string, string> = {};
-    if (amount.trim() !== row.amount) changes.amount = amount.trim();
-    if (description.trim() !== row.description) changes.description = description.trim();
-    if (category !== row.category || type !== row.type) changes.category = category;
-    if (date !== row.date) changes.date = date;
-    if (type !== row.type) changes.transactionType = type;
-    if (includedFee.trim()) changes.includedFee = includedFee.trim();
-    if (Object.keys(changes).length === 0) {
-      onClose();
-      return;
-    }
+    if (!review || saving.current) return;
+    saving.current = true;
     setBusy(true);
     setError("");
     try {
-      await sendJson("/api/transactions", "PATCH", { transactionId: row.id, changes });
-      onSaved();
+      const result = await sendJson<{ transaction: TransactionRecord }>("/api/transactions", "PATCH", { transactionId: row.id, changes: review.changes });
+      const transaction = result.transaction;
+      if (!transaction || transaction.transactionId !== row.id || transaction.status !== "active") throw new Error("The save could not be verified. Refresh your records before trying again.");
+      onSaved({ ...row, amount: transaction.amount, minor: toMinor(transaction.amount), type: transaction.type, description: transaction.description, category: transaction.category, date: transaction.transactionDate, currency: transaction.currency, paymentMethod: transaction.paymentMethod, receipt: undefined }, review);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That change could not be saved.");
     } finally {
+      saving.current = false;
       setBusy(false);
     }
   }
 
   return (
-    <Dialog open onClose={onClose} title="Edit transaction">
-      <form
+    <Dialog open onClose={close} dismissible={!busy} title={review ? "Review transaction changes" : "Edit transaction"}>
+      {review ? <div className="alfred-transaction-changeReview">
+        <p><strong>{row.description}</strong><br />{formatDisplayDate(row.date)} · <span className="amount tabular-nums">{formatMinor(Math.abs(row.minor), row.currency)}</span></p>
+        <TransactionChanges review={review} />
+        {review.splitsFee ? <p className="text-sm text-muted">The fee is split into its own Fees entry. Combined payment and fee: <span className="amount tabular-nums">{formatMinor(toMinor(review.changes.amount ?? row.amount), row.currency)}</span>.</p> : null}
+        {error ? <p className="text-sm text-danger" role="alert">{error}</p> : null}
+        <DialogActions><Button onClick={() => { setReview(null); setError(""); }} disabled={busy}>Back</Button><Button variant="primary" onClick={() => void save()} disabled={busy} aria-busy={busy}>{busy ? <><Spinner />Saving…</> : "Save changes"}</Button></DialogActions>
+      </div> : <form
         className="flex flex-col gap-3"
         onSubmit={(event) => {
           event.preventDefault();
-          void save();
+          prepare();
         }}
       >
         <Field label="Type">
@@ -388,7 +438,7 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
           </Select>
         </Field>
         <Field label="Date">
-          <input className={inputClass} type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
+          <TemporalInput type="date" value={date} onChange={(event) => setDate(event.target.value)} required />
         </Field>
         {type === "expense" && category !== "Fees" && row.minor > 0 ? (
           <Field
@@ -410,14 +460,14 @@ function EditDialog({ row, onClose, onSaved }: { row: LedgerRow; onClose: () => 
           </p>
         ) : null}
         <DialogActions>
-          <Button variant="ghost" onClick={onClose} disabled={busy}>
+          <Button variant="ghost" onClick={close} disabled={busy}>
             Cancel
           </Button>
-          <Button type="submit" variant="primary" disabled={busy} aria-busy={busy} aria-label="Save changes">
-            {busy ? <Spinner /> : "Save changes"}
+          <Button type="submit" variant="primary">
+            Review changes
           </Button>
         </DialogActions>
-      </form>
+      </form>}
     </Dialog>
   );
 }

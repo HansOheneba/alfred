@@ -1,4 +1,7 @@
-.alfred-settings-navigation { display:flex; flex-direction:column; min-width:0; gap:2px; }
+.alfred-settings-navigation { display:flex; flex-direction:column; min-width:0; gap:18px; }
+.alfred-settings-navigationGroup { min-width:0; }
+.alfred-settings-navigationGroupTitle { margin:0 0 6px; padding-inline:8px; color:var(--muted); font-size:11px; font-weight:600; line-height:16px; letter-spacing:.06em; text-transform:uppercase; }
+.alfred-settings-navigationGroupItems { display:flex; flex-direction:column; min-width:0; gap:2px; }
 .alfred-settings-navigationItem { display:flex; align-items:center; justify-content:space-between; gap:12px; width:100%; min-width:0; min-height:48px; padding:12px; border-radius:12px; color:var(--muted); text-align:left; transition:background-color .15s,color .15s; }
 .alfred-settings-navigationItem:hover { background:var(--surface-2); color:var(--ink); }
 .alfred-settings-navigationItem:focus-visible { outline:2px solid var(--accent); outline-offset:3px; }
@@ -8,20 +11,26 @@
 .alfred-settings-navigationCopy { display:flex; flex:1; flex-direction:column; gap:4px; min-width:0; }
 .alfred-settings-navigationLabel { font-size:14px; font-weight:500; line-height:1.4; }
 .alfred-settings-navigationDescription { display:none; }
+.alfred-settings-navigationStatus { color:var(--muted); font-size:12px; font-weight:400; line-height:16px; overflow-wrap:anywhere; }
+.alfred-settings-navigationStatus.is-positive { color:var(--success); }
 .alfred-settings-navigationChevron { display:none; flex:0 0 18px; width:18px; height:18px; color:var(--muted); }
 .alfred-settings-mobileBack { display:none; }
 @media(min-width:768px) {
-  .alfred-settings-navigation { position:sticky; top:92px; flex:0 0 208px; width:208px; max-height:calc(100dvh - 116px); overflow-y:auto; overscroll-behavior-y:contain; scrollbar-width:thin; scroll-padding-block:8px; padding:4px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+  .alfred-settings-navigation { position:sticky; top:92px; flex:0 0 208px; width:208px; max-height:calc(100dvh - 116px); overflow-y:auto; overscroll-behavior-y:contain; scrollbar-width:thin; scroll-padding-block:12px; padding:12px 4px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
   .alfred-settings-navigationItem { min-height:44px; padding:8px; gap:8px; border-radius:10px; }
   .alfred-settings-navigationItem[aria-current="page"] { background:var(--accent-soft); }
   .alfred-settings-navigationIcon { flex-basis:28px; width:28px; height:28px; border-radius:8px; background:transparent; }
   .alfred-settings-navigationSymbol { width:18px; height:18px; }
   .alfred-settings-navigationDescription { display:none; }
+  .alfred-settings-navigationCopy { gap:2px; }
+  .alfred-settings-navigationItem[data-has-status="true"] { min-height:56px; }
   .alfred-settings-detail { min-width:0; }
   .alfred-settings-context { margin:0 0 12px; padding-inline:2px; color:var(--muted); font-size:14px; line-height:20px; }
 }
 @media(max-width:767px) {
-  .alfred-settings-navigation { width:100%; gap:0; border:1px solid var(--line); border-radius:16px; background:var(--surface); overflow:visible; }
+  .alfred-settings-navigation { width:100%; gap:24px; overflow:visible; }
+  .alfred-settings-navigationGroupTitle { margin-bottom:8px; padding-inline:2px; font-size:12px; line-height:18px; }
+  .alfred-settings-navigationGroupItems { gap:0; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
   .alfred-settings-navigationItem { min-height:76px; padding:16px; border-radius:0; }
   .alfred-settings-navigationItem + .alfred-settings-navigationItem { border-top:1px solid var(--line); }
   .alfred-settings-navigationItem:first-child { border-radius:15px 15px 0 0; }
@@ -31,6 +40,7 @@
   .alfred-settings-navigationSymbol { width:21px; height:21px; }
   .alfred-settings-navigationLabel { font-size:16px; }
   .alfred-settings-navigationDescription { display:block; color:var(--muted); font-size:12px; font-weight:400; line-height:1.4; overflow-wrap:anywhere; }
+  .alfred-settings-navigationItem[data-has-status="true"] .alfred-settings-navigationDescription { display:none; }
   .alfred-settings-navigationChevron { display:block; }
   .alfred-settings[data-mobile-section-open="false"] .alfred-settings-detail { display:none; }
   .alfred-settings[data-mobile-section-open="true"] .alfred-settings-navigation,

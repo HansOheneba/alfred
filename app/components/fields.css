@@ -4,6 +4,7 @@
   --field-border: #d0d5dd;
   --field-shadow: 0 1px 2px rgba(16, 24, 40, .05);
   --field-radius: 8px;
+  --field-height: 46px;
   --field-focus-border: color-mix(in srgb, var(--accent) 40%, var(--surface));
   --field-focus-ring: color-mix(in srgb, var(--accent) 10%, var(--surface));
   --field-error-border: #fda29b;
@@ -32,12 +33,12 @@
 
 /* Compound Chat and insight composers own their internal geometry and focus ring. */
 .alfred-input,
-:where(.alfred-app :is(input, select, textarea):not([hidden], [type="hidden"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="button"], [type="submit"], [type="reset"], .sr-only, .alfred-production-chat-composer textarea, #alfred-chat-message, .alfred-ui-insightInput input)) {
+:where(.alfred-app :is(input, select, textarea):not([hidden], [type="hidden"], [type="checkbox"], [type="radio"], [type="range"], [type="color"], [type="button"], [type="submit"], [type="reset"], .sr-only, .alfred-temporal-native, .alfred-production-chat-composer textarea, #alfred-chat-message, .alfred-ui-insightInput input)) {
   box-sizing: border-box;
   inline-size: 100%;
   min-inline-size: 0;
   max-inline-size: 100%;
-  min-block-size: 46px;
+  min-block-size: var(--field-height);
   border: 1px solid var(--field-border);
   border-radius: var(--field-radius);
   padding: 10px 14px;
@@ -64,7 +65,49 @@
   &[readonly] { background-color: var(--surface-2); }
   &:disabled { color: var(--muted); background-color: var(--surface-2); cursor: not-allowed; opacity: 1; }
   &:disabled::placeholder { color: var(--muted); }
-  &::-webkit-date-and-time-value { min-block-size: 24px; text-align: start; }
+}
+
+/* WebKit #301648: padded native date/time inputs can exceed percentage widths.
+   https://bugs.webkit.org/show_bug.cgi?id=301648
+   The shell owns that geometry; the unpadded input keeps its native picker. */
+.alfred-temporal {
+  display: flex;
+  align-items: center;
+  block-size: var(--field-height);
+  padding-block: 0;
+  cursor: text;
+  &:focus-within { border-color: var(--field-focus-border); box-shadow: var(--field-shadow), 0 0 0 4px var(--field-focus-ring); }
+  &:has(> input[readonly]) { background-color: var(--surface-2); }
+  &:has(> input:disabled) { color: var(--muted); background-color: var(--surface-2); cursor: not-allowed; }
+  &:has(> input[aria-invalid="true"]) { border-color: var(--field-error-border); padding-inline-end: 42px; background: var(--field-bg) url("/icons/input-alert.svg") right 14px center / 16px 16px no-repeat; }
+  &:has(> input[aria-invalid="true"]):focus-within { box-shadow: var(--field-shadow), 0 0 0 4px var(--field-error-ring); }
+}
+.alfred-temporal > .alfred-temporal-native {
+  appearance: none;
+  display: block;
+  flex: 1 1 0;
+  box-sizing: border-box;
+  inline-size: 100%;
+  min-inline-size: 0;
+  max-inline-size: 100%;
+  block-size: 44px;
+  min-block-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  color: inherit;
+  font: inherit;
+  line-height: 24px;
+  text-align: start;
+  outline: none;
+  &:disabled { cursor: not-allowed; opacity: 1; -webkit-text-fill-color: currentColor; }
+  &::-webkit-date-and-time-value { min-inline-size: 0; min-block-size: 24px; margin: 0; padding: 0; text-align: start; }
+  &::-webkit-datetime-edit { flex: 1; min-inline-size: 0; padding: 0; }
+  &::-webkit-datetime-edit-fields-wrapper { padding: 0; }
+  &::-webkit-calendar-picker-indicator { flex: none; margin-inline-start: auto; }
 }
 
 textarea.alfred-input,

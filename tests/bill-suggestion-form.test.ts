@@ -39,7 +39,7 @@ describe("renewal suggestion confirmation", () => {
     const onAction = vi.fn(), card = new Screen(() => BillsCard({ bills: [], upcoming: [], suggestions: [suggestion()], currency: "GHS", today: "2026-11-04", onAction })).render().click(label);
     expect(card.dialog.props.title).toBe("Confirm bill");
     const form = nodes(card.value).find(node => node.type === BillForm)!;
-    expect(form.props.initial).toMatchObject({ amount: "72.50", nextDate: "2026-11-18", currency: "GHS", cadence: "monthly", variableEstimate: true });
+    expect(form.props.initial).toMatchObject({ amount: "72.50", nextDate: "2026-11-18", currency: "GHS", cadence: "monthly", variableEstimate: true, lastPayment: { amount: "72.50", date: "2026-10-18" } });
     expect(onAction).not.toHaveBeenCalled();
     const screen = new Screen(() => BillForm(form.props as unknown as Parameters<typeof BillForm>[0])).render();
     expect(screen.field("Expected amount (GHS)").props.value).toBe("72.50"); expect(screen.field("Next payment date").props.value).toBe("2026-11-18");
@@ -78,5 +78,46 @@ describe("renewal suggestion confirmation", () => {
     const screen = new Screen(() => BillForm({ initial: {}, currency: "GHS", today: "2026-11-04", onCancel: vi.fn(), onSaved: vi.fn() })).render();
     const footer = nodes(screen.value).find(node => node.type === DialogActions)!;
     expect(nodes(footer).filter(node => node.type === Button).map(node => text(node.props.children as ReactNode))).toEqual(["Back", "Save bill"]);
+  });
+  it("retains the observed payment amount and date as a read-only reference when the user chooses variable amounts", () => {
+    const screen = new Screen(() => BillForm({ initial: { amount: "72.50", nextDate: "2026-11-18", suggestionId: "sample", lastPayment: { amount: "72.50", date: "2026-10-18" } }, currency: "GHS", today: "2026-11-04", onCancel: vi.fn(), onSaved: vi.fn() })).render().change("Expected amount (GHS)", "80.00");
+    const checkbox = nodes(screen.value).find(node => node.type === "input" && node.props.type === "checkbox")!;
+    (checkbox.props.onChange as (event: { target: { checked: boolean } }) => void)({ target: { checked: true } }); screen.render();
+    const reference = nodes(screen.value).find(node => node.props["aria-label"] === "Previous payment reference")!;
+    expect(text(reference)).toContain("Last recorded payment"); expect(text(reference)).toContain("72.50"); expect(text(reference)).not.toContain("80.00");
+    expect(nodes(reference).find(node => node.type === "time")?.props.dateTime).toBe("2026-10-18");
+    expect(text(reference)).toContain("Reference only"); expect(nodes(reference).some(node => node.type === "input")).toBe(false);
+    expect(nodes(screen.value).some(node => node.type === Field && node.props.label === "Expected amount (GHS)")).toBe(false);
+  });
+  it("never turns the next due date or an edited expected amount into invented payment history", () => {
+    const screen = new Screen(() => BillForm({ initial: { id: "sample-variable", amount: null, nextDate: "2026-11-18" }, currency: "GHS", today: "2026-11-04", onCancel: vi.fn(), onSaved: vi.fn() })).render();
+    const reference = nodes(screen.value).find(node => node.props["aria-label"] === "Previous payment reference")!;
+    expect(text(reference)).toContain("No previous payment details are available"); expect(nodes(reference).some(node => node.type === "time")).toBe(false);
+    const withAmount = new Screen(() => BillForm({ initial: { id: "sample-variable", amount: null, lastPayment: { amount: "72.50" }, nextDate: "2026-11-18" }, currency: "GHS", today: "2026-11-04", onCancel: vi.fn(), onSaved: vi.fn() })).render();
+    expect(text(withAmount.value)).toContain("Date not available"); expect(nodes(withAmount.value).some(node => node.type === "time")).toBe(false);
+  });
+  it("separates confirmed fixed amounts by currency and excludes variable bills and unconfirmed estimates", () => {
+    const base: BillRecord = { id: "sample-fixed", ownerId: "sample-owner", name: "Sample fixed", nextDate: "2026-11-10", amount: "100.00", currency: "GHS", cadence: "monthly", active: true, createdAt: "2026-01-01T00:00:00Z", updatedAt: "2026-01-01T00:00:00Z" };
+    const bills = [base, { ...base, id: "sample-usd", name: "Sample dollars", currency: "USD", amount: "20.00" }, { ...base, id: "sample-variable", name: "Sample variable", amount: null }];
+    const card = new Screen(() => BillsCard({ bills, upcoming: bills.map(bill => ({ ...bill, renewalDate: bill.nextDate })), suggestions: [suggestion()], currency: "GHS", today: "2026-11-04" })).render();
+    expect(text(card.value)).toContain("Confirmed bills · fixed amounts"); expect(text(card.value)).toContain("100.00"); expect(text(card.value)).toContain("20.00"); expect(text(card.value)).not.toContain("120.00");
+    expect(text(card.value)).toContain("1 variable bill is not included in this total"); expect(text(card.value)).toContain("Unconfirmed suggestions. Estimates are not included");
+  });
+  it("shows readable saving status and passes the saved plan to the receipt only after success", async () => {
+    let finish!: () => void;
+    const action = vi.fn(() => new Promise<void>(resolve => { finish = resolve; })), saved = vi.fn();
+    const screen = new Screen(() => BillForm({ initial: { name: "Sample service", nextDate: "2026-11-18", cadence: "monthly", amount: "72.5" }, currency: "GHS", today: "2026-11-04", onCancel: vi.fn(), onSaved: saved, onAction: action })).render();
+    (nodes(screen.value).find(node => node.type === "form")!.props.onSubmit as (event: { preventDefault(): void }) => void)({ preventDefault: vi.fn() }); screen.render();
+    expect(text(screen.value)).toContain("Saving your bill…"); expect(screen.field("Name").props.disabled).toBe(true); expect(saved).not.toHaveBeenCalled();
+    finish(); await Promise.resolve(); await Promise.resolve();
+    expect(saved).toHaveBeenCalledWith({ name: "Sample service", nextDate: "2026-11-18", cadence: "monthly", amount: "72.50", currency: "GHS" });
+  });
+  it("provides View bill after a save without requiring a second confirmation or fabricating a payment receipt", () => {
+    const card = new Screen(() => BillsCard({ bills: [], upcoming: [], suggestions: [suggestion()], currency: "GHS", today: "2026-11-04" })).render().click("Confirm");
+    const form = nodes(card.value).find(node => node.type === BillForm)!;
+    (form.props.onSaved as (bill: unknown) => void)({ name: "Sample service", nextDate: "2026-11-18", cadence: "monthly", amount: null, currency: "GHS" }); card.render().click("View bill");
+    const receipt = nodes(card.value).find(node => node.type === Dialog && node.props.title === "Saved bill details")!;
+    expect(receipt.props.open).toBe(true); expect(text(receipt)).toContain("saved bill plan, not a recorded payment"); expect(text(receipt)).toContain("Amount varies"); expect(text(receipt)).toContain("excluded from fixed planned totals");
+    expect(nodes(receipt).some(node => node.type === Button && text(node.props.children as ReactNode) === "Confirm bill")).toBe(false);
   });
 });

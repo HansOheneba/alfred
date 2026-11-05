@@ -10,6 +10,7 @@ import { RANGE_LABELS } from "@/lib/finance/analytics";
 import { formatMinor } from "@/lib/finance/money";
 import type { Ledger } from "@/lib/web/ledger";
 import { previewLedger } from "@/ui-preview/fixture";
+import { DEFAULT_OVERVIEW_VIEW } from "@/app/dashboard/overview-view";
 
 vi.mock("next/navigation", () => ({ useRouter: () => ({ refresh: vi.fn(), push: vi.fn() }) }));
 
@@ -68,7 +69,7 @@ describe("responsive overview controls", () => {
   });
 
   it("offers one compact period picker across screen sizes, every dialog choice, and both chart views", () => {
-    const html = renderToStaticMarkup(createElement(DashboardClient, { ledger: previewLedger, name: "Sample reviewer" }));
+    const html = renderToStaticMarkup(createElement(DashboardClient, { ledger: previewLedger, name: "Sample reviewer", initialView: { ...DEFAULT_OVERVIEW_VIEW, insightsOpen: true } }));
     const trigger = html.match(/<button[^>]*aria-label="Date range: This month"[^>]*>/)?.[0];
     expect(trigger).toContain('aria-haspopup="dialog"');
     expect(trigger).toContain('aria-expanded="false"');
@@ -90,7 +91,7 @@ describe("responsive overview controls", () => {
 
   it("keeps account balance and both period totals together with the weekly comparison after all three", () => {
     const html = renderToStaticMarkup(createElement(DashboardClient, { ledger: previewLedger, name: "Sample reviewer" }));
-    const summary = html.slice(html.indexOf('aria-label="Account balance and cash flow"'), html.indexOf('class="alfred-ui-insightsAndTrends"'));
+    const summary = html.slice(html.indexOf('aria-label="Account balance and cash flow"'), html.indexOf('id="overview-transactions"'));
     expect(summary).toContain('aria-label="Total account balance"');
     expect(summary).toContain('data-kind="expense"');
     expect(summary).toContain('data-kind="income"');
@@ -98,6 +99,29 @@ describe("responsive overview controls", () => {
     expect(summary.indexOf('aria-label="Weekly spending comparison"')).toBeGreaterThan(summary.indexOf('data-kind="income"'));
     expect(summary.match(/aria-label="Weekly spending comparison"/g)).toHaveLength(1);
     expect(summary).toContain("This week so far");
+  });
+
+  it("puts recent transactions and bill actions before lazy, collapsed analytics in reading order", () => {
+    const html = renderToStaticMarkup(createElement(DashboardClient, { ledger: previewLedger, name: "Sample reviewer" }));
+    const transactions = html.indexOf('id="overview-transactions"');
+    const bills = html.indexOf("Bills &amp; renewals");
+    const insights = html.indexOf('class="alfred-ui-insightsDisclosure"');
+    expect(transactions).toBeGreaterThan(html.indexOf('aria-label="Weekly spending comparison"'));
+    expect(bills).toBeGreaterThan(transactions);
+    expect(insights).toBeGreaterThan(bills);
+    expect(html).not.toMatch(/<details class="alfred-ui-insightsDisclosure"[^>]*open/);
+    expect(html).not.toContain("Spending vs income, last 12 months");
+    expect(html).not.toContain('class="alfred-ui-fillChart"');
+  });
+
+  it("restores selected report preferences from the URL without changing transaction calculations", () => {
+    const html = renderToStaticMarkup(createElement(DashboardClient, { ledger: previewLedger, name: "Sample reviewer", initialView: { preset: "this_year", category: "Food", dailyMode: "cumulative", insightsOpen: true } }));
+    expect(html).toContain('aria-label="Date range: This year"');
+    expect(html).toMatch(/<details class="alfred-ui-insightsDisclosure" open=""/);
+    expect(html).toMatch(/<button[^>]*aria-pressed="true"[^>]*>Running total<\/button>/);
+    expect(html).toContain('href="#overview-transactions"');
+    expect(html).toContain("View Food transactions");
+    expect(html).toContain("Where the money went · this year");
   });
 
   it("labels spent and income with the selected month while retaining month totals rather than today totals", () => {

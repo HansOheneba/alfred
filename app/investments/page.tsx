@@ -5,11 +5,10 @@ import { AppShell } from "@/app/components/app-shell";
 import { InvestmentsSkeleton } from "@/app/components/page-skeletons";
 import { InvestmentsClient, type InvestmentsData } from "@/app/investments/investments-client";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
-import { sourceName } from "@/lib/bank/parse";
-import { createSupabaseBankStore } from "@/lib/bank/store";
 import { zonedYmd } from "@/lib/finance/dates";
 import { loadPortfolio } from "@/lib/investments/actions";
 import { createSupabaseInvestmentStore } from "@/lib/investments/store";
+import { loadIncludedAccountCash } from "@/lib/web/included-account-cash";
 
 export default function InvestmentsPage() {
   if (!publicAuthConfigured()) return <MissingAuthConfig />;
@@ -45,15 +44,16 @@ async function InvestmentsScreen() {
 
   let data: InvestmentsData;
   try {
-    const [portfolio, contributions, balances] = await Promise.all([
+    const [portfolio, contributions, cash] = await Promise.all([
       loadPortfolio(store, ownerId, zonedYmd(new Date(), account.profile.timezone), { fetchMissing: true }),
       store.contributions(ownerId),
-      createSupabaseBankStore(account.settings.supabase).latestBalances(ownerId),
+      loadIncludedAccountCash(account.settings.supabase, ownerId, account.profile.currency),
     ]);
     const names = new Map(portfolio.items.map((item) => [item.investment.id, item.investment.name]));
     data = {
       portfolio,
-      cash: balances.map((item) => ({ label: sourceName(item.source), balance: Number(item.balance), at: item.at })),
+      cash,
+      timeZone: account.profile.timezone,
       contributions: contributions
         .filter((item) => names.has(item.investmentId))
         .slice(-12)

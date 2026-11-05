@@ -36,10 +36,10 @@ html[data-theme="dark"] .alfred-app {
 .alfred-ui-skip { position: fixed; left: 16px; top: -80px; z-index: 80; padding: 12px; background: var(--surface); border: 2px solid var(--accent); border-radius: 8px; }
 .alfred-ui-skip:focus { top: 8px; }
 .alfred-ui-dock { position: fixed; left: 50%; bottom: max(20px,env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 40; display: flex; gap: 4px; padding: 8px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 10px 36px #153b2924; }
-.alfred-ui-dock a { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 12px; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; transition: color 150ms,background 150ms; }
+.alfred-ui-dock :is(a,.alfred-chatNav-trigger) { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 12px; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; transition: color 150ms,background 150ms; }
 .alfred-ui-dock svg { width: 16px; height: 16px; flex-shrink: 0; }
-.alfred-ui-dock a[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
-.alfred-ui-dock a:hover { background: var(--surface-2); color: var(--ink); }
+.alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
+.alfred-ui-dock :is(a,.alfred-chatNav-trigger):hover { background: var(--surface-2); color: var(--ink); }
 .alfred-app :is(a,button):focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
 body:has(dialog[open]) .alfred-ui-dock { visibility: hidden; pointer-events: none; }
 
@@ -160,7 +160,7 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
   .alfred-ui-privacy span { display: none; }
   .alfred-ui-themeButton { min-height: 44px; padding-inline: 8px; }
   .alfred-ui-dock { display: grid; grid-template-columns: repeat(5,minmax(0,1fr)); width: min(calc(100% - 12px),560px); min-height: 72px; padding: 4px; border-radius: 20px; bottom: max(12px,env(safe-area-inset-bottom)); gap: 0; }
-  .alfred-ui-dock a { flex-direction: column; gap: 4px; min-width: 0; min-height: 56px; padding: 4px 0; font-size: 12px; line-height: 16px; border-radius: 12px; }
+  .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { flex-direction: column; gap: 4px; min-width: 0; min-height: 56px; padding: 4px 0; font-size: 12px; line-height: 16px; border-radius: 12px; }
   .alfred-ui-dock svg { width: 20px; height: 20px; }
   .alfred-ui-dashboard { gap: 20px; padding: 24px 16px 12px; }
   .alfred-ui-heading h1 { font-size: 28px; }
@@ -193,7 +193,7 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
   .alfred-ui-metricHint { font-size: 12px; }
   .alfred-ui-transactions section > div:has(> input) { grid-template-columns: 1fr; }
 }
-@media (prefers-reduced-motion: reduce) { .alfred-ui-dock a { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { transition: none; } }
 
 .alfred-ui-summary .alfred-weekly-comparison { grid-column: 1 / -1; align-self: start; }
 
@@ -224,7 +224,7 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
 .alfred-ui-trends > section > div:first-child, .alfred-ui-insightsHeader { min-height: 56px; align-items: center; }
 @media (max-width: 360px) {
   .alfred-ui-dock { width: calc(100% - 8px); }
-  .alfred-ui-dock a span { letter-spacing: -.04em; }
+  .alfred-ui-dock :is(a,.alfred-chatNav-trigger) span { letter-spacing: -.04em; }
 }
 
 
@@ -243,7 +243,7 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
   .alfred-app .alfred-ui-themeButton { min-width: 44px; }
 }
 
-@media (max-width: 360px) { .alfred-ui-dock a { font-size: 11px; } .alfred-ui-metric { padding: 12px; } }
+@media (max-width: 360px) { .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { font-size: 11px; } .alfred-ui-metric { padding: 12px; } }
 
 /* Chat owns the app viewport; only its message thread scrolls. */
 .alfred-chat-viewport { position:fixed; top:var(--alfred-chat-offset-top,0px); left:0; width:100%; height:var(--alfred-chat-viewport-height,100dvh); min-height:0; overflow:hidden; background:var(--surface); }
@@ -252,9 +252,9 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
 .alfred-app-chat .alfred-ui-main > :not(.alfred-production-chat) { min-height:0; overflow-y:auto; }
 @media(max-width:760px) {
   .alfred-ui-dock { left:0; bottom:0; transform:none; width:100%; max-width:none; min-height:calc(64px + env(safe-area-inset-bottom)); padding:4px 4px calc(4px + env(safe-area-inset-bottom)); gap:0; border-radius:0; border:0; box-shadow:0 -1px 0 var(--line); }
-  .alfred-ui-dock a { min-height:56px; border-radius:8px; }
-  .alfred-ui-dock a[aria-current="page"] { background:transparent; position:relative; color:var(--accent); }
-  .alfred-ui-dock a[aria-current="page"]::before { content:""; position:absolute; top:0; left:calc(50% - 12px); width:24px; height:4px; border-radius:0 0 4px 4px; background:var(--accent); }
+  .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { min-height:56px; border-radius:8px; }
+  .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"] { background:transparent; position:relative; color:var(--accent); }
+  .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"]::before { content:""; position:absolute; top:0; left:calc(50% - 12px); width:24px; height:4px; border-radius:0 0 4px 4px; background:var(--accent); }
   .alfred-ui-pageShell { padding-bottom:calc(88px + env(safe-area-inset-bottom)); }
   .alfred-app-chat .alfred-ui-fill > .alfred-ui-main { padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
   .alfred-chat-viewport[data-keyboard-open="true"] .alfred-ui-dock { visibility:hidden; pointer-events:none; }
@@ -277,10 +277,10 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
 
 /* Wider screens navigate from the top bar, as desktop apps do; the bottom tab bar is for phones only. */
 .alfred-ui-topNav { display:flex; align-items:center; gap:4px; min-width:0; }
-.alfred-ui-topNav a { display:inline-flex; align-items:center; gap:8px; min-height:40px; padding:0 12px; border-radius:10px; color:var(--muted); font-size:14px; line-height:20px; font-weight:500; white-space:nowrap; transition:color 150ms,background 150ms; }
-.alfred-ui-topNav a:hover { background:var(--surface-2); color:var(--ink); }
-.alfred-ui-topNav a[aria-current="page"] { color:var(--accent); background:var(--accent-soft); }
-@media (prefers-reduced-motion: reduce) { .alfred-ui-topNav a { transition:none; } }
+.alfred-ui-topNav :is(a,.alfred-chatNav-trigger) { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:0 12px; border-radius:10px; color:var(--muted); font-size:14px; line-height:20px; font-weight:500; white-space:nowrap; transition:color 150ms,background 150ms; }
+.alfred-ui-topNav :is(a,.alfred-chatNav-trigger):hover { background:var(--surface-2); color:var(--ink); }
+.alfred-ui-topNav :is(a,.alfred-chatNav-trigger)[aria-current="page"] { color:var(--accent); background:var(--accent-soft); }
+@media (prefers-reduced-motion: reduce) { .alfred-ui-topNav :is(a,.alfred-chatNav-trigger) { transition:none; } }
 @media (min-width:761px) {
   .alfred-ui-dock { display:none; }
   .alfred-ui-pageShell { padding-bottom:32px; }
@@ -293,7 +293,7 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
 @media (min-width:761px) and (max-width:1023px) {
   .alfred-ui-headerInner { padding-inline:20px; gap:16px; }
   .alfred-ui-topNav svg { display:none; }
-  .alfred-ui-topNav a { padding:0 10px; }
+  .alfred-ui-topNav :is(a,.alfred-chatNav-trigger) { padding:0 10px; }
   .alfred-ui-privacy span { display:none; }
 }
 @media (max-width:760px) {

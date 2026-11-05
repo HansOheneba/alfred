@@ -11,8 +11,9 @@ vi.mock("react", async original => {
   return { ...react,
     useState: <T>(initial: T | (() => T)) => hooks.current ? hooks.current.state(initial) : react.useState(initial),
     useEffect: () => undefined,
+    useRef: <T>(initial: T) => hooks.current ? { current: initial } : react.useRef(initial),
     useMemo: <T>(compute: () => T) => compute(),
-    useSyncExternalStore: (_subscribe: unknown, _snapshot: unknown, serverSnapshot: () => unknown) => serverSnapshot(),
+    useSyncExternalStore: (_subscribe: unknown, snapshot: () => unknown, serverSnapshot: () => unknown) => typeof window === "undefined" ? serverSnapshot() : snapshot(),
   };
 });
 vi.mock("@/app/components/app-shell", () => ({ usePrivacyMask: () => [false] }));
@@ -66,8 +67,15 @@ describe("Activity filter bottom sheet", () => {
     screen.open(); expect(screen.field("Search").props.value).toBe("BUS");
   });
   it("reflects the existing View movements account filter when reopening the sheet", () => {
-    vi.stubGlobal("window", { location: { href: "https://example.invalid/accounts", pathname: "/accounts", search: "", hash: "" }, history: { state: null, pushState: vi.fn() } });
+    const location = { href: "https://example.invalid/accounts?payment=market", pathname: "/accounts", search: "?payment=market", hash: "" };
+    const pushState = vi.fn((_state: unknown, _unused: string, href: string) => { const url = new URL(href, location.href); Object.assign(location, { href: url.href, pathname: url.pathname, search: url.search, hash: url.hash }); });
+    vi.stubGlobal("window", { location, history: { state: null, pushState } });
     const screen = new Screen().render(); const view = nodes(screen.value).find(node => node.type === "button" && text(node.props.children as ReactNode).startsWith("View movements"))!;
     (view.props.onClick as () => void)(); screen.render().open(); expect(screen.field("Account").props.value).toBe("wallet"); expect(screen.filters.props["aria-label"]).toBe("Filters, 1 active");
+    expect(location.search).toBe("?payment=market&tab=activity"); expect(screen.rows.map(row => row.id)).toEqual(["market"]);
+    const attentionTab = nodes(screen.value).find(node => node.props.role === "tab" && text(node.props.children as ReactNode).startsWith("Needs attention"))!;
+    (attentionTab.props.onClick as () => void)(); screen.render();
+    const allTab = nodes(screen.value).find(node => node.props.role === "tab" && text(node.props.children as ReactNode) === "All activity")!;
+    (allTab.props.onClick as () => void)(); screen.render().open(); expect(screen.field("Account").props.value).toBe("wallet"); expect(screen.rows.map(row => row.id)).toEqual(["market"]);
   });
 });

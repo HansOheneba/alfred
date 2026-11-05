@@ -6,6 +6,7 @@ import { useSyncExternalStore, type ReactNode } from "react";
 import { useChatViewport } from "./chat-viewport";
 import { buttonClassName } from "./button-styles";
 import { AlfredAvatar } from "@/app/components/alfred-avatar";
+import { ChatNavigationItem } from "@/app/chat/chat-context-control";
 import { serializeBrowserPreferenceWrite } from "@/lib/portability/browser-preferences-lock";
 import "./app-ui.css";
 import "./header-controls.css";
@@ -180,7 +181,7 @@ export function AppShell({ current, fill = false, headerAction, children }: {
           <Link href="/" className="alfred-ui-brand"><span>Alfred</span></Link>
           {/* Wider screens navigate from the top bar; phones use the bottom tab bar below. */}
           <nav className="alfred-ui-topNav" aria-label="Main">
-            {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-4">{item.icon}</Icon><span>{item.label}</span></Link>)}
+            {NAV.map((item) => chat && item.section === "chat" ? <ChatNavigationItem key={item.section} placement="header" icon={<Icon className="size-4">{item.icon}</Icon>} /> : <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-4">{item.icon}</Icon><span>{item.label}</span></Link>)}
           </nav>
           <div className="alfred-ui-headerActions">
             <div className="alfred-headerControls" role="group" aria-label="Display controls"><PrivacyToggle/><AppearanceToggle/></div>
@@ -190,7 +191,7 @@ export function AppShell({ current, fill = false, headerAction, children }: {
       </header>
       <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{children}</main>
       <nav className="alfred-ui-dock" aria-label="Main (mobile)">
-        {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-5">{item.icon}</Icon><span>{item.label}</span></Link>)}
+        {NAV.map((item) => chat && item.section === "chat" ? <ChatNavigationItem key={item.section} placement="dock" icon={<Icon className="size-5">{item.icon}</Icon>} /> : <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}><Icon className="size-5">{item.icon}</Icon><span>{item.label}</span></Link>)}
       </nav>
     </div>
   </div>;

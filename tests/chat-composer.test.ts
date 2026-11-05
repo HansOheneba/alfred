@@ -3,16 +3,21 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 
 import { ChatPanel, resizeChatComposer } from "@/app/chat/chat-panel";
+import { ChatShell } from "@/app/chat/chat-shell";
 
 describe("compact Chat composer", () => {
-  it("keeps context in the Chat toolbar and the single-line message, attachment and send controls together", () => {
-    const markup = renderToStaticMarkup(createElement(ChatPanel, { ownerId: "fictional-owner", name: "Sample", initialMessages: [] }));
-    const toolbar = markup.match(/<header class="alfred-production-chat-toolbar">([\s\S]*?)<\/header>/)?.[1];
+  it("puts a submenu under active Chat navigation and keeps the composer together without a second toolbar", () => {
+    const markup = renderToStaticMarkup(createElement(ChatShell, { name: "Sample", contextAvailable: true }, createElement(ChatPanel, { ownerId: "fictional-owner", name: "Sample", initialMessages: [] })));
+    const header = markup.match(/<header class="alfred-ui-header alfred-ui-chatHeader">([\s\S]*?)<\/header>/)?.[1];
     const composer = markup.match(/<form class="alfred-production-chat-composer"[\s\S]*?<\/form>/)?.[0];
-    expect(toolbar).toContain("<h1>Chat</h1>");
-    expect(toolbar).toContain('aria-label="Show context"');
-    expect(toolbar).toContain('aria-haspopup="dialog"');
-    expect(toolbar).toContain('aria-controls="alfred-production-chat-contextSheet"');
+    expect(header).toContain('class="alfred-chatNav alfred-chatNav--header"');
+    expect(header).toContain('aria-current="page" aria-haspopup="menu" aria-expanded="false"');
+    expect(markup).toContain('class="alfred-chatNav alfred-chatNav--dock"');
+    expect(markup.match(/class="alfred-chatNav-trigger"/g)).toHaveLength(2);
+    expect(header).not.toContain("alfred-headerContext");
+    expect(markup).toContain('<h1 class="sr-only">Chat</h1>');
+    expect(markup).not.toContain("alfred-production-chat-toolbar");
+    expect(markup).not.toContain('role="menuitem"');
     expect(composer).toContain('aria-label="Attach a screenshot"');
     expect(composer).toContain('rows="1"');
     expect(composer).toContain('enterKeyHint="send"');

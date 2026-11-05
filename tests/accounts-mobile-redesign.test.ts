@@ -74,7 +74,7 @@ describe("transaction receipt", () => {
   it("retains explicit missing-time evidence rather than inventing a timestamp", () => {
     const state = sample(); state.movements[0].occurredAt = null;
     const html = receipt(render(state, { initialPaymentMovementId: "sample-out" }));
-    expect(html).toContain("2026-11-01 · Time not recorded");
+    expect(html).toContain("1 Nov 2026 · Time not recorded");
   });
   it("does not label internal movement as incoming or hide meaningful statuses", () => {
     expect(movementDirectionLabel("internal")).toBe("Internal movement");

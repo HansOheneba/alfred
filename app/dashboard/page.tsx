@@ -6,8 +6,12 @@ import { DashboardSkeleton } from "@/app/components/page-skeletons";
 import { DashboardClient } from "@/app/dashboard/dashboard-client";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { loadLedger, type Ledger } from "@/lib/web/ledger";
+import { parseOverviewTransactionFilters } from "@/lib/web/activity-handoff";
+import { overviewViewFromParams } from "./overview-view";
 
-export default function DashboardPage() {
+type DashboardSearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+export default function DashboardPage({ searchParams }: { searchParams?: DashboardSearchParams } = {}) {
   if (!publicAuthConfigured()) return <MissingAuthConfig />;
 
   return (
@@ -18,12 +22,15 @@ export default function DashboardPage() {
         </AppShell>
       }
     >
-      <DashboardScreen />
+      <DashboardScreen searchParams={searchParams} />
     </Suspense>
   );
 }
 
-async function DashboardScreen() {
+async function DashboardScreen({ searchParams }: { searchParams?: DashboardSearchParams }) {
+  const values = await searchParams ?? {};
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(values)) if (typeof value === "string") params.set(key, value);
   const account = await signedInAccount();
   if (account.kind === "signed-out") redirect("/");
   if (account.kind === "error") {
@@ -52,7 +59,7 @@ async function DashboardScreen() {
 
   return (
     <AppShell current="dashboard" name={name}>
-      <DashboardClient ledger={ledger} name={name} timeZone={account.profile.timezone} />
+      <DashboardClient ledger={ledger} name={name} timeZone={account.profile.timezone} initialView={overviewViewFromParams(params)} initialTransactionFilters={parseOverviewTransactionFilters(params.toString())} />
     </AppShell>
   );
 }

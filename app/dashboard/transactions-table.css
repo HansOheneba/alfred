@@ -3,6 +3,17 @@
 .alfred-transactions :is(button,a) { min-height: 44px; }
 .alfred-transaction-headerActions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; min-width: 0; }
 .alfred-transaction-headerActions .alfred-transaction-viewAll { min-width: 0; }
+.alfred-transaction-filterChips { display:flex; flex-wrap:wrap; gap:8px; margin-block:0 16px; }
+.alfred-transaction-filterChips > button { display:inline-flex; align-items:center; gap:8px; max-width:100%; padding:8px 12px; border:1px solid var(--line); border-radius:999px; background:var(--surface-2); color:var(--ink); font:inherit; font-size:12px; overflow-wrap:anywhere; }
+.alfred-transaction-filterChips > button > span { flex:none; font-size:18px; }
+.alfred-transaction-saveNotice { display:flex; flex-wrap:wrap; align-items:center; gap:12px; margin-bottom:16px; padding:12px; border:1px solid var(--line); border-radius:12px; background:var(--surface-2); font-size:14px; overflow-wrap:anywhere; }
+.alfred-transaction-saveNotice > p { flex:1 1 220px; }
+.alfred-transaction-changeReview { display:flex; flex-direction:column; gap:20px; min-width:0; }
+.alfred-transaction-changes { flex-basis:100%; min-width:0; }
+.alfred-transaction-changes > div { padding:12px 0; border-bottom:1px solid var(--line); }
+.alfred-transaction-changes dt { margin-bottom:6px; color:var(--muted); font-size:12px; }
+.alfred-transaction-changes dd { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:start; gap:12px; font-size:14px; overflow-wrap:anywhere; }
+.alfred-transaction-changes dd > strong { font-weight:500; }
 .alfred-transaction-viewAllShort { display: none; }
 .alfred-transactions .alfred-transaction-filterToggle { display: inline-flex; flex: none; }
 .alfred-transaction-filterToggle > svg { width: 16px; height: 16px; flex: none; }

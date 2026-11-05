@@ -36,7 +36,7 @@ describe("bounded account history", () => {
   it("renders at most one page in each approved responsive activity layout for 3000 records", () => {
     active.tab = "activity";
     const state = records(3000), before = structuredClone(state), markup = workspace(state);
-    expect((markup.match(/<tr>/g) ?? []).length).toBe(26);
+    expect((markup.match(/<tr(?:\s[^>]*)?>/g) ?? []).length).toBe(26);
     expect((markup.match(/class="alfred-accounts-movementRow"/g) ?? []).length).toBe(25);
     expect(markup).toContain("1–25 of 3000 movements"); expect(markup).toContain("3000 movements");
     expect(markup).not.toContain("Fictional movement 2999"); expect(state).toEqual(before);
@@ -47,7 +47,7 @@ describe("bounded account history", () => {
     const state = records(1000); state.movements.forEach((row) => { row.status = "review"; });
     const markup = workspace(state);
     expect(markup).toContain("1000 movements"); expect(markup).toContain("1–25 of 1000 movements");
-    expect((markup.match(/<tr>/g) ?? []).length).toBe(26);
+    expect((markup.match(/<tr(?:\s[^>]*)?>/g) ?? []).length).toBe(26);
   });
   it("does not render or format any balance records until their history is opened", () => {
     const state = records(0), account = state.accounts[0], money = vi.fn(() => "fictional balance");

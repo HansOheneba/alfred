@@ -12,6 +12,7 @@ import { DEFAULT_BROWSER_PREFERENCES, planBrowserPreferences } from "@/lib/porta
 import { InvestmentsClient } from "@/app/investments/investments-client";
 import { valuePortfolio } from "@/lib/investments/value";
 import type { Investment } from "@/lib/investments/store";
+import { includedAccountCash } from "@/lib/finance/accounting/cash-summary";
 
 function summary(): NativeImportSummary {
   return {
@@ -119,7 +120,7 @@ describe("imported device preferences and investment presentation", () => {
     const portfolio = valuePortfolio({ investments: [investment], holdings: [], contributions: [], prices: [], today: "2026-11-02", values: [{ investmentId: investment.id, value: "1120.00", asOf: "2026-11-01T00:00:00.000Z", source: "reported" }] });
     expect(portfolio.investedGhs).toBeNull();
     expect(portfolio.gainGhs).toBeNull();
-    const markup = renderToStaticMarkup(createElement(InvestmentsClient, { initial: { portfolio, cash: [], contributions: [] } }));
+    const markup = renderToStaticMarkup(createElement(InvestmentsClient, { initial: { portfolio, cash: includedAccountCash(null, "GHS"), contributions: [] } }));
     expect(markup).toContain("1,120");
     expect(markup).toContain("Unknown cost basis");
     expect(markup).toContain("Their cost basis and gains stay unknown");

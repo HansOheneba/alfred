@@ -67,7 +67,7 @@
 .alfred-accounts-note strong { font-weight:500; }
 .alfred-accounts-note p { max-width:848px; font-size:12px; }
 .alfred-accounts-field { display:flex; flex-direction:column; gap:6px; min-width:0; }
-.alfred-accounts-field > span { font-size:14px; line-height:20px; color:var(--ink); font-weight:500; }
+.alfred-accounts-field > span:first-child { font-size:14px; line-height:20px; color:var(--ink); font-weight:500; }
 .alfred-accounts-field :is(input,textarea),.alfred-accounts-field > .alfred-select,.alfred-accounts-field [role="combobox"] { width:100%; min-width:0; }
 .alfred-accounts-filters { display:grid; grid-template-columns:2fr 1fr 1fr; gap:12px; margin-bottom:16px; }
 .alfred-accounts-movements { border:1px solid var(--line); border-radius:12px; background:var(--surface); overflow:hidden; }
@@ -163,7 +163,7 @@
 .alfred-accounts-subscriptions input[type=checkbox] { min-height:20px; width:20px; height:20px; }
 @media(max-width:720px) {
  .alfred-accounts { font-size:14px; }
- .alfred-accounts :is(button,input:not([type=checkbox]):not([type=radio]),select,summary) { min-height:44px; }
+ .alfred-accounts :is(button,input:not([type=checkbox]):not([type=radio]):not(.alfred-temporal-native),select,summary) { min-height:44px; }
  .alfred-accounts-modal > header > button { width:44px; height:44px; }
  .alfred-account-inclusion { min-height:44px; }
  .alfred-accounts .alfred-accounts-field input { font-size:16px; }
@@ -171,7 +171,7 @@
  .alfred-accounts-subscriptions > section, .alfred-accounts-subscriptions .alfred-preview-billsWrapper > section { padding:16px; }
  .alfred-accounts-subscriptions .alfred-dialog-body { padding:20px 20px max(20px,env(safe-area-inset-bottom)); }
  .alfred-accounts-subscriptions dialog form > .grid { grid-template-columns:minmax(0,1fr); gap:16px; }
- .alfred-accounts-subscriptions :is(button,input:not([type=checkbox]):not([type=radio]),select) { min-height:44px; }
+ .alfred-accounts-subscriptions :is(button,input:not([type=checkbox]):not([type=radio]):not(.alfred-temporal-native),select) { min-height:44px; }
  .alfred-accounts-subscriptions :is(input:not([type=checkbox]):not([type=radio]),select) { font-size:16px; }
  .alfred-accounts-subscriptions .alfred-dialog-body > .flex.items-center.justify-between { align-items:flex-start; flex-wrap:wrap; gap:16px; }
 }
@@ -350,4 +350,73 @@
  .alfred-accounts-movements .is-numeric { white-space:normal; }
  .alfred-accounts-movements .is-numeric > strong { font-size:14px; font-weight:550; }
  .alfred-accounts-movements .alfred-accounts-status { white-space:normal; line-height:1.5; }
+}
+
+/* Daily review tools stay visible without expanding the balance summary. */
+.alfred-accounts-saveProgress { display:flex; align-items:center; gap:8px; margin:12px 0; color:var(--accent)!important; font-size:14px; }
+.alfred-accounts-search { max-width:540px; margin:4px 0 16px; }
+.alfred-accounts-search > label { display:block; font-size:14px; font-weight:500; margin-bottom:6px; }
+.alfred-accounts-search > div { position:relative; display:flex; align-items:center; gap:8px; }
+.alfred-accounts-search > div > svg { position:absolute; left:14px; width:18px; height:18px; color:var(--muted); pointer-events:none; }
+.alfred-accounts-search input { width:100%; padding-inline:42px 48px; }
+.alfred-accounts-search > div > button { position:absolute; right:2px; }
+.alfred-accounts-filterChips { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin-bottom:20px; }
+.alfred-accounts-filterChips > button:not(.alfred-button) { display:inline-flex; align-items:center; gap:10px; min-height:36px; max-width:100%; padding:6px 10px; border:1px solid var(--line); border-radius:8px; color:var(--ink); background:var(--surface); font-size:12px; }
+.alfred-accounts-filterChips > button > span:first-child { min-width:0; overflow-wrap:anywhere; }
+.alfred-accounts-filterDates { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; }
+.alfred-accounts-reviewStart,.alfred-accounts-similar { padding:20px; border:1px solid var(--line); border-radius:16px; margin-bottom:20px; background:var(--surface); }
+.alfred-accounts-reviewStart { display:flex; align-items:center; justify-content:space-between; gap:20px; }
+.alfred-accounts-reviewStart strong { font-weight:550; }
+.alfred-accounts-reviewStart p,.alfred-accounts-similar > p { font-size:12px; margin-top:4px; }
+.alfred-accounts-similar > div { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:12px; margin-top:16px; }
+.alfred-accounts-similar article { display:flex; align-items:center; justify-content:space-between; gap:12px; padding:12px; border:1px solid var(--line); border-radius:12px; min-width:0; }
+.alfred-accounts-similar article > div { min-width:0; overflow-wrap:anywhere; }
+.alfred-accounts-similar article strong { font-size:13px; font-weight:500; }
+.alfred-accounts-similar article small { display:block; margin-top:5px; color:var(--muted); font-size:11px; }
+.alfred-accounts-changeReceipt { border:1px solid var(--line); border-radius:16px; padding:20px; background:var(--surface); margin-bottom:20px; }
+.alfred-accounts-changeReceipt > header { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; }
+.alfred-accounts-changeReceipt h2 { font-size:16px; }
+.alfred-accounts-changeReceipt header p { font-size:12px; }
+.alfred-accounts-changeSummary { display:flex; flex-direction:column; gap:16px; min-width:0; }
+.alfred-accounts-changeSummary > article { padding-block:12px; border-bottom:1px solid var(--line); }
+.alfred-accounts-changeSummary h3 { font-size:14px; overflow-wrap:anywhere; }
+.alfred-accounts-changeSummary article > p { font-size:12px; margin-top:4px; }
+.alfred-accounts-changeSummary dl { margin-top:12px; display:flex; flex-direction:column; gap:10px; }
+.alfred-accounts-changeSummary dl > div { display:flex; align-items:baseline; justify-content:space-between; gap:16px; font-size:13px; }
+.alfred-accounts-changeSummary dt { color:var(--muted); }
+.alfred-accounts-changeSummary dd { display:flex; justify-content:flex-end; flex-wrap:wrap; align-items:baseline; gap:8px; min-width:0; text-align:right; overflow-wrap:anywhere; }
+.alfred-accounts-changeSummary dd > span:first-child { color:var(--muted); }
+.alfred-accounts-changeSummary dd > strong { font-weight:550; }
+.alfred-accounts-changeReceipt .alfred-accounts-changeSummary { max-height:240px; overflow:auto; margin-top:8px; }
+.alfred-accounts-receiptFooter { display:flex; align-items:center; flex-wrap:wrap; gap:10px; margin-top:16px; }
+.alfred-accounts-receiptFooter > span { color:var(--muted); font-size:12px; flex-basis:100%; }
+.alfred-accounts-bulkRows { max-height:280px; overflow:auto; margin-block:12px 20px; border-block:1px solid var(--line); }
+.alfred-accounts-bulkSelect { display:flex; align-items:center; gap:12px; min-height:48px; padding-block:10px; color:var(--ink); font-size:13px; }
+.alfred-accounts-bulkSelect > span { min-width:0; overflow-wrap:anywhere; }
+.alfred-accounts-bulkSelect strong { font-weight:500; }
+.alfred-accounts-bulkSelect small { display:block; color:var(--muted); margin-top:4px; font-size:12px; }
+.alfred-accounts-tableDate > strong { display:block; color:var(--ink); font-size:12px; font-weight:500; }
+.alfred-accounts-tableDate time { display:block; font-size:11px; color:var(--muted); }
+.alfred-accounts-dayStart:not(:first-child) td { border-top:1px solid var(--line-strong); }
+.alfred-accounts-dayGroup > h4 { padding:12px; background:var(--surface-2); color:var(--muted); font-size:12px; font-weight:500; }
+@media(min-width:1000px) {
+ .alfred-accounts-balanceCard { display:grid; grid-template-columns:minmax(0,1fr) minmax(220px,.45fr); align-items:center; overflow:hidden; }
+ .alfred-accounts-balanceCard .alfred-accounts-total { padding:20px 24px; }
+ .alfred-accounts-balanceCard .alfred-accounts-total > strong { margin-block:4px; font-size:30px; }
+ .alfred-accounts-balanceDisclosure > summary { padding:20px 24px; }
+ .alfred-accounts-balanceDisclosure:not([open]) { align-self:stretch; }
+ .alfred-accounts-balanceDisclosure:not([open]) > summary { height:100%; }
+ .alfred-accounts-balanceDisclosure[open] { grid-column:1/-1; border-top:1px solid var(--line); }
+ .alfred-accounts-balanceDisclosure[open] > summary { padding-block:12px; }
+}
+@media(max-width:720px) {
+ .alfred-accounts-search { max-width:none; }
+ .alfred-accounts-filterChips > button:not(.alfred-button) { min-height:44px; }
+ .alfred-accounts-filterDates,.alfred-accounts-similar > div { grid-template-columns:minmax(0,1fr); }
+ .alfred-accounts-reviewStart { flex-direction:column; align-items:stretch; padding:16px; }
+ .alfred-accounts-reviewStart > button { align-self:flex-start; }
+ .alfred-accounts-similar,.alfred-accounts-changeReceipt { padding:16px; }
+ .alfred-accounts-similar article { align-items:flex-start; flex-direction:column; }
+ .alfred-accounts-changeSummary dl > div { align-items:flex-start; }
+ .alfred-accounts-changeSummary dd { max-width:72%; }
 }

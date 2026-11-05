@@ -63,6 +63,20 @@
 .alfred-ui-dailyCard .alfred-ui-chartModes button { width:100%; min-width:0; min-height:44px; padding-inline:10px; justify-content:center; font-size:14px; line-height:20px; white-space:normal; }
 .alfred-ui-dailyCard .alfred-ui-chartModes button[aria-pressed="true"] { border-color:transparent; color:var(--accent); background:var(--surface); box-shadow:0 1px 4px #00000014; }
 
+.alfred-ui-insightsDisclosure { min-width:0; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.alfred-ui-insightsDisclosure > summary { display:flex; align-items:center; justify-content:space-between; gap:16px; min-height:76px; padding:16px 20px; cursor:pointer; list-style:none; border-radius:inherit; }
+.alfred-ui-insightsDisclosure > summary::-webkit-details-marker { display:none; }
+.alfred-ui-insightsDisclosure > summary:focus-visible { outline:2px solid var(--accent); outline-offset:4px; }
+.alfred-ui-insightsDisclosure > summary > span { display:flex; flex-direction:column; gap:4px; min-width:0; }
+.alfred-ui-insightsDisclosure > summary strong { font-size:16px; line-height:24px; font-weight:600; }
+.alfred-ui-insightsDisclosure > summary > span > span { color:var(--muted); font-size:12px; line-height:20px; }
+.alfred-ui-insightsDisclosure > summary > svg { width:20px; height:20px; flex:none; color:var(--muted); }
+.alfred-ui-insightsDisclosure[open] > summary { border-bottom:1px solid var(--line); border-bottom-left-radius:0; border-bottom-right-radius:0; }
+.alfred-ui-insightsDisclosure[open] > summary > svg { transform:rotate(180deg); }
+.alfred-ui-insightsContent { display:flex; flex-direction:column; gap:20px; min-width:0; padding:20px; }
+#overview-transactions { scroll-margin-top:88px; }
+#overview-transactions:focus-visible { outline:2px solid var(--accent); outline-offset:4px; border-radius:16px; }
+
 @media (max-width: 760px) {
   .alfred-ui-dashboard .alfred-ui-controls:has(.alfred-ui-rangePicker) { display: block; width: 100%; }
   .alfred-ui-dashboard .alfred-ui-rangePicker { display:flex; min-width:0; width:100%; }
@@ -72,6 +86,8 @@
   .alfred-ui-dashboard .alfred-ui-dailyCard > div:first-child > h2 { flex:none; min-width:0; }
   .alfred-ui-dailyCard .alfred-ui-chartModes { width:100%; }
   .alfred-ui-dailyCard .alfred-ui-chartModes button { padding-inline:6px; }
+  .alfred-ui-insightsDisclosure > summary { padding:16px; }
+  .alfred-ui-insightsContent { padding:12px; gap:16px; }
 }
 
 @media (prefers-reduced-motion: reduce) {

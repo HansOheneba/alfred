@@ -8,16 +8,18 @@ import { buttonClassName } from "@/app/components/button-styles";
 import { Spinner } from "@/app/components/status";
 import { Select } from "@/app/components/select";
 import { Button, Card, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
+import { TemporalInput } from "@/app/components/temporal-input";
 import type { BillCadence, BillRecord, RenewalSuggestion, UpcomingBill } from "@/lib/finance/bills";
 import type { BillAction } from "@/lib/finance/bill-schedule";
 import { renewalSuggestionBillDraft } from "@/lib/finance/bill-renewals";
-import { formatDisplayDate } from "@/lib/finance/dates";
-import { formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
+import { formatDisplayDate, isRealDate } from "@/lib/finance/dates";
+import { canonicalizeAmount, formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
 import "./bills-card.css";
 
 export type { BillAction } from "@/lib/finance/bill-schedule";
 
-type BillDraft = Partial<BillRecord> & { suggestionId?: string; variableEstimate?: boolean };
+type BillDraft = Partial<BillRecord> & { suggestionId?: string; variableEstimate?: boolean; lastPayment?: { amount?: string; date?: string } };
+type SavedBillDetails = Pick<BillRecord, "name" | "nextDate" | "amount" | "currency" | "cadence">;
 
 const CADENCE_LABELS: Record<BillCadence, string> = {
   once: "One time",
@@ -51,15 +53,18 @@ export function BillsCard({
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState("");
   const [formBusy, setFormBusy] = useState(false);
+  const [savedBill, setSavedBill] = useState<SavedBillDetails | null>(null);
+  const [receiptOpen, setReceiptOpen] = useState(false);
 
   function confirmSuggestion(item: RenewalSuggestion) {
-    setEditing({ ...renewalSuggestionBillDraft(item), suggestionId: item.id, variableEstimate: item.expectedAmount === null });
+    setEditing({ ...renewalSuggestionBillDraft(item), suggestionId: item.id, variableEstimate: item.expectedAmount === null, lastPayment: { amount: item.lastAmount, date: item.lastDate } });
     setOpen(true);
   }
 
   const knownUpcoming = upcoming.filter((item) => item.amount !== null);
   const variableCount = upcoming.length - knownUpcoming.length;
-  const upcomingMinor = knownUpcoming.reduce((sum, item) => sum + toMinor(item.amount!), 0);
+  const fixedTotals = new Map<string, number>();
+  for (const bill of knownUpcoming) fixedTotals.set(bill.currency, (fixedTotals.get(bill.currency) ?? 0) + toMinor(bill.amount!));
 
   function close() {
     setOpen(false);
@@ -103,6 +108,12 @@ export function BillsCard({
         </div>
       }
     >
+      {savedBill ? (
+        <div className="alfred-bills-saveNotice">
+          <p role="status"><strong>{savedBill.name}</strong> bill saved.</p>
+          <Button size="sm" variant="ghost" onClick={() => setReceiptOpen(true)}>View bill</Button>
+        </div>
+      ) : null}
       {upcoming.length === 0 && suggestions.length === 0 ? (
         <div className="alfred-bills-emptyAction">
           <p>Keep the next payment date and amount in one place.</p>
@@ -122,12 +133,13 @@ export function BillsCard({
           {upcoming.length > 0 ? (
             <>
               <div className="rounded-xl bg-surface-2 px-4 py-3">
-                <p className="text-xs text-muted">Planned in the next 30 days</p>
+                <p className="text-xs text-muted">Confirmed bills · fixed amounts</p>
                 <p className="mt-1 text-lg font-medium tabular-nums">
                   {knownUpcoming.length > 0
-                    ? `${formatMinor(upcomingMinor, currency)}${variableCount > 0 ? ` + ${variableCount} variable` : ""}`
-                    : "Amount varies"}
+                    ? [...fixedTotals].map(([unit, minor]) => formatMinor(minor, unit)).join(" + ")
+                    : "No fixed amounts"}
                 </p>
+                {variableCount > 0 ? <p className="mt-1 text-xs text-muted">{variableCount} variable {variableCount === 1 ? "bill is" : "bills are"} not included in this total.</p> : null}
               </div>
               <ul className="flex flex-col gap-2">
                 {upcoming.slice(0, 4).map((bill) => (
@@ -150,6 +162,7 @@ export function BillsCard({
           {suggestions.length > 0 ? (
             <div className="rounded-xl border border-accent/25 bg-accent-soft/60 p-3">
               <p className="text-xs font-medium text-accent">Spotted in your payments</p>
+              <p className="mt-1 text-xs text-muted">Unconfirmed suggestions. Estimates are not included in your planned total.</p>
               <ul className="mt-2 flex flex-col gap-2">
                 {suggestions.slice(0, 2).map((item) => (
                   <li key={item.id} className="alfred-bills-suggestion flex items-center justify-between gap-2 text-xs">
@@ -181,15 +194,17 @@ export function BillsCard({
       >
         {editing ? (
           <BillForm
-            key={JSON.stringify([editing.id ?? editing.suggestionId ?? "new", editing.name, editing.nextDate, editing.amount, editing.cadence, editing.currency, editing.variableEstimate])}
+            key={JSON.stringify([editing.id ?? editing.suggestionId ?? "new", editing.name, editing.nextDate, editing.amount, editing.cadence, editing.currency, editing.variableEstimate, editing.lastPayment])}
             initial={editing}
             currency={editing.currency ?? currency}
             today={today}
             onAction={onAction}
             onBusyChange={setFormBusy}
             onCancel={() => setEditing(null)}
-            onSaved={() => {
+            onSaved={(bill) => {
+              setSavedBill(bill);
               setEditing(null);
+              setOpen(false);
               if (!onAction) router.refresh();
             }}
           />
@@ -276,6 +291,21 @@ export function BillsCard({
           </div>
         )}
       </Dialog>
+      <Dialog open={receiptOpen} onClose={() => setReceiptOpen(false)} title="Saved bill details">
+        {savedBill ? (
+          <div className="alfred-bills-savedDetails">
+            <p>This is a saved bill plan, not a recorded payment.</p>
+            <dl>
+              <div><dt>Bill</dt><dd>{savedBill.name}</dd></div>
+              <div><dt>Next payment date</dt><dd>{formatDisplayDate(savedBill.nextDate)}</dd></div>
+              <div><dt>Repeats</dt><dd>{CADENCE_LABELS[savedBill.cadence]}</dd></div>
+              <div><dt>Expected amount</dt><dd className="tabular-nums">{savedBill.amount === null ? "Amount varies" : formatAmount(savedBill.amount, savedBill.currency)}</dd></div>
+            </dl>
+            {savedBill.amount === null ? <p>Future amounts are unknown. This bill is excluded from fixed planned totals.</p> : null}
+            <DialogActions><Button variant="primary" onClick={() => setReceiptOpen(false)}>Done</Button></DialogActions>
+          </div>
+        ) : null}
+      </Dialog>
     </Card>
   );
 }
@@ -293,7 +323,7 @@ export function BillForm({
   currency: string;
   today: string;
   onCancel: () => void;
-  onSaved: () => void;
+  onSaved: (bill: SavedBillDetails) => void;
   onAction?: (action: BillAction) => Promise<unknown>;
   onBusyChange?: (busy: boolean) => void;
 }) {
@@ -321,7 +351,7 @@ export function BillForm({
       };
       if (onAction) await onAction(action);
       else await sendJson("/api/bills", "POST", action);
-      onSaved();
+      onSaved({ name: action.name, nextDate: action.nextDate, cadence: action.cadence, amount: action.amount ? canonicalizeAmount(action.amount) : null, currency });
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "That bill could not be saved.");
     } finally {
@@ -333,6 +363,7 @@ export function BillForm({
   return (
     <form
       className="alfred-bill-form flex flex-col gap-3"
+      aria-busy={busy}
       data-preview-local-form={onAction ? "true" : undefined}
       onSubmit={(event) => {
         event.preventDefault();
@@ -340,14 +371,14 @@ export function BillForm({
       }}
     >
       <Field label="Name">
-        <input className={inputClass} value={name} maxLength={80} placeholder="e.g. Netflix, Home internet, Rent" onChange={(e) => setName(e.target.value)} required />
+        <input className={inputClass} value={name} maxLength={80} placeholder="e.g. Netflix, Home internet, Rent" onChange={(e) => setName(e.target.value)} required disabled={busy} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid gap-3 sm:grid-cols-2">
         <Field label="Next payment date">
-          <input className={inputClass} type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} required />
+          <TemporalInput type="date" value={nextDate} onChange={(e) => setNextDate(e.target.value)} required disabled={busy} />
         </Field>
         <Field label="Repeats">
-          <Select className={inputClass} value={cadence} onChange={(e) => setCadence(e.target.value as BillCadence)}>
+          <Select className={inputClass} value={cadence} onChange={(e) => setCadence(e.target.value as BillCadence)} disabled={busy}>
             <option value="once">One time</option>
             <option value="weekly">Weekly</option>
             <option value="monthly">Monthly</option>
@@ -357,13 +388,27 @@ export function BillForm({
       </div>
       {!varies ? (
         <Field label={`Expected amount (${currency})`} hint={initial.variableEstimate ? "Recent amounts varied. This is the latest payment; review it or choose “Amount varies each time”." : undefined}>
-          <input className={inputClass} inputMode="decimal" value={amount} placeholder="0.00" onChange={(e) => setAmount(e.target.value)} required={!varies} />
+          <input className={inputClass} inputMode="decimal" value={amount} placeholder="0.00" onChange={(e) => setAmount(e.target.value)} required={!varies} disabled={busy} />
         </Field>
       ) : null}
       <label className="flex items-center gap-2 text-xs text-muted">
-        <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={varies} onChange={(e) => setVaries(e.target.checked)} />
+        <input type="checkbox" className="size-4 accent-[var(--color-accent)]" checked={varies} onChange={(e) => setVaries(e.target.checked)} disabled={busy} />
         Amount varies each time (e.g. electricity or water)
       </label>
+      {varies ? (
+        <div className="alfred-bill-lastPayment" aria-label="Previous payment reference">
+          {initial.lastPayment?.amount ? (
+            <>
+              <dl>
+                <div><dt>Last recorded payment</dt><dd className="tabular-nums">{formatAmount(initial.lastPayment.amount, currency)}</dd></div>
+                <div><dt>Paid on</dt><dd>{initial.lastPayment.date && isRealDate(initial.lastPayment.date) ? <time dateTime={initial.lastPayment.date}>{formatDisplayDate(initial.lastPayment.date)}</time> : "Date not available"}</dd></div>
+              </dl>
+              <p>Reference only. Future amounts may differ; this is not a fixed planned amount.</p>
+            </>
+          ) : <p>No previous payment details are available for this bill. Future amounts are excluded from fixed planned totals.</p>}
+        </div>
+      ) : null}
+      {busy ? <p className="alfred-bill-saveStatus" role="status">Saving your bill…</p> : null}
       {error ? (
         <p className="text-xs text-danger" role="alert">
           {error}
@@ -374,7 +419,7 @@ export function BillForm({
           Back
         </Button>
         <Button type="submit" variant="primary" disabled={busy}>
-          {busy ? <Spinner /> : initial.suggestionId ? "Confirm bill" : "Save bill"}
+          {busy ? <><Spinner />Saving…</> : initial.suggestionId ? "Confirm bill" : "Save bill"}
         </Button>
       </DialogActions>
     </form>

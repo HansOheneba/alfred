@@ -1,4 +1,31 @@
 /* First-use investment guidance; no illustrative balances or holdings. */
+.alfred-investments-assets { display:grid; grid-template-columns:minmax(0,1.3fr) minmax(0,1fr); overflow:hidden; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
+.alfred-investments-assetsMain { min-width:0; padding:24px; }
+.alfred-investments-assetsMain > h2 { color:var(--muted); font-size:14px; font-weight:500; }
+.alfred-investments-assetsValue { margin-top:8px; overflow-wrap:anywhere; }
+.alfred-investments-assetsUnavailable { display:block; font-size:28px; line-height:36px; font-weight:600; letter-spacing:-.03em; }
+.alfred-investments-assetsNote { margin-top:16px; font-size:14px; line-height:22px; color:var(--muted); }
+.alfred-investments-assetsScope { margin-top:8px; font-size:12px; line-height:20px; color:var(--muted); }
+.alfred-investments-cashSummary { margin-top:24px; padding-top:20px; border-top:1px solid var(--line); font-size:12px; line-height:20px; color:var(--muted); }
+.alfred-investments-cashSummary > div { display:flex; flex-wrap:wrap; justify-content:space-between; align-items:baseline; gap:8px; }
+.alfred-investments-cashSummary h3 { font-size:13px; color:var(--ink); }
+.alfred-investments-cashSummary strong { color:var(--ink); font-weight:500; font-variant-numeric:tabular-nums; }
+.alfred-investments-cashSummary > p { margin-top:6px; }
+.alfred-investments-cashSummary details { margin-top:12px; }
+.alfred-investments-cashSummary summary { display:flex; align-items:center; min-height:44px; color:var(--ink); cursor:pointer; }
+.alfred-investments-cashSummary summary::after { content:"+"; margin-left:auto; }
+.alfred-investments-cashSummary details[open] summary::after { content:"−"; }
+.alfred-investments-cashSummary li { display:flex; justify-content:space-between; align-items:baseline; gap:16px; padding:12px 0; border-top:1px solid var(--line); }
+.alfred-investments-cashSummary li > div { min-width:0; overflow-wrap:anywhere; }
+.alfred-investments-cashSummary li time,.alfred-investments-cashSummary li small { display:block; margin-top:3px; font-size:11px; }
+.alfred-investments-cashSummary li > strong { flex-shrink:0; }
+.alfred-investments-cashSummary > a { display:inline-flex; gap:8px; align-items:center; min-height:44px; margin-top:8px; color:var(--ink); }
+.alfred-investments-assetsBreakdown { display:flex; flex-direction:column; border-left:1px solid var(--line); }
+.alfred-investments-assetsBreakdown > div { display:flex; flex:1; flex-direction:column; justify-content:center; padding:20px 24px; }
+.alfred-investments-assetsBreakdown > div + div { border-top:1px solid var(--line); }
+.alfred-investments-assetsBreakdown dt,.alfred-investments-assetsBreakdown p { font-size:12px; line-height:20px; color:var(--muted); }
+.alfred-investments-assetsBreakdown dd { margin-top:4px; font-size:18px; line-height:28px; font-weight:600; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+@media(max-width:767px) { .alfred-investments-assets { grid-template-columns:minmax(0,1fr); } .alfred-investments-assetsMain { padding:20px; } .alfred-investments-assetsBreakdown { border-left:0; border-top:1px solid var(--line); } .alfred-investments-assetsBreakdown > div { padding:16px 20px; } }
 .alfred-investments-firstUse { padding:32px; border:1px solid var(--line); border-radius:16px; background:var(--surface); }
 .alfred-investments-firstUseIcon { display:grid; place-items:center; width:48px; height:48px; margin-bottom:24px; border-radius:16px; background:var(--accent-soft); color:var(--accent); }
 .alfred-investments-firstUseIcon svg { width:24px; height:24px; }

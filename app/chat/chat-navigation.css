@@ -1,0 +1,16 @@
+.alfred-chatNav { position:relative; min-inline-size:0; }
+.alfred-chatNav-trigger { border:0; background:transparent; font:inherit; cursor:pointer; text-align:inherit; }
+.alfred-chatNav-label { display:inline-flex; align-items:center; gap:3px; }
+.alfred-chatNav-label > .alfred-chatNav-chevron { display:block; inline-size:12px; block-size:12px; flex:none; }
+.alfred-chatNav-trigger[aria-expanded="true"] .alfred-chatNav-chevron { transform:rotate(180deg); }
+.alfred-chatNav-menu { position:absolute; z-index:60; inset-inline-start:0; inset-block-start:calc(100% + 8px); inline-size:200px; max-inline-size:calc(100vw - 24px); padding:6px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); box-shadow:0 10px 28px rgb(16 24 40 / .14); outline:none; }
+.alfred-chatNav-menu > .alfred-chatNav-context { display:flex; align-items:center; gap:10px; inline-size:100%; min-block-size:44px; padding:10px 12px; border:0; border-radius:8px; background:transparent; color:var(--ink); font:inherit; font-size:14px; line-height:20px; text-align:start; cursor:pointer; }
+.alfred-chatNav-menu > .alfred-chatNav-context:hover { background:var(--surface-2); }
+.alfred-chatNav-menu > .alfred-chatNav-context:focus-visible { outline:2px solid var(--accent); outline-offset:-2px; background:var(--surface-2); }
+.alfred-chatNav-menu > .alfred-chatNav-context:disabled { color:var(--muted); cursor:default; opacity:.55; }
+.alfred-chatNav-menu svg { display:block; inline-size:18px; block-size:18px; flex:none; }
+@media(max-width:760px) {
+ .alfred-chatNav--dock { display:flex; align-items:stretch; }
+ .alfred-chatNav--dock .alfred-chatNav-trigger { inline-size:100%; }
+ .alfred-chatNav--dock .alfred-chatNav-menu { inset-block-start:auto; inset-block-end:calc(100% + 12px); inset-inline-start:8px; }
+}

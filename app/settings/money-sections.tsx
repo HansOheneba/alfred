@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState, type FormEvent, type ReactNode } from "react";
 
 import { Button, Card, ConfirmDialog, Dialog, DialogActions, EmptyState, Field, inputClass, sendJson } from "@/app/components/ui";
+import { TemporalInput } from "@/app/components/temporal-input";
 import { Select } from "@/app/components/select";
 import { EXPENSE_CATEGORIES } from "@/lib/finance/categories";
 import { canonicalizeAmount, formatAmount, formatMinor, toMinor } from "@/lib/finance/money";
@@ -252,12 +253,11 @@ export function BudgetsSection({ ledger }: { ledger: Ledger }) {
               />
             </Field>
             <Field label="Month">
-              <input
+              <TemporalInput
                 type="month"
                 value={draft.period}
                 disabled={Boolean(draft.existing)}
                 onChange={(event) => setDraft({ ...draft, period: event.target.value })}
-                className={`${inputClass} disabled:opacity-60`}
               />
             </Field>
             {draftError ? (
@@ -460,7 +460,7 @@ export function GoalsSection({ ledger }: { ledger: Ledger }) {
               </Field>
             </div>
             <Field label="Target date (optional)">
-              <input type="date" value={draft.targetDate} onChange={(event) => setDraft({ ...draft, targetDate: event.target.value })} className={inputClass} />
+              <TemporalInput type="date" value={draft.targetDate} onChange={(event) => setDraft({ ...draft, targetDate: event.target.value })} />
             </Field>
             {draft.existing ? (
               <label className="flex items-center gap-2 text-sm">
