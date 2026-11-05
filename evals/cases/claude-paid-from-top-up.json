@@ -1,0 +1,68 @@
+{
+  "id": "claude-paid-from-top-up",
+  "title": "A top-up that paid for a Claude subscription",
+  "source": "Hans, 2026-11-05: 'That category doesn't fit' after 'Claude is a subscription'",
+  "tags": [
+    "payments",
+    "subscriptions",
+    "real-failure"
+  ],
+  "now": "2026-11-05T11:45:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "topUp",
+        "direction": "in",
+        "amount": "1300.00",
+        "counterparty": "GCB prepaid card top-up",
+        "occurredAt": "2026-11-03T10:09:00.000Z",
+        "asked": true
+      },
+      {
+        "ref": "charge",
+        "direction": "out",
+        "amount": "1307.48",
+        "counterparty": "",
+        "occurredAt": "2026-11-03T10:09:30.000Z"
+      }
+    ],
+    "messages": [
+      {
+        "role": "assistant",
+        "body": "Noted. GH₵350.00 was your own money moving between accounts, so it isn't counted as income or spending.\n\nNext (17 more after this): GH₵1,300.00 came in onto your GCB card · Tue 3 Nov, 10:09. What was it?",
+        "intent": "bank:label"
+      }
+    ]
+  },
+  "steps": [
+    {
+      "say": "That's what I used to pay for Claude",
+      "expect": {
+        "notReply": "doesn't fit|couldn't tell which"
+      }
+    },
+    {
+      "say": "Claude is a subscription",
+      "expect": {
+        "notReply": "doesn't fit|couldn't tell which"
+      }
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "payments": {
+      "topUp": "transfer",
+      "charge": "recorded"
+    },
+    "transactions": [
+      {
+        "type": "expense",
+        "amount": "1307.48",
+        "category": "Subscriptions"
+      }
+    ]
+  }
+}

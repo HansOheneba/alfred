@@ -21,6 +21,8 @@ const paymentSchema = z.object({
   occurredAt: z.string().datetime(),
   source: z.enum(["momo", "gcb", "absa", "hubtel"]).default("gcb"),
   status: z.literal("needs_label").default("needs_label"),
+  /** Alfred asked about this one in chat ("Next: … What was it?"), not through an alert. */
+  asked: z.boolean().optional(),
 });
 
 const stepSchema = z.object({

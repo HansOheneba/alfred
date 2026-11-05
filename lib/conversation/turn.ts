@@ -25,7 +25,7 @@ import { isPaymentSkipRequest, isUnresolvedPaymentNotice, PAYMENT_NOTICE_STAYS_P
 import { questionFor } from "@/lib/bank/notify";
 import { openThread } from "@/lib/conversation/thread";
 import { welcomeFor } from "@/lib/conversation/welcome";
-import { nearbyPayments, openLabelProposal, proposeLabels, type Proposal } from "@/lib/conversation/proposals";
+import { fitsDirection, nearbyPayments, openLabelProposal, proposeLabels, type Proposal } from "@/lib/conversation/proposals";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { attentionLine, interpretWithContext, type ChatCue } from "@/lib/finance/context";
 import type { AttentionSummary } from "@/lib/finance/accounting/types";
@@ -171,7 +171,9 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Tell me which payment you mean if you'd like to label one.", intent: "chat:other" }, true);
   }
   let open: string[] = [];
-  const proposal = noticeFocus?.requiresPurpose ? await openProposalText(deps.messages, ctx, noticeFocus.bankMessageId, options.excludeClientId) : null;
+  // The payment Alfred is asking about: the alert being replied to, or the question Alfred just asked in chat.
+  const askedAbout = waiting?.current && (waiting.exactQuestion || (noticeFocus === undefined && await alfredAskedAboutPayment(deps.messages, ctx.profile.profileId, options.excludeClientId))) ? waiting.current : null;
+  const proposal = askedAbout ? await openProposalText(deps.messages, ctx, askedAbout.id, options.excludeClientId) : null;
   const earlier = noticeFocus?.requiresPurpose ? await saidAboutPayment(deps.messages, ctx.profile.profileId, noticeFocus.bankMessageId, options.excludeClientId) : [];
   const request = (said: string): Parameters<typeof interpretWithContext>[0] => ({
     text: said,
@@ -189,7 +191,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     model: waiting || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
     open: (history) => {
       open = openThread({ history: noticeFocus === undefined ? history : [], waiting, pending, now: ctx.now });
-      if (noticeFocus !== undefined) {
+      if (noticeFocus !== undefined || askedAbout) {
         const nearby = waiting?.current ? nearbyPayments(waiting.current, waiting.listed, ctx.profile) : [];
         open.push(waiting?.currentNumber
           ? [
@@ -197,6 +199,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
               nearby.length ? `Other waiting payments around the same time: ${nearby.join("; ")}. If what the person says also explains one of these (a card top-up and the charge right after it, say), label it in the same answer.` : "",
               "Alfred shows the person its reading and asks before saving, so choose the label that matches what they mean in their own words: money out that someone will pay back is lent to that person, money moved onto their own card or account is own_transfer.",
               "lent only fits money OUT. When someone owes them for something paid from the card or account this money went onto, put lent on that later OUT payment, and keep this payment as own_transfer.",
+              "A spending category never fits money IN. When money came onto their card or account to pay for something (\"that's what I used to pay for Claude\"), this payment is own_transfer and the category goes on the OUT payment it paid for, usually the one right after it.",
               earlier.length ? `Earlier about this payment they said: ${earlier.map((item) => `"${item}"`).join(", then ")}. Read the new message together with that.` : "",
               proposal ? `Alfred already showed this reading, still waiting for a yes: "${proposal.replace(/\s+/g, " ").slice(0, 400)}". If the new message corrects or adds to it, answer with the full corrected set of labels.` : "",
               "If the purpose is unclear, ask; never invent a person or purpose they didn't give, or log the same payment again.",
@@ -243,21 +246,26 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     }
     return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Nothing was changed. For a separate transaction, choose Ask something else or give its different amount, currency and date.", intent: "chat:other" }, true);
   }
-  const focused = waiting?.exactQuestion ? waiting.current : null;
+  const focused = askedAbout;
   if (ingest && focused && actions.some((item) => item.type === "label_payments")) {
     const proposals = actions.flatMap((item) => item.type === "label_payments" ? resolvedFrom(item.answers, waiting!.listed) : [])
       .flatMap((answer) => answer.messageIds.map((id) => ({ message: waiting!.listed.find((message) => message.id === id), label: answer.label })))
       .filter((item): item is Proposal => Boolean(item.message));
     // Words that clearly name this payment's purpose are filed straight away. Any other reading,
     // or one that also covers a nearby payment, is shown back to the person before anything is saved.
-    if (proposals.some((item) => item.message.id !== focused.id || !groundedPaymentLabel(text, focused, item.label))) {
+    // Replying to an alert, only words that name the purpose are filed straight away. In the chat question flow
+    // Alfred has always trusted the model for the payment asked about, so there it only proposes when the reading
+    // also covers another payment or can't apply to money moving this way.
+    const strict = waiting!.exactQuestion;
+    const needsProposal = (item: Proposal) => item.message.id !== focused.id || !fitsDirection(item.message, item.label) || (strict && !groundedPaymentLabel(text, focused, item.label));
+    if (proposals.some(needsProposal)) {
       const said = [text, ...(people ?? [])];
       const fit = proposals.filter((item) => groundedPaymentLabel(text, item.message, item.label) || proposableLabel(text, item.message, item.label, said));
       // A reading has to cover the payment being asked about; nearby ones can only come along with it.
       const proposed = fit.length === proposals.length && fit.some((item) => item.message.id === focused.id) ? await proposeLabels(ctx, fit, ctx.profile, text) : null;
       if (proposed) return keepNoticeFocus({ ...proposed, intent: "bank:label" });
     }
-    if (!proposals.some((item) => item.message.id === focused.id && groundedPaymentLabel(text, focused, item.label))) {
+    if (strict ? !proposals.some((item) => item.message.id === focused.id && groundedPaymentLabel(text, focused, item.label)) : proposals.some(needsProposal)) {
       const again = await askAgain(ingest, ctx.profile, focused);
       const purpose = text.replace(/\s+/g, " ").trim().slice(0, 180);
       return keepNoticeFocus({ kind: "text", text: purposeQuestionIntro(focused, `I haven't changed this payment. You said “${purpose}”, and I couldn't turn that into a label I'm sure of. Was it a gift, a repayment, your own money, or another type? Choose below, or tell me in other words.`), intent: "bank:label", buttons: again.buttons });
@@ -600,4 +608,11 @@ async function saidAboutPayment(messages: MessageLog | null | undefined, ownerId
   const recent = (await messages.listRecent(ownerId, 12)).filter((item) => !excludeClientId || item.clientId !== excludeClientId);
   return recent.filter((item) => item.role === "user" && item.paymentNotice?.bankMessageId === bankMessageId)
     .map((item) => item.body.replace(/\s+/g, " ").trim().slice(0, 300)).slice(-3);
+}
+
+/** Whether Alfred's last chat message was its question about a waiting payment. */
+async function alfredAskedAboutPayment(messages: MessageLog | null | undefined, ownerId: string, excludeClientId?: string | null): Promise<boolean> {
+  if (!messages) return false;
+  const last = (await messages.listRecent(ownerId, 4)).filter((item) => !excludeClientId || item.clientId !== excludeClientId).at(-1);
+  return last?.role === "assistant" && /^bank:/.test(last.intent ?? "") && last.body.includes("?");
 }

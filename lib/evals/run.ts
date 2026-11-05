@@ -64,6 +64,7 @@ async function world(evalCase: EvalCase, settings: StudioSettings, brain: Brain)
       status: payment.status, raw: `Synthetic eval payment ${payment.ref}`, textHash: `eval-${evalCase.id}-${index}`,
     });
     if (saved) refs.set(payment.ref, saved.id);
+    if (saved && payment.asked) await bank.updateMessage(OWNER_ID, saved.id, { askedAt: now.toISOString() });
   }
   for (const investment of evalCase.setup.investments) {
     await deps.investments!.create(OWNER_ID, { name: investment.name, kind: investment.kind, currency: "GHS", investedBefore: investment.investedBefore });

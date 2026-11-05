@@ -383,6 +383,9 @@ function purposeWords(text: string): string[] {
 }
 
 /** Only explicit purpose words support a focused label; sender/source recognition does not. */
+/** Services people pay for monthly, named the way people say them. */
+const SUBSCRIPTION_SERVICES = /\b(?:claude|chatgpt|chat gpt|openai|anthropic|netflix|spotify|youtube premium|apple music|apple one|icloud|google one|disney plus|showmax|starlink|prime video|canva|notion|cursor|github copilot)\b/;
+
 function purposeEvidence(text: string, direction: BankMessage["direction"]) {
   const words = purposeWords(text);
   const categories = new Set<string>();
@@ -397,6 +400,11 @@ function purposeEvidence(text: string, direction: BankMessage["direction"]) {
     }
   }
   const said = words.join(" ");
+  // Paying a well-known service is subscription spending, even when "subscription" isn't said.
+  if (direction === "out" && SUBSCRIPTION_SERVICES.test(said)) {
+    categories.add("Subscriptions");
+    spending.add("Subscriptions");
+  }
   // School fees are education, not bank/transaction Fees. If Education is not
   // a supported category yet, ask rather than silently file under Fees.
   if (/\b(?:school fees|tuition|education)\b/.test(said)) {
