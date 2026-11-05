@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { cookies } from "next/headers";
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { Suspense } from "react";
 
@@ -8,6 +9,7 @@ import { SettingsSkeleton } from "@/app/components/page-skeletons";
 import { MissingAuthConfig, publicAuthConfigured, signedInAccount } from "@/app/signed-in";
 import { SettingsView } from "@/app/settings/settings-view";
 import { loadAccountSettings } from "@/lib/accounts/settings-store";
+import { createSupabaseTeamStore } from "@/lib/team/store";
 import { HOME_COOKIE, readHome } from "@/lib/web/home";
 
 export default function SettingsPage() {
@@ -58,8 +60,18 @@ async function SettingsContent() {
     );
   }
 
+  // The team's projects page, for the people who build Alfred only; a check that fails just hides the link.
+  const teamMember = await createSupabaseTeamStore(account.settings.supabase).isMember(account.profile.profileId).catch(() => false);
   return (
     <AppShell current="settings" ownerId={account.userId} name={account.profile.preferredName.trim()}>
+      {teamMember ? (
+        <div className="mx-auto w-full max-w-5xl px-4 pt-6">
+          <Link href="/projects" className="flex items-center justify-between gap-3 rounded-2xl border border-line bg-surface px-4 py-3 text-sm hover:border-accent">
+            <span><strong className="font-semibold">Projects</strong><span className="block text-muted">Ideas and build notes, shared between the team</span></span>
+            <span aria-hidden="true" className="text-accent">→</span>
+          </Link>
+        </div>
+      ) : null}
       <SettingsView key={account.userId} ownerId={account.userId} refreshKey={data.refreshKey} initial={data.settings} home={data.home} />
     </AppShell>
   );
