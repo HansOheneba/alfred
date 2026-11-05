@@ -505,15 +505,23 @@ export function proposableLabel(text: string, message: BankMessage, label: Label
   if (label.kind === "skip" || paymentPurposeUnclear(text, message.direction)) return false;
   const evidence = purposeEvidence(text, message.direction);
   const category = "category" in label ? normalizeCategory(label.category, label.kind === "category" && message.direction === "in" ? "income" : "expense") : null;
+  const own = new Set([...evidence.words, ...purposeWords(message.counterparty), ...context.flatMap(purposeWords)]);
+  const details = "description" in label ? label.description : "note" in label ? label.note : "investment" in label ? label.investment : null;
   if (label.kind === "category" || label.kind === "refund" || label.kind === "chip_in") {
-    if (!category || !(label.kind === "category" ? evidence.categories : evidence.spending).has(category)) return false;
+    if (!category) return false;
+    const named = (label.kind === "category" ? evidence.categories : evidence.spending);
+    // A category they named must match. One they didn't name may be inferred from the thing they did
+    // name ("malt" is Food, "Claude" is Subscriptions), but only when the description quotes their words.
+    // For money out, the thing they name implies the category ("malt" is Food). For money in, the kind of
+    // income is the question itself ("school fees from dad": a gift? support?), so it's never inferred.
+    if (named.size === 0 && message.direction === "in") return false;
+    if (named.size > 0 ? !named.has(category) : !details || !purposeWords(details).some((word) => own.has(word) && !PURPOSE_FILLER.has(word)) || !purposeWords(details).every((word) => own.has(word) || PURPOSE_FILLER.has(word))) return false;
+    if (evidence.kinds.size > 0 && !(label.kind === "refund" && evidence.kinds.has("refund")) && !(label.kind === "chip_in" && evidence.kinds.has("chip_in"))) return false;
   } else if (evidence.categories.size > 0 || [...evidence.kinds].some((kind) => kind !== label.kind)) {
     return false;
   }
-  const own = new Set([...evidence.words, ...purposeWords(message.counterparty), ...context.flatMap(purposeWords)]);
   const allowed = (word: string) => PURPOSE_FILLER.has(word) || own.has(word) || evidence.semanticWords.has(word)
     || Boolean(category && normalizeCategory(word, message.direction === "in" ? "income" : "expense") === category);
-  const details = "description" in label ? label.description : "note" in label ? label.note : "investment" in label ? label.investment : null;
   if (details && !purposeWords(details).every(allowed)) return false;
   if ("person" in label && label.person && !purposeWords(label.person).every((word) => own.has(word))) return false;
   if (label.kind === "category" && (label.forMonth || label.includedFee)) return false;

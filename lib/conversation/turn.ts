@@ -25,7 +25,7 @@ import { isPaymentSkipRequest, isUnresolvedPaymentNotice, PAYMENT_NOTICE_STAYS_P
 import { questionFor } from "@/lib/bank/notify";
 import { openThread } from "@/lib/conversation/thread";
 import { welcomeFor } from "@/lib/conversation/welcome";
-import { fitsDirection, nearbyPayments, openLabelProposal, proposeLabels, type Proposal } from "@/lib/conversation/proposals";
+import { decidePaymentAnswer, nearbyIds, nearbyPayments, openLabelProposal, proposeLabels, type Proposal } from "@/lib/conversation/proposals";
 import { handleAction, type ActionContext, type Delivery } from "@/lib/finance/action-router";
 import { attentionLine, interpretWithContext, type ChatCue } from "@/lib/finance/context";
 import type { AttentionSummary } from "@/lib/finance/accounting/types";
@@ -195,7 +195,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
         const nearby = waiting?.current ? nearbyPayments(waiting.current, waiting.listed, ctx.profile) : [];
         open.push(waiting?.currentNumber
           ? [
-              `Alfred just asked what waiting payment ${waiting.currentNumber} was for. Answer it with label_payments.`,
+              `Alfred just asked what waiting payment ${waiting.currentNumber} was for. Answer it with label_payments. A short reply like "malt", "fuel" or "Claude" names what it was for: use the category it implies, with their word as the description.`,
               nearby.length ? `Other waiting payments around the same time: ${nearby.join("; ")}. If what the person says also explains one of these (a card top-up and the charge right after it, say), label it in the same answer.` : "",
               "Alfred shows the person its reading and asks before saving, so choose the label that matches what they mean in their own words: money out that someone will pay back is lent to that person, money moved onto their own card or account is own_transfer.",
               "lent only fits money OUT. When someone owes them for something paid from the card or account this money went onto, put lent on that later OUT payment, and keep this payment as own_transfer.",
@@ -251,21 +251,14 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     const proposals = actions.flatMap((item) => item.type === "label_payments" ? resolvedFrom(item.answers, waiting!.listed) : [])
       .flatMap((answer) => answer.messageIds.map((id) => ({ message: waiting!.listed.find((message) => message.id === id), label: answer.label })))
       .filter((item): item is Proposal => Boolean(item.message));
-    // Words that clearly name this payment's purpose are filed straight away. Any other reading,
-    // or one that also covers a nearby payment, is shown back to the person before anything is saved.
-    // Replying to an alert, only words that name the purpose are filed straight away. In the chat question flow
-    // Alfred has always trusted the model for the payment asked about, so there it only proposes when the reading
-    // also covers another payment or can't apply to money moving this way.
-    const strict = waiting!.exactQuestion;
-    const needsProposal = (item: Proposal) => item.message.id !== focused.id || !fitsDirection(item.message, item.label) || (strict && !groundedPaymentLabel(text, focused, item.label));
-    if (proposals.some(needsProposal)) {
-      const said = [text, ...(people ?? [])];
-      const fit = proposals.filter((item) => groundedPaymentLabel(text, item.message, item.label) || proposableLabel(text, item.message, item.label, said));
-      // A reading has to cover the payment being asked about; nearby ones can only come along with it.
-      const proposed = fit.length === proposals.length && fit.some((item) => item.message.id === focused.id) ? await proposeLabels(ctx, fit, ctx.profile, text) : null;
-      if (proposed) return keepNoticeFocus({ ...proposed, intent: "bank:label" });
-    }
-    if (strict ? !proposals.some((item) => item.message.id === focused.id && groundedPaymentLabel(text, focused, item.label)) : proposals.some(needsProposal)) {
+    const said = [text, ...(people ?? [])];
+    const decision = decidePaymentAnswer({
+      text, asked: focused, proposals, nearby: nearbyIds(focused, waiting!.listed),
+      grounded: groundedPaymentLabel, proposable: (words, message, label) => proposableLabel(words, message, label, said),
+    });
+    const proposed = decision.kind === "propose" ? await proposeLabels(ctx, decision.items, ctx.profile, text) : null;
+    if (proposed) return keepNoticeFocus({ ...proposed, intent: "bank:label" });
+    if (decision.kind !== "file") {
       const again = await askAgain(ingest, ctx.profile, focused);
       const purpose = text.replace(/\s+/g, " ").trim().slice(0, 180);
       return keepNoticeFocus({ kind: "text", text: purposeQuestionIntro(focused, `I haven't changed this payment. You said “${purpose}”, and I couldn't turn that into a label I'm sure of. Was it a gift, a repayment, your own money, or another type? Choose below, or tell me in other words.`), intent: "bank:label", buttons: again.buttons });
