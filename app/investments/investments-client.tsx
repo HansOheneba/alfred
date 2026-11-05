@@ -9,6 +9,7 @@ import { Button, Card, Dialog, DialogActions, EmptyState, Field, categoryColor, 
 import { TemporalInput } from "@/app/components/temporal-input";
 import { Spinner } from "@/app/components/status";
 import { Select } from "@/app/components/select";
+import { MutationUnconfirmedError, requestMutationJson, requireMutationRecovery } from "@/app/components/mutation-request";
 import { formatMinor } from "@/lib/finance/money";
 import type { IncludedAccountCash } from "@/lib/finance/accounting/cash-summary";
 import { INVESTMENT_KINDS, KIND_LABELS, type InvestmentKind } from "@/lib/investments/kinds";
@@ -60,12 +61,44 @@ function provenance(item: InvestmentView): string {
   return "No value yet";
 }
 
+function savedPortfolio(value: unknown): value is Portfolio {
+  const object = (item: unknown): item is Record<string, unknown> => Boolean(item) && typeof item === "object";
+  const number = (item: unknown) => typeof item === "number" && Number.isFinite(item);
+  const nullableNumber = (item: unknown) => item === null || number(item);
+  const nullableString = (item: unknown) => item === null || typeof item === "string";
+  const date = (item: unknown) => typeof item === "string" && /^\d{4}-\d{2}-\d{2}(?:T|$)/.test(item) && Number.isFinite(Date.parse(item));
+  if (!object(value) || !number(value.totalGhs) || ![value.investedGhs, value.gainGhs, value.usdGhs].every(nullableNumber)
+    || !Array.isArray(value.unconverted) || !value.unconverted.every(item => typeof item === "string")
+    || !Array.isArray(value.byKind) || !value.byKind.every(item => object(item) && INVESTMENT_KINDS.includes(item.kind as InvestmentKind) && typeof item.label === "string" && number(item.valueGhs))
+    || !Array.isArray(value.items)) return false;
+  return value.items.every(item => {
+    if (!object(item) || !object(item.investment)) return false;
+    const investment = item.investment;
+    return ["id", "ownerId", "name", "provider", "currency", "investedBefore"].every(key => typeof investment[key] === "string")
+      && INVESTMENT_KINDS.includes(investment.kind as InvestmentKind) && ["active", "closed"].includes(investment.status as string)
+      && /^[A-Z]{3}$/.test(investment.currency as string)
+      && ["principal", "startedOn", "maturesOn", "remindedAt", "payeeKey"].every(key => nullableString(investment[key])) && nullableNumber(investment.rate)
+      && ["importCostBasisUnknown", "importNotificationsPaused"].every(key => investment[key] === undefined || typeof investment[key] === "boolean")
+      && typeof item.kindLabel === "string" && typeof item.stale === "boolean" && (item.asOf === null || date(item.asOf))
+      && (item.source === null || ["prices", "reported", "rate", "invested"].includes(item.source as string))
+      && (!["prices", "reported"].includes(item.source as string) || date(item.asOf))
+      && [item.value, item.valueGhs, item.investedGhs, item.gainGhs].every(nullableNumber)
+      && Array.isArray(item.holdings) && item.holdings.every(holding => object(holding) && typeof holding.symbol === "string" && number(holding.quantity) && nullableNumber(holding.price) && nullableNumber(holding.value) && nullableString(holding.priceAsOf))
+      && (item.maturity === null || object(item.maturity) && date(item.maturity.date) && number(item.maturity.daysLeft) && nullableNumber(item.maturity.valueAtMaturity));
+  });
+}
+
 async function post(body: unknown): Promise<{ ok: true; portfolio: Portfolio } | { ok: false; text: string }> {
   try {
-    const response = await fetch("/api/investments", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-    return (await response.json()) as { ok: true; portfolio: Portfolio } | { ok: false; text: string };
-  } catch {
-    return { ok: false, text: "Alfred couldn't be reached. Try again." };
+    const result = await requestMutationJson<{ ok?: unknown; portfolio?: unknown; text?: unknown } | null>("/api/investments", "POST", body);
+    if (result?.ok === false) return { ok: false, text: typeof result.text === "string" ? result.text : "That investment could not be saved." };
+    if (result?.ok !== true || !savedPortfolio(result.portfolio)) {
+      requireMutationRecovery();
+      throw new MutationUnconfirmedError();
+    }
+    return { ok: true, portfolio: result.portfolio };
+  } catch (error) {
+    return { ok: false, text: error instanceof Error ? error.message : "The investment result could not be confirmed. Reload before trying again." };
   }
 }
 

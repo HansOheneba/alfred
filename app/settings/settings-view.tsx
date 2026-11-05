@@ -8,6 +8,7 @@ import { SettingsSectionSkeleton } from "@/app/components/page-skeletons";
 import { Button, Card, Field, inputClass } from "@/app/components/ui";
 import { TemporalInput } from "@/app/components/temporal-input";
 import { Select } from "@/app/components/select";
+import { MutationUnconfirmedError, requestMutationJson, requireMutationRecovery } from "@/app/components/mutation-request";
 import { BudgetsSection, GoalsSection } from "@/app/settings/money-sections";
 import { AppSection } from "@/app/settings/app-section";
 import { BankSection } from "@/app/settings/bank-section";
@@ -44,6 +45,17 @@ const TIMEZONES = [
 const CURRENCIES = ["GHS", "USD", "EUR", "GBP", "NGN", "KES", "ZAR", "CAD"];
 
 type SaveState = { kind: "idle" } | { kind: "saving" } | { kind: "saved" } | { kind: "error"; text: string };
+
+function savedSettings(value: unknown): value is AccountSettings {
+  if (!value || typeof value !== "object") return false;
+  const settings = value as Record<string, unknown>;
+  if (!["preferredName", "currency", "timezone", "financialGoals", "telegramUserId"].every(key => typeof settings[key] === "string")
+    || !["telegramLocked", "morningEnabled", "commuteEnabled", "eveningEnabled"].every(key => typeof settings[key] === "boolean")
+    || !["morningTime", "commuteTime", "eveningTime"].every(key => typeof settings[key] === "string" && /^([01]\d|2[0-3]):[0-5]\d$/.test(settings[key] as string))
+    || !["concise", "detailed"].includes(settings.communicationPreference as string)
+    || !/^[A-Z]{3}$/.test(settings.currency as string)) return false;
+  try { new Intl.DateTimeFormat("en-GB", { timeZone: settings.timezone as string }).format(0); return true; } catch { return false; }
+}
 
 export function SettingsView({
   initial,
@@ -106,23 +118,22 @@ export function SettingsView({
   async function submit() {
     setSave({ kind: "saving" });
     try {
-      const response = await fetch("/api/settings", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify(form),
-      });
-      const payload = (await response.json()) as { ok?: boolean; text?: string; settings?: AccountSettings };
-      if (!response.ok || !payload.ok) {
-        setSave({ kind: "error", text: payload.text || "Those settings could not be saved." });
+      const payload = await requestMutationJson<{ ok?: unknown; text?: unknown; settings?: unknown } | null>("/api/settings", "POST", form);
+      if (payload?.ok === false) {
+        setSave({ kind: "error", text: typeof payload.text === "string" ? payload.text : "Those settings could not be saved." });
         return;
       }
-      const next = payload.settings ?? form;
+      if (payload?.ok !== true || !savedSettings(payload.settings)) {
+        requireMutationRecovery();
+        throw new MutationUnconfirmedError();
+      }
+      const next = payload.settings;
       setForm(next);
       setSaved(next);
       finance.retry();
       setSave({ kind: "saved" });
-    } catch {
-      setSave({ kind: "error", text: "Alfred could not reach the server." });
+    } catch (error) {
+      setSave({ kind: "error", text: error instanceof Error ? error.message : "The settings result could not be confirmed. Reload before trying again." });
     }
   }
 

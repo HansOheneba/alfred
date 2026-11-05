@@ -122,23 +122,33 @@ export function AccountsWorkspace({ state, dispatch, mode, availability = "ready
     if (saving.current || availability !== "ready") return false;
     saving.current = true;
     setBusy(true); setNotice(null); setReceipt(null); setSaveProgress(`Saving 0 of ${review.commands.length} changes…`);
-    const outcome = await executeAccountReview(review, state, dispatch, id, (done, total) => setSaveProgress(`Saving ${done} of ${total} changes…`));
-    saving.current = false; setBusy(false); setSaveProgress("");
-    if (!outcome.ok) { setNotice({ text: `${outcome.confirmed} of ${outcome.total} changes confirmed. ${outcome.error}`, error: true }); return false; }
-    setReceipt(outcome.receipt); setNotice({ text: `${review.movements.length === 1 ? "Payment updated" : `${review.movements.length} payments updated`}. Original amounts, fees and source evidence are preserved.`, error: false });
-    if (next) {
-      const current = review.movements[0]?.id;
-      setMovementId(nextReviewMovement(outcome.state, current)?.id ?? null);
-    } else setMovementId(null);
-    return true;
+    try {
+      const outcome = await executeAccountReview(review, state, dispatch, id, (done, total) => setSaveProgress(`Saving ${done} of ${total} changes…`));
+      if (!outcome.ok) { setNotice({ text: `${outcome.confirmed} of ${outcome.total} changes confirmed. ${outcome.error}`, error: true }); return false; }
+      setReceipt(outcome.receipt); setNotice({ text: `${review.movements.length === 1 ? "Payment updated" : `${review.movements.length} payments updated`}. Original amounts, fees and source evidence are preserved.`, error: false });
+      if (next) {
+        const current = review.movements[0]?.id;
+        setMovementId(nextReviewMovement(outcome.state, current)?.id ?? null);
+      } else setMovementId(null);
+      return true;
+    } catch {
+      setReceipt(null);
+      setNotice({ text: "The save result could not be confirmed. Reload your account records before trying again.", error: true });
+      return false;
+    } finally { saving.current = false; setBusy(false); setSaveProgress(""); }
   }
   async function undoReceipt() {
     if (!receipt || saving.current || !canUndoReceipt(state, receipt)) return;
     saving.current = true;
     setBusy(true); setNotice(null); setSaveProgress("Undoing this change…");
-    const outcome = await undoAccountReceipt(receipt, state, dispatch, id);
-    saving.current = false; setBusy(false); setSaveProgress(""); setReceipt(null);
-    setNotice({ text: outcome.ok ? "This change was undone. Original source evidence is preserved." : `${outcome.confirmed} undo steps confirmed. ${outcome.error}`, error: !outcome.ok });
+    try {
+      const outcome = await undoAccountReceipt(receipt, state, dispatch, id);
+      setReceipt(null);
+      setNotice({ text: outcome.ok ? "This change was undone. Original source evidence is preserved." : `${outcome.confirmed} undo steps confirmed. ${outcome.error}`, error: !outcome.ok });
+    } catch {
+      setReceipt(null);
+      setNotice({ text: "The undo result could not be confirmed. Reload your account records before trying again.", error: true });
+    } finally { saving.current = false; setBusy(false); setSaveProgress(""); }
   }
   const filtered = useMemo(() => activityScope !== "activity" ? [] : filterActivityMovements(state, filters, view.reportRows), [state, activityScope, filters, view.reportRows]);
 

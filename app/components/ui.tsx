@@ -5,6 +5,7 @@ import { cloneElement, isValidElement, useEffect, useId, useRef, type ButtonHTML
 import { Spinner } from "@/app/components/status";
 import { buttonClassName, type ButtonSize, type ButtonVariant } from "./button-styles";
 import { Select } from "./select";
+import { requestMutationJson } from "./mutation-request";
 import { TemporalInput } from "./temporal-input";
 import "./dialog.css";
 
@@ -169,12 +170,5 @@ export function EmptyState({ children }: { children: ReactNode }) {
 
 /** POSTs JSON to one of Alfred's API routes and returns its JSON, throwing the server's message on failure. */
 export async function sendJson<T = unknown>(url: string, method: string, body: unknown): Promise<T> {
-  const response = await fetch(url, {
-    method,
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  const json = (await response.json().catch(() => ({}))) as { ok?: boolean; text?: string };
-  if (!response.ok || json.ok === false) throw new Error(json.text || "That didn't work. Try again.");
-  return json as T;
+  return requestMutationJson<T>(url, method, body);
 }
