@@ -30,6 +30,7 @@ const VOICED: ReadonlySet<FinanceAction["type"]> = new Set([
   "get_income_summary",
   "get_financial_overview",
   "get_insights",
+  "get_payday_forecast",
   "get_budget_status",
   "set_budget",
   "create_savings_goal",

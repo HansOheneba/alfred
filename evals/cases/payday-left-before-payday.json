@@ -1,0 +1,25 @@
+{
+  "id": "payday-left-before-payday",
+  "title": "What's left before payday is worked out, not guessed, and a learned payday is confirmed",
+  "source": "2026-11-05: payday forecast",
+  "tags": ["payday"],
+  "now": "2026-11-15T12:00:00.000Z",
+  "name": "Ama",
+  "setup": {
+    "transactions": [
+      { "date": "2026-09-25", "type": "income", "amount": "4000.00", "category": "Salary", "description": "September salary" },
+      { "date": "2026-10-23", "type": "income", "amount": "4000.00", "category": "Salary", "description": "October salary" },
+      { "date": "2026-11-10", "type": "expense", "amount": "300.00", "category": "Food", "description": "Shoprite" }
+    ]
+  },
+  "steps": [
+    {
+      "say": "how many days till payday?",
+      "expect": { "reply": "25 Nov", "savesNothing": true }
+    },
+    {
+      "say": "yes the 25th is right",
+      "expect": { "reply": "25th", "savesNothing": true }
+    }
+  ]
+}

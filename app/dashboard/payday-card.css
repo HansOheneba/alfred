@@ -1,0 +1,17 @@
+.alfred-payday { display: grid; gap: 12px; }
+.alfred-payday .mb-4 { margin-bottom: 0; }
+.alfred-payday-when { font-size: 0.8rem; color: var(--muted); }
+.alfred-payday-figure { display: grid; gap: 2px; }
+.alfred-payday-left { margin: 0; font-size: 1.6rem; font-weight: 600; letter-spacing: -0.01em; color: var(--ink); font-variant-numeric: tabular-nums; }
+.alfred-payday-figure[data-tight] .alfred-payday-left { color: var(--danger); }
+.alfred-payday-caption, .alfred-payday-daily, .alfred-payday-note { margin: 0; font-size: 0.8rem; color: var(--muted); }
+.alfred-payday-daily strong { color: var(--ink); font-weight: 600; font-variant-numeric: tabular-nums; }
+.alfred-payday-bills { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; font-size: 0.85rem; }
+.alfred-payday-bills li { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 12px; align-items: baseline; }
+.alfred-payday-bills li span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--ink); }
+.alfred-payday-bills li span:nth-child(2), .alfred-payday-more { color: var(--muted); font-size: 0.78rem; }
+.alfred-payday-confirm { display: grid; gap: 8px; padding: 12px; border-radius: 12px; background: var(--accent-soft); }
+.alfred-payday-confirm p { margin: 0; font-size: 0.85rem; color: var(--ink); }
+.alfred-payday-actions, .alfred-payday-picker { display: flex; flex-wrap: wrap; align-items: end; gap: 8px; }
+.alfred-payday-picker > :first-child { min-width: 180px; flex: 1 1 180px; }
+.alfred-payday-change { justify-self: start; }

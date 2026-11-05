@@ -18,6 +18,7 @@ import { useEffect, useMemo, useState, type MouseEvent } from "react";
 import { Card, Dialog, EmptyState, categoryColor } from "@/app/components/ui";
 import { BillsCard } from "@/app/dashboard/bills-card";
 import { PinnedCharts } from "@/app/dashboard/pinned-charts";
+import { PaydayCard } from "@/app/dashboard/payday-card";
 import { CategoryDonut, DailyChart, MonthlyChart, SimpleBars } from "@/app/dashboard/charts";
 import { compactMoney, delta, percent } from "@/app/dashboard/helpers";
 import { CashFlowSankey } from "@/app/dashboard/sankey-chart";
@@ -150,6 +151,8 @@ export function DashboardClient({ ledger, name, timeZone = "Africa/Accra", initi
         <Stat label="Income" value={formatMinor(earned, currency)} hint={`${RANGE_LABELS[preset]} · ${delta(earned, prevEarned, true).text}`} tone={delta(earned, prevEarned, true).tone} />
         <WeeklyComparison currentMinor={pace.thisWeekMinor} previousMinor={pace.lastWeekSameStretchMinor} changePercent={pace.changePercent} currency={currency} />
       </div>
+
+      {ledger.payday ? <PaydayCard payday={ledger.payday.payday} forecast={ledger.payday.forecast} /> : null}
 
       {ledger.pinned?.length ? <PinnedCharts pinned={ledger.pinned} /> : null}
 

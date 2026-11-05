@@ -1,5 +1,6 @@
 import { LIMITS, type StudioSettings, type UserProfile } from "@/lib/config";
 import { createSupabaseBillStore, type BillStore } from "@/lib/finance/bills";
+import { createSupabasePaydayStore, type PaydayStore } from "@/lib/finance/payday-store";
 import { createSupabaseSorter, type MovementSorter } from "@/lib/conversation/sorting";
 import { stepper, type Progress } from "@/lib/conversation/steps";
 import { createSupabaseAccountManagementStore, type AccountManagementStore } from "@/lib/accounts/management";
@@ -56,6 +57,7 @@ export type StudioResult = {
 
 export type StudioDeps = {
   bills?: BillStore | null;
+  paydays?: PaydayStore | null;
   accountManagement?: AccountManagementStore | null;
   preferences?: PreferenceManagementStore | null;
   settings: StudioSettings;
@@ -151,6 +153,7 @@ export async function handleProfileTurn(
 
   const ctx: ActionContext = {
     bills: deps.bills ?? null,
+    paydays: deps.paydays ?? null,
     accountManagement: deps.accountManagement ?? null,
     preferences: deps.preferences ?? null,
     profile,
@@ -375,6 +378,7 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
   let sequence = 0;
   return {
     bills: createSupabaseBillStore(settings.supabase),
+    paydays: createSupabasePaydayStore(settings.supabase),
     accountManagement: createSupabaseAccountManagementStore(settings.supabase),
     preferences: createSupabasePreferenceManagementStore(settings.supabase),
     settings,
