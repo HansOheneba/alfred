@@ -156,8 +156,8 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Tell me which payment you mean if you'd like to label one.", intent: "chat:other" }, true);
   }
   let open: string[] = [];
-  const { action, context, cue, unread } = await interpretWithContext({
-    text,
+  const request = (said: string): Parameters<typeof interpretWithContext>[0] => ({
+    text: said,
     profile: ctx.profile,
     store: ctx.store,
     now: ctx.now,
@@ -186,6 +186,13 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
       return open;
     },
   });
+  let { action, context, cue, unread } = await interpretWithContext(request(text));
+  // A "yes" to a question Alfred asked in plain words has no saved confirmation to settle.
+  // It accepts what Alfred offered, so read it again as that request instead of a dead end.
+  if (!pending && noticeFocus === undefined && isConfirmation(action)) {
+    const asked = await alfredsOpenQuestion(deps.messages, ctx.profile.profileId, options.excludeClientId);
+    if (asked) ({ action, context, cue, unread } = await interpretWithContext(request(`Yes, go ahead with what you asked: "${asked}"${text.trim().length > 12 ? ` (${text.trim()})` : ""}`)));
+  }
   logInfo("interpreted", { userId: ctx.profile.profileId, action: action.type === "several" ? action.actions.map((item) => item.type).join("+") : action.type });
 
   // A reply that couldn't be read, or that came while the model was down, most likely answers the
@@ -540,4 +547,20 @@ function combine(parts: TurnReply[], action: InterpretedAction): TurnReply {
 async function investmentsForPrompt(store: InvestmentStore | null | undefined, ownerId: string): Promise<string[]> {
   if (!store) return [];
   return (await store.list(ownerId)).map((item) => `${item.name} (${KIND_LABELS[item.kind]}, ${item.currency}${item.maturesOn ? `, matures ${item.maturesOn}` : ""})`);
+}
+
+/** The model settling a confirmation with a yes, alone or first among several actions. */
+function isConfirmation(action: InterpretedAction): boolean {
+  const first = action.type === "several" ? action.actions[0] : action;
+  return first?.type === "answer_confirmation" && first.decision === "confirm";
+}
+
+/** Alfred's last message, when it was a plain question still waiting for its answer. */
+async function alfredsOpenQuestion(messages: MessageLog | null | undefined, ownerId: string, excludeClientId?: string | null): Promise<string | null> {
+  if (!messages) return null;
+  const recent = (await messages.listRecent(ownerId, 4)).filter((item) => !excludeClientId || item.clientId !== excludeClientId);
+  const last = recent.at(-1);
+  if (last?.role !== "assistant" || last.paymentNotice || /^bank:/.test(last.intent ?? "")) return null;
+  const body = last.body.replace(/\s+/g, " ").trim();
+  return body.endsWith("?") ? body.slice(0, 400) : null;
 }
