@@ -51,3 +51,13 @@ export const emptyAccountRuleState = (ownerId: string): AccountRuleState => ({ o
 
 /** Mirrors Money's exact merchant normalization; it never performs fuzzy/AI matching. */
 export const normalizeRuleText = (value: string) => value.normalize("NFKC").trim().replace(/\s+/g, " ").toLowerCase();
+
+/** One name per payment provider, so "MTN MoMo", "Mobile money" and "momo" all mean MoMo. */
+export function transferProvider(value: string): string {
+  const normalized = normalizeRuleText(value).replace(/[^a-z0-9]/g, "");
+  if (["momo", "mtn", "mtnmomo", "mtnmobilemoney", "mobilemoney"].includes(normalized)) return "momo";
+  if (["hubtel", "hubtelwallet"].includes(normalized)) return "hubtel";
+  if (["absa", "absabank"].includes(normalized)) return "absa";
+  if (["gcb", "gcbcard", "gcbbank"].includes(normalized)) return "gcb";
+  return normalized;
+}

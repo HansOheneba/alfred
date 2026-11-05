@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { SupabaseSettings, UserProfile } from "@/lib/config";
 import { bindMovementAccount } from "@/lib/account-rules/matcher";
-import { normalizeRuleText, type AccountRuleState } from "@/lib/account-rules/types";
+import { transferProvider, type AccountRuleState } from "@/lib/account-rules/types";
 import { validateAccountData } from "@/lib/finance/accounting/accounts";
 import { loadAccountingState, type AccountingResult } from "@/lib/finance/accounting/persisted-store";
 import { accountingData, stableJson } from "@/lib/finance/accounting/reducer";
@@ -39,16 +39,8 @@ function coveredTransferMessages(loaded: AccountingResult): BankMessage[] | null
   }
   return loaded.transferWindow.messages;
 }
-const key = (value: string) => normalizeRuleText(value).replace(/[^a-z0-9]/g, "");
 /** Only established provider names are aliases; arbitrary account labels never establish a source identity. */
-export function transferProvider(value: string): string {
-  const normalized = key(value);
-  if (["momo", "mtn", "mtnmomo", "mtnmobilemoney", "mobilemoney"].includes(normalized)) return "momo";
-  if (["hubtel", "hubtelwallet"].includes(normalized)) return "hubtel";
-  if (["absa", "absabank"].includes(normalized)) return "absa";
-  if (["gcb", "gcbcard", "gcbbank"].includes(normalized)) return "gcb";
-  return normalized;
-}
+export { transferProvider };
 
 type AccountLabel = { id: string; label: string };
 export type OwnTransferNotice = {

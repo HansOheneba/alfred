@@ -19,6 +19,8 @@ export type CashMovement = {
   /** A stale automatic transfer returns to review while preserving a confirmed standalone fee once. */
   automaticTransferStale?: boolean;
   confirmedFeeMinor?: number;
+  /** When a chat or manual entry was logged, so a balance reported before then doesn't already include it. */
+  loggedAt?: string;
   /** Durable historical import evidence, distinct from SMS ingestion. */
   importProvenance?: { namespace: string; sourceId: string; sourceFingerprint?: string };
 };
