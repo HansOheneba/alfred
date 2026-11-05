@@ -17,6 +17,7 @@ import { AccountPageControls, accountListPage, BalanceHistory, formatAccountTime
 import { parseActivityHandoff } from "@/lib/web/activity-handoff";
 import { canUndoReceipt, emptyActivityFilters, executeAccountReview, filterActivityMovements, groupAttention, movementDayGroups, movementIsLinked, nextReviewMovement, prepareMovementReview, prepareSimilarReview, readableMovementDay, undoAccountReceipt, type AccountChangeReceipt, type AccountCommand, type AccountReview, type ActivityFilters } from "./activity-tools";
 import "./accounts.css";
+import { sheetDragProps } from "@/app/components/sheet-drag";
 
 type Command = AccountCommand;
 type Tab = "accounts" | "activity" | "settlements" | "subscriptions" | "needs-attention";
@@ -313,7 +314,7 @@ export function Modal({ title, children, close, busy = false }: { title: string;
       if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
       if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
     }
-  }}><span className="alfred-accounts-sheetHandle" aria-hidden="true" /><header><h2 tabIndex={-1}>{title}</h2><button className={buttonClassName({ variant: "secondary", size: "icon" })} onClick={dismiss} disabled={busy} aria-label="Close dialog">×</button></header><div className="alfred-accounts-modalBody">{error ? <div className="alfred-accounts-message is-error" role="alert">{error}</div> : null}{children}</div></section></div>;
+  }}><span className="alfred-accounts-sheetHandle" data-sheet-handle aria-hidden="true" {...sheetDragProps(dismiss, !busy)} /><header {...sheetDragProps(dismiss, !busy)}><h2 tabIndex={-1}>{title}</h2><button className={buttonClassName({ variant: "secondary", size: "icon" })} onClick={dismiss} disabled={busy} aria-label="Close dialog">×</button></header><div className="alfred-accounts-modalBody">{error ? <div className="alfred-accounts-message is-error" role="alert">{error}</div> : null}{children}</div></section></div>;
 }
 type Run = (command: Command, message: string) => Promise<boolean>;
 export function AccountEditor({ account, defaultCurrency, busy, close, run }: { account: FinancialAccount | "new"; defaultCurrency: string; busy: boolean; close: () => void; run: Run }) {

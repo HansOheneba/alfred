@@ -7,6 +7,7 @@ import { requestMutationJson } from "@/app/components/mutation-request";
 import { PROJECT_PRIORITIES, PROJECT_STATUSES, type ProjectLink, type ProjectNote, type ProjectPriority, type ProjectStatus, type TeamBoard, type TeamMember, type TeamProject } from "@/lib/team/types";
 import "@/app/components/dialog.css";
 import "./projects.css";
+import { sheetDragProps } from "@/app/components/sheet-drag";
 
 /*
  * The team's projects: a summary of where things stand, then every project
@@ -287,8 +288,8 @@ function Panel({ title, onClose, children }: { title: string; onClose: () => voi
   return (
     <dialog ref={ref} className="alfred-dialog alfred-projects-panel" aria-label={title} onCancel={(event) => { event.preventDefault(); onClose(); }} onClick={(event) => { if (event.target === event.currentTarget) onClose(); }}>
       <div className="alfred-dialog-surface">
-        <span className="alfred-sheet-handle" aria-hidden="true" />
-        <div className="alfred-dialog-header"><h2>{title}</h2><button type="button" className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={onClose}>Close</button></div>
+        <span className="alfred-sheet-handle" data-sheet-handle aria-hidden="true" {...sheetDragProps(onClose)} />
+        <div className="alfred-dialog-header" {...sheetDragProps(onClose)}><h2>{title}</h2><button type="button" className={buttonClassName({ variant: "ghost", size: "sm" })} onClick={onClose}>Close</button></div>
         <div className="alfred-dialog-body">{children}</div>
       </div>
     </dialog>

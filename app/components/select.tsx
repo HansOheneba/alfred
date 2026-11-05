@@ -3,6 +3,7 @@
 import { Children, Fragment, isValidElement, useCallback, useEffect, useId, useMemo, useRef, useState, type CSSProperties, type ReactNode, type Ref, type SelectHTMLAttributes } from "react";
 import { createPortal } from "react-dom";
 import "./select.css";
+import { sheetDragProps } from "./sheet-drag";
 
 export type SelectOption = { value: string; label: string; disabled: boolean; hidden: boolean; group?: string };
 export type SelectProps = Omit<SelectHTMLAttributes<HTMLSelectElement>, "multiple" | "size"> & { label?: string; ref?: Ref<HTMLSelectElement> };
@@ -240,8 +241,8 @@ export function Select({ children, value, defaultValue, onChange, onInvalid, onF
       else if (event.key === "Enter" || event.key === " " && event.target !== search.current) { event.preventDefault(); choose(activeOption); }
       else if (event.target !== search.current && event.key.length === 1 && !event.ctrlKey && !event.altKey && !event.metaKey) { event.preventDefault(); typeahead(event.key, event.timeStamp); }
     }}>
-      <span className="alfred-select-sheetHandle" aria-hidden="true" />
-      <header className="alfred-select-menuHeader"><h2 id={titleId}>{menuLabel}</h2><button type="button" onClick={close} aria-label={`Close ${menuLabel} options`}>×</button></header>
+      <span className="alfred-select-sheetHandle" data-sheet-handle aria-hidden="true" {...sheetDragProps(close)} />
+      <header className="alfred-select-menuHeader" {...sheetDragProps(close)}><h2 id={titleId}>{menuLabel}</h2><button type="button" onClick={close} aria-label={`Close ${menuLabel} options`}>×</button></header>
       {searchable ? <div className="alfred-select-search"><input ref={search} type="search" role="combobox" aria-label={`Search ${menuLabel} options`} aria-autocomplete="list" aria-haspopup="listbox" aria-expanded="true" aria-activedescendant={activeOption >= 0 ? `${id}-option-${activeOption}` : undefined} placeholder="Search options…" value={query} onChange={event => setQuery(event.target.value)} aria-controls={listId} autoComplete="off" /></div> : null}
       <div ref={list} id={listId} role="listbox" tabIndex={0} aria-label={menuLabel} aria-activedescendant={activeOption >= 0 ? `${id}-option-${activeOption}` : undefined} className="alfred-select-list">
         {visible.map((option, index) => <Fragment key={`${option.index}:${option.value}`}>
