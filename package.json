@@ -19,7 +19,8 @@
     "test:portability:archive": "node --test portability/archive.test.mjs",
     "test:portability:sql": "node tests/portability-sql.integration.mjs && node --import tsx tests/portability-export-sql.integration.mjs && node --import tsx tests/finance-capabilities-sql.integration.mjs",
     "test:portability:journey": "vitest run tests/portability-usable-journey.test.ts",
-    "evals": "tsx scripts/evals.ts"
+    "evals": "tsx scripts/evals.ts",
+    "review:failures": "tsx scripts/review-failures.ts"
   },
   "dependencies": {
     "@react-email/components": "^1.0.12",

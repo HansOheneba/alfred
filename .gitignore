@@ -55,3 +55,6 @@ next-env.d.ts
 
 # real-model eval output
 /eval-results.json
+
+# failure-review drafts hold real conversations; only fictionalised cases are committed
+/evals/drafts/
