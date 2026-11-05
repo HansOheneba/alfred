@@ -9,8 +9,8 @@ import "./getting-started.css";
 
 const firstTransaction = "/chat?question=" + encodeURIComponent("Help me record my first transaction.");
 
-export function GettingStartedDashboard({ ledger, timeZone }: { ledger: Ledger; name: string; timeZone: string }) {
-  const state = getGettingStartedState(ledger);
+export function GettingStartedDashboard({ ledger, timeZone, setup }: { ledger: Ledger; name: string; timeZone: string; setup?: ReturnType<typeof getGettingStartedState> }) {
+  const state = setup ?? getGettingStartedState(ledger);
   const steps = [
     { title: "Add your first account", description: state.showBlockedSetup ? "This step is unavailable right now." : "Give your bank, mobile money or cash a place in Alfred.", disabled: state.showBlockedSetup, done: state.hasAccount, href: state.hasAccount ? "/accounts" : "/accounts?add=1", action: state.hasAccount ? "View accounts" : "Add account" },
     { title: "Record a transaction", description: "Tell Alfred what you spent or earned. Review the details before saving.", disabled: false, done: state.hasTransaction, href: firstTransaction, action: "Record a transaction" },

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-type Resource = "ledger" | "botUsername";
+type Resource = "ledger" | "budgets" | "goals" | "bank" | "botUsername";
 const message = "This section could not be loaded. Please try again.";
 
 export async function loadOwnedSettingsData<T>(endpoint: string, resource: Resource, ownerId: string | undefined, signal: AbortSignal): Promise<T> {
@@ -13,6 +13,12 @@ export async function loadOwnedSettingsData<T>(endpoint: string, resource: Resou
   const value = payload[resource];
   if (resource === "botUsername") {
     if (value !== null && (typeof value !== "string" || !/^[A-Za-z0-9_]{5,64}$/.test(value))) throw new Error(message);
+  } else if (resource === "budgets" || resource === "goals" || resource === "bank") {
+    const data = value as { currency?: unknown; today?: unknown; budgets?: unknown; goals?: unknown; bank?: { needsLabel?: unknown; balances?: unknown; accountNames?: unknown; connected?: unknown } } | null;
+    if (!data || typeof data.currency !== "string" || !/^[A-Z]{3}$/.test(data.currency)) throw new Error(message);
+    if (resource === "budgets" && (typeof data.today !== "string" || !Array.isArray(data.budgets))) throw new Error(message);
+    if (resource === "goals" && !Array.isArray(data.goals)) throw new Error(message);
+    if (resource === "bank" && (!data.bank || typeof data.bank.connected !== "boolean" || !Array.isArray(data.bank.needsLabel) || !Array.isArray(data.bank.balances) || !Array.isArray(data.bank.accountNames))) throw new Error(message);
   } else {
     const ledger = value as { rows?: unknown; budgets?: unknown; goals?: unknown; currency?: unknown } | null;
     if (!ledger || !Array.isArray(ledger.rows) || !Array.isArray(ledger.budgets) || !Array.isArray(ledger.goals) || typeof ledger.currency !== "string") throw new Error(message);

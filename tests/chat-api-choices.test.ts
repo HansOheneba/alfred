@@ -121,6 +121,22 @@ describe("owner-stamped private Chat history and payment choices", () => {
     expect(mocks.paymentEntry).not.toHaveBeenCalled(); expect(mocks.profile).not.toHaveBeenCalled(); expect(mocks.choices).not.toHaveBeenCalled();
   });
 
+  it.each([
+    ["no history", [], false],
+    ["ordinary assistant", [{ ...message, intent: "chat:money" }], false],
+    ["latest user", [{ ...message, role: "user" }], false],
+    ["bank question", [message], true],
+    ["open payment purpose", [{ ...message, paymentNotice: { bankMessageId: "11111111-1111-4111-8111-111111111111", requiresPurpose: true } }], true],
+    ["closed payment purpose", [{ ...message, paymentNotice: { bankMessageId: "11111111-1111-4111-8111-111111111111", requiresPurpose: false } }], false],
+    ["notice without purpose metadata", [{ ...message, intent: "automation:outgoing-payment" }], false],
+  ])("derives the choices hint from the same owned history for %s", async (_scenario, history, choicesNeeded) => {
+    mocks.history.mockResolvedValue(history);
+    const response = await GET(new Request("https://fictional.example/api/chat?part=history"));
+    expect(await response.json()).toMatchObject({ ok: true, ownerId, part: "history", choicesNeeded });
+    expect(mocks.history).toHaveBeenCalledExactlyOnceWith(ownerId, 80);
+    expect(mocks.profile).not.toHaveBeenCalled(); expect(mocks.choices).not.toHaveBeenCalled();
+  });
+
   it("loads current selected choices without repeating 80-message history or transfer augmentation", async () => {
     const payment = "11111111-1111-4111-8111-111111111111";
     const target = { ...message, paymentNotice: { bankMessageId: payment, requiresPurpose: true } };

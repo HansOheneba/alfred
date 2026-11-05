@@ -1,4 +1,5 @@
 import { readFileSync, readdirSync } from "node:fs";
+import { EventEmitter } from "node:events";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER, type SupabaseSettings, type UserProfile } from "@/lib/config";
@@ -40,7 +41,7 @@ beforeAll(async () => {
     let release!: () => void;
     available = new Promise<void>(resolve => { release = resolve; });
     await previous;
-    return { query: (text: string, values: unknown[] = []) => db.query(text, values), release };
+    return Object.assign(new EventEmitter(), { query: (text: string, values: unknown[] = []) => db.query(text, values), release });
   });
   transport.outside.mockImplementation((text: string, values: unknown[] = []) => db.query(text, values));
 }, 30_000);

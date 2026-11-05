@@ -63,7 +63,7 @@ describe("Accounts initial read", () => {
     const nextClient = (next.props as { children: ReactElement }).children;
     expect(firstClient.key).toBe("fictional-owner:unavailable");
     expect(nextClient.key).toBe("fictional-second-owner:unavailable");
-    expect(nextClient.props).toMatchObject({ initialPayload: null });
+    expect(nextClient.props).toMatchObject({ initialView: null });
   });
   it("uses a new client identity for every fresh server read, including unversioned legacy data", async () => {
     mocks.loadAccountingReadModel.mockResolvedValue({ state: emptyAccountingState(owner.profile.profileId), availability: "migration-required", sourceVersion: null, rawTransactions: [] });

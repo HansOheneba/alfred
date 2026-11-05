@@ -19,6 +19,7 @@ import { AccountRulesSection } from "@/app/settings/account-rules-section";
 import type { AccountSettings } from "@/lib/accounts/settings-store";
 import type { HomeScreen } from "@/lib/web/home";
 import type { Ledger } from "@/lib/web/ledger";
+import type { SettingsBudgets, SettingsGoals, SettingsBank } from "@/lib/web/secondary-read-models";
 import { useOwnedSettingsData } from "@/app/settings/lazy-settings-data";
 
 const TIMEZONES = [
@@ -78,7 +79,9 @@ export function SettingsView({
   const [saved, setSaved] = useState(initial);
   const [save, setSave] = useState<SaveState>({ kind: "idle" });
   const dirty = JSON.stringify(form) !== JSON.stringify(saved);
-  const finance = useOwnedSettingsData<Ledger>("/api/settings/ledger", "ledger", ["budgets", "goals", "bank"].includes(section), ledger, ownerId, refreshKey);
+  const budgets = useOwnedSettingsData<SettingsBudgets>("/api/settings/ledger?section=budgets", "budgets", section === "budgets", ledger, ownerId, refreshKey);
+  const goals = useOwnedSettingsData<SettingsGoals>("/api/settings/ledger?section=goals", "goals", section === "goals", ledger, ownerId, refreshKey);
+  const bank = useOwnedSettingsData<SettingsBank>("/api/settings/ledger?section=bank", "bank", section === "bank", ledger ? { currency: ledger.currency, bank: ledger.bank } : undefined, ownerId, refreshKey);
   const telegram = useOwnedSettingsData<string | null>("/api/settings/telegram", "botUsername", section === "telegram", botUsername, ownerId, refreshKey);
 
   // Deep links such as /settings#budgets open the matching section.
@@ -130,7 +133,7 @@ export function SettingsView({
       const next = payload.settings;
       setForm(next);
       setSaved(next);
-      finance.retry();
+      budgets.retry(); goals.retry(); bank.retry();
       setSave({ kind: "saved" });
     } catch (error) {
       setSave({ kind: "error", text: error instanceof Error ? error.message : "The settings result could not be confirmed. Reload before trying again." });
@@ -147,7 +150,7 @@ export function SettingsView({
       </header>
 
       <div className="flex flex-col gap-6 md:flex-row md:items-start">
-        <SettingsNavigation section={section} onChoose={choose} statuses={settingsNavigationStatuses(saved, finance.value?.bank)} />
+        <SettingsNavigation section={section} onChoose={choose} statuses={settingsNavigationStatuses(saved, bank.value?.bank)} />
 
         <div id="alfred-settings-detail" role="region" aria-label={SETTINGS_SECTIONS.find(item => item.id === section)?.label ?? "Settings"} className="alfred-settings-detail min-w-0 flex-1">
           <Button variant="ghost" className="alfred-settings-mobileBack" onClick={showSections}><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.7" aria-hidden="true"><path d="m15 5-7 7 7 7" /></svg>Back to settings</Button>
@@ -220,9 +223,9 @@ export function SettingsView({
             </Card>
           ) : null}
 
-          {((finance.refreshing && ["budgets", "goals", "bank"].includes(section)) || (telegram.refreshing && section === "telegram")) ? <p role="status" className="flex items-center gap-2 text-sm text-muted"><Spinner />Updating…</p> : null}
-          {section === "budgets" ? finance.value ? <BudgetsSection ledger={finance.value} /> : <DeferredSection title="Budgets" error={finance.error} onRetry={finance.retry} /> : null}
-          {section === "goals" ? finance.value ? <GoalsSection ledger={finance.value} /> : <DeferredSection title="Savings goals" error={finance.error} onRetry={finance.retry} /> : null}
+          {((budgets.refreshing && section === "budgets") || (goals.refreshing && section === "goals") || (bank.refreshing && section === "bank") || (telegram.refreshing && section === "telegram")) ? <p role="status" className="flex items-center gap-2 text-sm text-muted"><Spinner />Updating…</p> : null}
+          {section === "budgets" ? budgets.value ? <BudgetsSection ledger={budgets.value} /> : <DeferredSection title="Budgets" error={budgets.error} onRetry={budgets.retry} /> : null}
+          {section === "goals" ? goals.value ? <GoalsSection ledger={goals.value} /> : <DeferredSection title="Savings goals" error={goals.error} onRetry={goals.retry} /> : null}
 
           {section === "reminders" ? (
             <Card title="Reminders">
@@ -261,9 +264,9 @@ export function SettingsView({
             telegram.value !== undefined ? <TelegramSection form={form} saved={saved} botUsername={telegram.value} update={update} saveBar={saveBar} /> : <DeferredSection title="Telegram" error={telegram.error} onRetry={telegram.retry} />
           ) : null}
 
-          {section === "bank" ? finance.value ? <BankSection bank={finance.value.bank} currency={finance.value.currency} /> : <DeferredSection title="Bank messages" error={finance.error} onRetry={finance.retry} /> : null}
+          {section === "bank" ? bank.value ? <BankSection bank={bank.value.bank} currency={bank.value.currency} /> : <DeferredSection title="Bank messages" error={bank.error} onRetry={bank.retry} /> : null}
           {section === "automations" ? <AutomationsSection key={ownerId ?? "session"} ownerId={ownerId} /> : null}
-          {section === "rules" ? <AccountRulesSection /> : null}
+          {section === "rules" ? <AccountRulesSection key={ownerId} ownerId={ownerId} /> : null}
           {section === "app" ? <AppSection home={home} /> : null}
           {section === "data" ? <DataSection /> : null}
         </div>

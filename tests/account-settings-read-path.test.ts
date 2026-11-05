@@ -2,7 +2,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { PGlite } from "@electric-sql/pglite";
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadAccountSettings, openAccount } from "@/lib/accounts/settings-store";
+import { loadAccountSettings, openAccount, openOwnerProfile } from "@/lib/accounts/settings-store";
 import type { SupabaseSettings } from "@/lib/config";
 
 const mocks = vi.hoisted(() => ({ query: vi.fn() }));
@@ -187,6 +187,38 @@ describe("account read paths on an ephemeral synthetic PostgreSQL", () => {
 
     const loaded = await loadAccountSettings(settings, OWNER);
     expect(loaded).toMatchObject({ preferredName: "Fictional existing profile", financialGoals: "Keep this fictional goal", communicationPreference: "detailed", morningEnabled: true, morningTime: "08:05" });
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mocks.query.mock.calls[0][1]).not.toMatch(/\b(?:insert|update|delete)\b/i);
+  });
+
+  it("loads an authenticated owner's complete profile and companion readiness in one read", async () => {
+    expect(await openOwnerProfile(settings, user)).toMatchObject({ profileId: OWNER, preferredName: "Fictional existing profile", currency: "GHS", communicationPreference: "detailed" });
+    expect(mocks.query).toHaveBeenCalledTimes(1);
+    expect(mocks.query.mock.calls[0][2]).toEqual([OWNER]);
+    expect(mocks.query.mock.calls[0][1]).not.toMatch(/\b(?:insert|update|delete)\b/i);
+  });
+
+  it("keeps joined owner profiles and notes isolated between accounts", async () => {
+    const otherOwner = "00000000-0000-4000-8000-000000000002";
+    await db.query("insert into auth.users(id) values($1::uuid)", [otherOwner]);
+    await db.query("update public.profiles set preferred_name='Fictional second person',currency='USD' where id=$1::uuid", [otherOwner]);
+    await db.query("insert into public.assistant_notes(owner_id,tone_note) values($1::uuid,'Synthetic second-owner note') on conflict(owner_id) do update set tone_note=excluded.tone_note", [otherOwner]);
+    const [first, second] = await Promise.all([openOwnerProfile(settings, user), openOwnerProfile(settings, { id: otherOwner })]);
+    expect(first).toMatchObject({ profileId: OWNER, preferredName: "Fictional existing profile", currency: "GHS" });
+    expect(second).toMatchObject({ profileId: otherOwner, preferredName: "Fictional second person", currency: "USD", toneNote: "Synthetic second-owner note" });
+    expect(first).not.toHaveProperty("toneNote", "Synthetic second-owner note");
+  });
+
+  it.each(["telegram_accounts", "conversations", "reminder_preferences"] as const)("repairs an incomplete authenticated owner when %s is missing", async (table) => {
+    await db.query(`delete from public.${table} where owner_id=$1::uuid`, [OWNER]);
+    expect(await openOwnerProfile(settings, user)).toMatchObject({ profileId: OWNER, preferredName: "Fictional existing profile", communicationPreference: "detailed" });
+    expect(mocks.query).toHaveBeenCalledTimes(6);
+    expectOwnedRepair(mocks.query.mock.calls.slice(1, 5));
+  });
+
+  it("rejects an uninvited absent owner without provisioning", async () => {
+    const absent = "00000000-0000-4000-8000-000000000003";
+    expect(await openOwnerProfile(settings, { id: absent, email: "not-invited@example.invalid" })).toBe("not_invited");
     expect(mocks.query).toHaveBeenCalledTimes(1);
     expect(mocks.query.mock.calls[0][1]).not.toMatch(/\b(?:insert|update|delete)\b/i);
   });

@@ -1,3 +1,4 @@
+import { EventEmitter } from "node:events";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER, type SupabaseSettings } from "@/lib/config";
 
@@ -23,7 +24,7 @@ function deferred() {
 }
 function client(label = "client-a") {
   type Query = (sql: string, values?: unknown[]) => Promise<{ rows: { label: string }[] }>;
-  return { query: vi.fn<Query>(async () => ({ rows: [{ label }] })), release: vi.fn() };
+  return Object.assign(new EventEmitter(), { query: vi.fn<Query>(async () => ({ rows: [{ label }] })), release: vi.fn() });
 }
 let api: typeof import("@/lib/supabase/connection"), connection: ReturnType<typeof client>;
 beforeEach(async () => {
@@ -137,8 +138,8 @@ describe("request-scoped bank ingestion transactions", () => {
   });
 
   it("keeps simultaneous owners on their own exact clients and ordinary queries outside both scopes", async () => {
-    const other = client("client-b"), enteredA = deferred(), enteredB = deferred(), proceed = deferred();
-    mocks.connect.mockResolvedValueOnce(connection).mockResolvedValueOnce(other);
+    const other = client("client-b"), ordinary = client("ordinary-client"), enteredA = deferred(), enteredB = deferred(), proceed = deferred();
+    mocks.connect.mockResolvedValueOnce(connection).mockResolvedValueOnce(other).mockResolvedValueOnce(ordinary);
     const a = api.withBankIngestTransaction(settings, ownerA, async () => {
       enteredA.resolve(); await proceed.promise; return api.query(settings, "select owner-a", [ownerA]);
     });
@@ -146,14 +147,16 @@ describe("request-scoped bank ingestion transactions", () => {
       enteredB.resolve(); await proceed.promise; return api.query(settings, "select owner-b", [ownerB]);
     });
     await Promise.all([enteredA.promise, enteredB.promise]);
-    expect(await api.query(settings, "select ordinary")).toEqual([{ label: "ordinary-pool" }]);
+    expect(await api.query(settings, "select ordinary")).toEqual([{ label: "ordinary-client" }]);
     proceed.resolve();
     expect(await a).toEqual([{ label: "client-a" }]); expect(await b).toEqual([{ label: "client-b" }]);
     expect(connection.query.mock.calls.map(([sql]) => sql)).not.toContain("select owner-b");
     expect(other.query.mock.calls.map(([sql]) => sql)).not.toContain("select owner-a");
     expect(connection.query.mock.calls.find(([sql]) => sql.includes("pg_advisory_xact_lock"))?.[1]).toEqual([ownerA]);
     expect(other.query.mock.calls.find(([sql]) => sql.includes("pg_advisory_xact_lock"))?.[1]).toEqual([ownerB]);
-    expect(mocks.normalQuery).toHaveBeenCalledExactlyOnceWith(expect.any(Object), "select ordinary", []);
+    expect(ordinary.query).toHaveBeenCalledExactlyOnceWith("select ordinary", []);
+    expect(ordinary.release).toHaveBeenCalledExactlyOnceWith(false);
+    expect(mocks.normalQuery).not.toHaveBeenCalled();
   });
 
   it("rejects detached work after completion instead of sending it through an ordinary pool", async () => {
