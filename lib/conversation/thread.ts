@@ -54,7 +54,7 @@ export function openThread(input: {
   }
 
   if (last && lastIsAlfred && !input.pending && last.body.trim().endsWith("?") && !/^bank:/.test(last.intent ?? "")) {
-    lines.push("You ended on a question, so their reply most likely answers it: read it together with what came before.");
+    lines.push("You ended on a question, so their reply most likely answers it: read it together with what came before. Nothing was saved behind that question, so answer_confirmation can't settle it: if they agree (\"yes\", \"do it\", \"move it\"), return the action your question described, with the details from it; if they refuse, use chat.");
   }
   return lines;
 }
