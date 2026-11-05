@@ -156,6 +156,7 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
     return keepNoticeFocus({ kind: "text", text: "That notice has no open purpose question. Tell me which payment you mean if you'd like to label one.", intent: "chat:other" }, true);
   }
   let open: string[] = [];
+  const proposal = noticeFocus?.requiresPurpose ? await openProposalText(deps.messages, ctx, noticeFocus.bankMessageId, options.excludeClientId) : null;
   const request = (said: string): Parameters<typeof interpretWithContext>[0] => ({
     text: said,
     profile: ctx.profile,
@@ -179,6 +180,8 @@ export async function converse(text: string, ctx: ActionContext, deps: TurnDeps,
               `Alfred just asked what waiting payment ${waiting.currentNumber} was for. Answer it with label_payments.`,
               nearby.length ? `Other waiting payments around the same time: ${nearby.join("; ")}. If what the person says also explains one of these (a card top-up and the charge right after it, say), label it in the same answer.` : "",
               "Alfred shows the person its reading and asks before saving, so choose the label that matches what they mean in their own words: money out that someone will pay back is lent to that person, money moved onto their own card or account is own_transfer.",
+              "lent only fits money OUT. When someone owes them for something paid from the card or account this money went onto, put lent on that later OUT payment, and keep this payment as own_transfer.",
+              proposal ? `Alfred already showed this reading, still waiting for a yes: "${proposal.replace(/\s+/g, " ").slice(0, 400)}". If the new message corrects or adds to it, answer with the full corrected set of labels.` : "",
               "If the purpose is unclear, ask; never invent a person or purpose they didn't give, or log the same payment again.",
             ].filter(Boolean).join(" ")
           : "The last private payment notice did not leave an open purpose question. A bare reply does not answer an older payment question or confirmation. Ask which payment they mean if needed.");
@@ -563,4 +566,11 @@ async function alfredsOpenQuestion(messages: MessageLog | null | undefined, owne
   if (last?.role !== "assistant" || last.paymentNotice || /^bank:/.test(last.intent ?? "")) return null;
   const body = last.body.replace(/\s+/g, " ").trim();
   return body.endsWith("?") ? body.slice(0, 400) : null;
+}
+
+/** What Alfred last proposed for this payment, while that proposal is still open. */
+async function openProposalText(messages: MessageLog | null | undefined, ctx: ActionContext, bankMessageId: string, excludeClientId?: string | null): Promise<string | null> {
+  if (!messages || !(await openLabelProposal(ctx, bankMessageId))) return null;
+  const recent = (await messages.listRecent(ctx.profile.profileId, 8)).filter((item) => !excludeClientId || item.clientId !== excludeClientId);
+  return [...recent].reverse().find((item) => item.role === "assistant" && item.body.startsWith("Here's how I read"))?.body ?? null;
 }

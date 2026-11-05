@@ -113,6 +113,7 @@ export function createVoice(settings: DeepSeekSettings, fetchImpl: typeof fetch 
       "The server has already worked out the facts below from the user's stored records. Rewrite them as your reply to the user's message.",
       "Every number, amount, percentage, and date you mention must appear exactly as written in the facts. Do not calculate, round, estimate, or add any new figure.",
       "You may leave out minor facts, but never change their meaning, and never claim something was saved, changed, or deleted unless the facts say so.",
+      "Only describe what the facts cover. Never say something isn't recorded, doesn't exist, or can't be done because these facts don't mention it: other replies in the same message may show it. Alfred can record money taken out of an investment to pay for something.",
       "If they asked for tips or how to spend less, lead with the ideas in the facts, then the figures that back them up.",
       request.intent === "get_insights" || request.intent === "get_financial_overview"
         ? "This is an insight request. Say plainly what takes most of their money, point out any pattern in the facts, and offer one or two practical, kind suggestions for improvement drawn from those facts."
