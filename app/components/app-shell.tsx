@@ -14,7 +14,7 @@ import { serializeBrowserPreferenceWrite } from "@/lib/portability/browser-prefe
 import "./app-ui.css";
 import "./header-controls.css";
 
-export type Section = "chat" | "dashboard" | "accounts" | "investments" | "review" | "settings";
+export type Section = "chat" | "dashboard" | "accounts" | "investments" | "projects" | "review" | "settings";
 
 const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] = [
   {
@@ -47,6 +47,13 @@ const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] 
     icon: <path d="m3 18 6-6 4 4 8-11m-6 0h6v6" />,
   },
   {
+    // Shown only to team members; see useTeamTab.
+    section: "projects",
+    href: "/projects",
+    label: "Projects",
+    icon: <path d="M4 5.5h16M4 12h10M4 18.5h6m8-6.5 2 2 3.5-4" />,
+  },
+  {
     section: "settings",
     href: "/settings",
     label: "Settings",
@@ -60,6 +67,35 @@ const NAV: { section: Section; href: string; label: string; icon: ReactNode }[] 
     ),
   },
 ];
+
+const TEAM_TAB_KEY = "alfred-team-tab";
+const subscribeTeamTab = (onChange: () => void) => { window.addEventListener(TEAM_TAB_KEY, onChange); return () => window.removeEventListener(TEAM_TAB_KEY, onChange); };
+
+/**
+ * Whether to show the Projects tab. Only team members get it; everyone else
+ * gets a 404 from the check and never sees the tab. The last answer is kept
+ * per account so the tab doesn't pop in on every page load.
+ */
+function useTeamTab(ownerId: string | undefined, current: Section): boolean {
+  const key = ownerId ? `${TEAM_TAB_KEY}:${ownerId}` : null;
+  const read = () => { if (!key) return false; try { return localStorage.getItem(key) === "1"; } catch { return false; } };
+  const cached = useSyncExternalStore(subscribeTeamTab, read, () => false);
+  useEffect(() => {
+    if (!key) return;
+    let checked = false;
+    try { checked = sessionStorage.getItem(key) === "1"; } catch { /* Check again. */ }
+    if (checked) return;
+    fetch("/api/team?check=1", { cache: "no-store" }).then((response) => {
+      if (response.status !== 200 && response.status !== 404) return;
+      try {
+        if (response.ok) localStorage.setItem(key, "1"); else localStorage.removeItem(key);
+        sessionStorage.setItem(key, "1");
+      } catch { /* Not remembered; checked again next time. */ }
+      window.dispatchEvent(new Event(TEAM_TAB_KEY));
+    }).catch(() => { /* Offline: keep the last answer. */ });
+  }, [key]);
+  return cached || current === "projects";
+}
 
 function Icon({ children, className = "size-[18px]" }: { children: ReactNode; className?: string }) {
   return (
@@ -189,6 +225,8 @@ export function AppShell({ current, fill = false, headerAction, children, ownerI
   const viewport = useChatViewport(chat);
   const recoveryRequired = useSyncExternalStore(subscribeMutationRecovery, getMutationRecoverySnapshot, getMutationRecoveryServerSnapshot);
   const messages = useMessageAlerts(ownerId, current);
+  const team = useTeamTab(ownerId, current);
+  const nav = NAV.filter((item) => item.section !== "projects" || team);
   const navIcon = (item: typeof NAV[number], size: string) => <span className="alfred-chatNavIcon"><Icon className={size}>{item.icon}</Icon>{item.section === "chat" ? <ChatUnreadBadge count={messages.count} /> : null}</span>;
   return <div ref={viewport} className={`alfred-app${chat ? " alfred-app-chat alfred-chat-viewport" : ""}`}>
     <div className={`alfred-ui-pageShell${fill || chat ? " alfred-ui-fill" : ""}`}>
@@ -198,7 +236,7 @@ export function AppShell({ current, fill = false, headerAction, children, ownerI
           <Link href="/" className="alfred-ui-brand"><span>Alfred</span></Link>
           {/* Wider screens navigate from the top bar; phones use the bottom tab bar below. */}
           <nav className="alfred-ui-topNav" aria-label="Main">
-            {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}>{navIcon(item, "size-4")}<span>{item.label}</span></Link>)}
+            {nav.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}>{navIcon(item, "size-4")}<span>{item.label}</span></Link>)}
           </nav>
           <div className="alfred-ui-headerActions">
             {chat ? <ChatContextButton /> : null}
@@ -209,8 +247,8 @@ export function AppShell({ current, fill = false, headerAction, children, ownerI
       </header>
       <main id="app-content" className="alfred-ui-main" tabIndex={-1}>{recoveryRequired ? <MutationRecoveryScreen /> : <CategoryCatalogProvider ownerId={ownerId} refreshKey={current}>{children}</CategoryCatalogProvider>}</main>
       {messages.announced && !recoveryRequired ? <ChatMessageAlert count={messages.count} dismiss={messages.dismiss} /> : null}
-      <nav className="alfred-ui-dock" aria-label="Main (mobile)">
-        {NAV.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}>{navIcon(item, "size-5")}<span>{item.label}</span></Link>)}
+      <nav className="alfred-ui-dock" aria-label="Main (mobile)" data-count={nav.length}>
+        {nav.map((item) => <Link key={item.section} href={item.href} aria-current={current === item.section ? "page" : undefined}>{navIcon(item, "size-5")}<span>{item.label}</span></Link>)}
       </nav>
     </div>
   </div>;

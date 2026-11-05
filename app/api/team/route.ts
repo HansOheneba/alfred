@@ -15,14 +15,20 @@ const NO_STORE = { "Cache-Control": "private, no-store" };
 const changeBody = z.discriminatedUnion("action", [
   z.strictObject({ action: z.literal("add_project"), project: newProjectSchema }),
   z.strictObject({ action: z.literal("update_project"), id: z.string().uuid(), change: projectChangeSchema }),
+  z.strictObject({ action: z.literal("remove_project"), id: z.string().uuid() }),
   z.strictObject({ action: z.literal("add_note"), projectId: z.string().uuid(), body: noteSchema }),
+  z.strictObject({ action: z.literal("edit_note"), noteId: z.string().uuid(), body: noteSchema }),
   z.strictObject({ action: z.literal("remove_note"), noteId: z.string().uuid() }),
 ]);
 
-export async function GET(): Promise<Response> {
+export async function GET(request: Request): Promise<Response> {
   const owner = await requireOwner();
   if (owner instanceof Response) return owner;
   try {
+    // A light check the app frame uses to decide whether to show the Projects tab.
+    if (new URL(request.url).searchParams.has("check")) {
+      return await createSupabaseTeamStore(owner.settings.supabase).isMember(owner.profile.profileId) ? Response.json({ ok: true }, { headers: NO_STORE }) : fail(NOT_FOUND, 404);
+    }
     const board = await createSupabaseTeamStore(owner.settings.supabase).board(owner.profile.profileId);
     return board ? Response.json({ ok: true, ...board }, { headers: NO_STORE }) : fail(NOT_FOUND, 404);
   } catch (error) {
@@ -49,9 +55,16 @@ export async function POST(request: Request): Promise<Response> {
       const project = await store.updateProject(memberId, body.id, body.change);
       return project ? Response.json({ ok: true, project }, { headers: NO_STORE }) : fail("That project is gone, or the person picked isn't on the team.", 404);
     }
+    if (body.action === "remove_project") {
+      return await store.removeProject(memberId, body.id) ? Response.json({ ok: true }, { headers: NO_STORE }) : fail("That project is already gone.", 404);
+    }
     if (body.action === "add_note") {
       const note = await store.addNote(memberId, body.projectId, body.body);
       return note ? Response.json({ ok: true, note }, { headers: NO_STORE }) : fail("That project is gone.", 404);
+    }
+    if (body.action === "edit_note") {
+      const note = await store.editNote(memberId, body.noteId, body.body);
+      return note ? Response.json({ ok: true, note }, { headers: NO_STORE }) : fail("Only the person who wrote a note can change it.", 403);
     }
     return await store.removeNote(memberId, body.noteId) ? Response.json({ ok: true }, { headers: NO_STORE }) : fail("Only the person who wrote a note can remove it.", 403);
   } catch (error) {
