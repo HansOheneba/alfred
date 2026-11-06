@@ -392,6 +392,8 @@ function purposeEvidence(text: string, direction: BankMessage["direction"], cust
   const categories = new Set<string>();
   const spending = new Set<string>();
   let categoryText = text, spendingText = text;
+  /** Saved categories the person named in full; these always count. */
+  const named = new Set<string>();
   // Match the complete saved name, including punctuation and non-English letters.
   // Its words must not accidentally add a built-in category ("Arts & health"
   // should not also imply Personal just because "health" is a built-in alias).
@@ -399,6 +401,7 @@ function purposeEvidence(text: string, direction: BankMessage["direction"], cust
     const name = category.name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/ /g, "\\s+");
     const pattern = new RegExp(`(^|[^\\p{L}\\p{N}])${name}(?=$|[^\\p{L}\\p{N}])`, "giu");
     if (!pattern.test(text)) continue;
+    named.add(category.name);
     if (category.type === (direction === "in" ? "income" : "expense")) {
       categories.add(category.name);
       categoryText = categoryText.replace(pattern, "$1 ");
@@ -474,6 +477,18 @@ function purposeEvidence(text: string, direction: BankMessage["direction"], cust
   // share before any bill is named, so it isn't money merely handled for them or a gift.
   else if (direction === "in" && spending.size === 0 && /\b(?:shared|split)\b/.test(said)) kinds.add("chip_in");
   if (words.some(word => normalizeCategory(word, "income") === "Refund") && spending.size === 1) kinds.add("refund");
+  // "A loan to Jesse" is lending, not People spending: "loan" doubles as a People alias, which made
+  // every loan answer look like two purposes. Built-in categories only the loan words imply are dropped.
+  if ([...kinds].some(kind => LOAN_KINDS.has(kind))) {
+    const rest = purposeWords(said.replace(/\b(?:loans?|lent|lend|lending|borrowed|borrow|repayment|repaid|pay(?:ing)? back|paid back)\b/g, " "));
+    for (const [found, type] of [[categories, direction === "in" ? "income" : "expense"], [spending, "expense"]] as const) {
+      for (const category of [...found]) {
+        if (named.has(category)) continue;
+        const stillSaid = rest.some((_, index) => [1, 2, 3].some(length => index + length <= rest.length && normalizeCategory(rest.slice(index, index + length).join(" "), type) === category));
+        if (!stillSaid) found.delete(category);
+      }
+    }
+  }
   const purposes = new Set([...categories].map(category => category === "Refund" ? "refund" : `category:${category}`));
   for (const kind of kinds) purposes.add(kind);
   return { words, categories, spending, kinds, purposes, semanticWords };
@@ -497,6 +512,8 @@ export function paymentPurposeUnclear(text: string, direction: BankMessage["dire
   const evidence = purposeEvidence(text, direction, custom);
   return evidence.purposes.size > 1 || /\b(?:probably|i think)\b/.test(said) && evidence.purposes.size !== 1;
 }
+
+const LOAN_KINDS: ReadonlySet<Label["kind"]> = new Set(["lent", "borrowed", "repaid", "paid_back"]);
 
 const PURPOSE_FILLER = new Set(["a", "an", "the", "it", "this", "that", "was", "is", "for", "to", "from", "of", "and", "payment", "money"]);
 
