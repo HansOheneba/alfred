@@ -470,6 +470,9 @@ function purposeEvidence(text: string, direction: BankMessage["direction"], cust
   if (/\b(?:pass through|someone else's|on behalf of|handling money for)\b/.test(said)) kinds.add("pass_through");
   if (/\b(?:invest|invested|investment)\b/.test(said)) kinds.add("invest");
   if (/\b(?:share|split|contribution|chipping in|chip in)\b/.test(said) && spending.size === 1) kinds.add("chip_in");
+  // Money in toward something they share ("paying me to top up our shared credits") is that person's
+  // share before any bill is named, so it isn't money merely handled for them or a gift.
+  else if (direction === "in" && spending.size === 0 && /\b(?:shared|split)\b/.test(said)) kinds.add("chip_in");
   if (words.some(word => normalizeCategory(word, "income") === "Refund") && spending.size === 1) kinds.add("refund");
   const purposes = new Set([...categories].map(category => category === "Refund" ? "refund" : `category:${category}`));
   for (const kind of kinds) purposes.add(kind);
@@ -539,7 +542,8 @@ export function proposableLabel(text: string, message: BankMessage, label: Label
     // name ("malt" is Food, "Claude" is Subscriptions), but only when the description quotes their words.
     // For money out, the thing they name implies the category ("malt" is Food). For money in, the kind of
     // income is the question itself ("school fees from dad": a gift? support?), so it's never inferred.
-    if (named.size === 0 && message.direction === "in") return false;
+    // A share of a shared cost names the bill it lowers ("our API credits"), read like money out.
+    if (named.size === 0 && message.direction === "in" && label.kind !== "chip_in") return false;
     if (named.size > 0 ? !named.has(category) : !details || !purposeWords(details).some((word) => own.has(word) && !PURPOSE_FILLER.has(word)) || !purposeWords(details).every((word) => own.has(word) || PURPOSE_FILLER.has(word))) return false;
     if (evidence.kinds.size > 0 && !(label.kind === "refund" && evidence.kinds.has("refund")) && !(label.kind === "chip_in" && evidence.kinds.has("chip_in"))) return false;
   } else if (evidence.categories.size > 0 || [...evidence.kinds].some((kind) => kind !== label.kind)) {
