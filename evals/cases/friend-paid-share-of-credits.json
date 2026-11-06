@@ -1,0 +1,42 @@
+{
+  "id": "friend-paid-share-of-credits",
+  "title": "A friend paying in for credits we share is their share, not money handled for them",
+  "source": "Hans, 2026-11-05 23:12: couldn't take 'X was paying me to top up our API credits' as an answer",
+  "tags": [
+    "payments",
+    "incoming",
+    "real-failure"
+  ],
+  "now": "2026-11-05T23:20:00.000Z",
+  "setup": {
+    "payments": [
+      {
+        "ref": "share",
+        "direction": "in",
+        "amount": "65.00",
+        "counterparty": "KOJO ANSAH BOATENG",
+        "occurredAt": "2026-11-05T23:07:38.000Z",
+        "source": "momo"
+      }
+    ],
+    "notice": "share"
+  },
+  "steps": [
+    {
+      "say": "Kojo was paying me to top up our shared API credits",
+      "replyTo": "share",
+      "expect": {
+        "notReply": "couldn't understand|couldn't turn that into a label|handled for"
+      }
+    },
+    {
+      "tap": "confirm",
+      "ifAsked": true
+    }
+  ],
+  "final": {
+    "payments": {
+      "share": "recorded"
+    }
+  }
+}

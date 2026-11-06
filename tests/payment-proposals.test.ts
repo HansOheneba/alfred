@@ -146,6 +146,21 @@ describe("everyday loan phrasing", () => {
   });
 });
 
+describe("money in toward something shared", () => {
+  const said = "Kojo was paying me to top up our shared API credits";
+  const incoming = { direction: "in", counterparty: "KOJO ANSAH" } as BankMessage;
+  it("can propose it as their share of what they named, and only after a yes", () => {
+    expect(proposableLabel(said, incoming, { kind: "chip_in", category: "Subscriptions", description: "shared API credits", person: null })).toBe(true);
+    expect(groundedPaymentLabel(said, incoming, { kind: "chip_in", category: "Subscriptions", description: "shared API credits", person: null })).toBe(false);
+  });
+  it("never reads it as money merely handled for them", () => {
+    expect(proposableLabel(said, incoming, { kind: "pass_through", person: "Kojo", note: null })).toBe(false);
+  });
+  it("still won't add a bill they didn't name", () => {
+    expect(proposableLabel(said, incoming, { kind: "chip_in", category: "Utilities", description: "fibre", person: null })).toBe(false);
+  });
+});
+
 describe("a typed yes to a proposal in the question flow, after an earlier alert", () => {
   it("files it instead of saying nothing is waiting, and keeps Yes/No across a reload", async () => {
     const state = setup((request) => {
