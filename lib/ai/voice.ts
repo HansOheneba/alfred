@@ -180,7 +180,12 @@ export function keepsFacts(reply: string, source: string): boolean {
 /** Words that say where money came from or what happened to it. */
 const CLAIMS = /\b(?:investments?|savings|risevest|loans?|lent|lend|borrow\w*|owes?|owed|transferr?\w*|refund\w*|withdr[ae]w\w*|taken out|took out|moved)\b/gi;
 /** A chat reply saying Alfred saved or changed something; chat never does. */
-const CHAT_WRITE = /\b(?:I(?:'ve| have)?|I've just) (?:saved|recorded|logged|filed|added|moved|updated|deleted|removed|taken|withdrawn|noted down)\b|\b(?:is|was|has been) (?:now )?(?:saved|recorded|logged|filed)\b/i;
+const CHAT_WRITE = /\b(?:I(?:'ve| have)?|I've just) (?:saved|recorded|logged|filed|added|moved|updated|deleted|removed|taken|withdrawn|noted down)\b|\b(?:is|was|has been) (?:now )?(?:saved|recorded|logged|filed|added|updated|removed)\b|(?:^|[.!?]\s+)(?:Saved|Recorded|Logged|Filed|Added|Moved|Updated|Deleted|Removed|Noted)\b/i;
+
+/** A chat reply that says something was saved or changed. Chat changes nothing, so that would be untrue. */
+export function claimsWrite(text: string): boolean {
+  return CHAT_WRITE.test(text);
+}
 
 /**
  * True when the reworded reply claims something the server's facts don't:
