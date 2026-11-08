@@ -52,7 +52,7 @@ describe("insights", () => {
 
 describe("voice", () => {
   it("accepts a reply that only repeats known figures and the dashboard link", () => {
-    expect(keepsFacts("Lovely work. GH₵90.00 on Uber, see alfred.hansopoku.com", "Uber 3 times, GH₵90.00")).toBe(true);
+    expect(keepsFacts("Lovely work. GH₵90.00 on Uber, see alfred.designtechie.com", "Uber 3 times, GH₵90.00")).toBe(true);
   });
 
   it("rejects a reply with a new figure or another link", () => {

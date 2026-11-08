@@ -114,7 +114,7 @@ export function MacAutomationCard({ preview = false, notificationsHref }: { prev
 /** Settings → Bank messages: forwarding key, iPhone Shortcut guide, own account names, balances and held payments. */
 export function BankSection({ bank, currency }: { bank: LedgerBank; currency: string }) {
   const router = useRouter();
-  const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => "https://alfred.hansopoku.com");
+  const origin = useSyncExternalStore(noSubscribe, () => window.location.origin, () => "https://alfred.designtechie.com");
   const endpoint = `${origin}/api/ingest/sms`;
   const [token, setToken] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<"reset" | "off" | null>(null);

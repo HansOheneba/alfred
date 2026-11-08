@@ -58,14 +58,14 @@ describe("private Web Push transport", () => {
       const payload=notificationPayload(kind), serialized=JSON.stringify(payload);
       expect(payload.notification.title).toBe("Alfred");
       expect(serialized).not.toMatch(/GHS|merchant|amount|sender|transactionId|bankMessage|eventId|token|\?/);
-      expect(new URL(payload.notification.navigate).origin).toBe("https://alfred.hansopoku.com");
+      expect(new URL(payload.notification.navigate).origin).toBe("https://alfred.designtechie.com");
     }
   });
   it('allows only a canonical opaque payment locator, with no financial details or caller URL', () => {
     const id='11111111-1111-4111-8111-111111111111';
     const payload=notificationPayload('payment',id);
     expect(payload.targetId).toBe(id);
-    expect(payload.notification.navigate).toBe('https://alfred.hansopoku.com/chat?payment='+id);
+    expect(payload.notification.navigate).toBe('https://alfred.designtechie.com/chat?payment='+id);
     expect(payload.notification.body).toBe(notificationPayload('payment').notification.body);
     for(const target of ['',id.toUpperCase().replace('11111111','AAAAAAAA'),id+'?next=https://evil.invalid','https://evil.invalid/',`bank:${id}`])expect(()=>notificationPayload('payment',target)).toThrow('Invalid payment target');
     for(const kind of ['test','bill','weekly'] as const)expect(()=>notificationPayload(kind,id)).toThrow('Invalid payment target');
@@ -79,7 +79,7 @@ describe("private Web Push transport", () => {
       expect(payload.payment).toEqual(details);
       expect(payload.notification.body).toBe(paymentPushBody(details));
       expect(payload.notification.body).toContain(amount==='10000.15'?'GH₵10,000.15':'GH₵'+amount);
-      expect(payload.notification.navigate).toBe('https://alfred.hansopoku.com/chat?payment='+id);
+      expect(payload.notification.navigate).toBe('https://alfred.designtechie.com/chat?payment='+id);
     }
     expect(paymentPushBody({amount:'1',currency:'USD',direction:'out'})).toBe('Money out · −USD 1.00. Open Alfred to chat.');
     expect(paymentPushBody({amount:'500.01',currency:'GHS',direction:'out',activity:'card_hold'})).toBe('Card hold · GH₵500.01. Open Alfred to chat.');
