@@ -16,7 +16,7 @@ export const LIMITS = {
 
 export const DEFAULT_TIMEZONE = "Africa/Accra";
 export const DEFAULT_CURRENCY = "GHS";
-export const DASHBOARD_URL = "https://alfred.hansopoku.com";
+export const DASHBOARD_URL = "https://alfred.designtechie.com";
 
 export type GoogleSettings = {
   clientEmail: string;

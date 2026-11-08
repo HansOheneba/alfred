@@ -2,11 +2,14 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 import { automationPreviewBypassesAuth } from "@/lib/preview/access";
 import { HOME_COOKIE, HOME_PATHS, readHome } from "@/lib/web/home";
+import { moveOffOldAddress } from "@/lib/web/old-address";
 
 export async function proxy(request: NextRequest) {
   // These three read-only fictional pages need no account session. Keep their
   // hosted previews free of auth refreshes while real routes retain this proxy.
   if (automationPreviewBypassesAuth(request.nextUrl.pathname, request.method, process.env)) return NextResponse.next();
+  const moved = moveOffOldAddress(request);
+  if (moved) return moved;
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY;
   if (!url || !anonKey) return NextResponse.next({ request });
