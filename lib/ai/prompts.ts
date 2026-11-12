@@ -79,7 +79,7 @@ function recentDayGuide(today: string): string {
   }).join(", ");
 }
 
-export function buildSystemPrompt(input: {
+export type SystemPromptInput = {
   services?: string[];
   today: string;
   timezone: string;
@@ -106,7 +106,19 @@ export function buildSystemPrompt(input: {
   open?: string[];
   lookups?: { query: string; lines: string[] }[];
   lookupsLeft?: number;
-}): string {
+};
+
+/** The system prompt as one string, as the model reads it. */
+export function buildSystemPrompt(input: SystemPromptInput): string {
+  return buildSystemPromptParts(input).join("\n");
+}
+
+/**
+ * The system prompt in two parts. The first holds the instructions and what
+ * changes at most daily for one person, so Claude can cache it across turns;
+ * the second holds what changes from message to message.
+ */
+export function buildSystemPromptParts(input: SystemPromptInput): [string, string] {
   const yesterday = addDays(input.today, -1);
   const recent =
     input.recent.length === 0
@@ -139,7 +151,7 @@ export function buildSystemPrompt(input: {
           .join("\n")
       : "None.";
 
-  return [
+  const lines = [
     "You convert one personal finance message into one JSON object.",
     "Use chat for greetings, thanks, small talk, encouragement, questions about what you can do, and general money advice that needs no stored figures. The message field is the reply the user will see, written in Alfred's voice:",
     ...persona,
@@ -216,7 +228,7 @@ export function buildSystemPrompt(input: {
     "In chat, never offer to make a change or ask the user to confirm or cancel: chat can't change anything. When they want something changed, use the action that does it now (it asks for confirmation itself when needed).",
     "Descriptions are short and specific, in the user's words, such as Waakye, Uber to work, or October salary. Avoid vague words like Payment or Expense.",
     `Budget periods are YYYY-MM. This month is ${input.today.slice(0, 7)}.`,
-    "Your notebook on the user: what you've learnt about them. Use it to understand their money and messages:",
+    NOTEBOOK_HEADING,
     input.about?.length ? input.about.join("\n") : "Nothing yet.",
     "What the user has told you about people. Use it to understand their payments and messages:",
     input.people?.length ? input.people.join("\n") : "None.",
@@ -242,8 +254,12 @@ export function buildSystemPrompt(input: {
         : "You can't look anything else up now: answer with what you have.",
     ]),
     ...(input.lookups?.length ? ["Your lookups this turn, with results:", ...input.lookups.flatMap((item) => [`${item.query}:`, ...(item.lines.length ? item.lines : ["Nothing matched."])])] : []),
-  ].join("\n");
+  ];
+  const split = lines.indexOf(NOTEBOOK_HEADING);
+  return [lines.slice(0, split).join("\n"), lines.slice(split).join("\n")];
 }
+
+const NOTEBOOK_HEADING = "Your notebook on the user: what you've learnt about them. Use it to understand their money and messages:";
 
 const LABEL_SHAPE =
   '{"type":"label_payments","answers":[{"items":[1,2],"action":"category","category":"Food","description":"Office snacks","person":null},{"items":[3],"action":"lent","category":null,"description":null,"person":"Debby"}]}';

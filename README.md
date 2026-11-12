@@ -28,7 +28,7 @@ Configure only the integrations you intend to use. Keep `.env` and credentials o
 | Website sign-in | Public Supabase URL/key, server-only service-role key, Resend key and verified sender |
 | New accounts | Invite list; existing accounts can continue signing in |
 | Telegram | Bot token, webhook secret and an account-linked numeric Telegram ID |
-| Conversational interpretation | DeepSeek key and configured model |
+| Conversational interpretation | Anthropic API key (`ANTHROPIC_API_KEY`); models default to Claude Haiku 5.5 and Sonnet 5.5 |
 | Optional legacy Sheets storage | Google service-account email/private key and a shared spreadsheet |
 | Defaults | Timezone, currency and transaction confirmation preference |
 | Scheduled reminders | Cron bearer secret and separately configured schedules |

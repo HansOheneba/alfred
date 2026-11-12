@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { MemoryMessageLog } from "@/lib/accounts/messages";
-import { conversationTurns } from "@/lib/ai/deepseek";
+import { conversationTurns } from "@/lib/ai/model";
 import { buildSystemPrompt } from "@/lib/ai/prompts";
 import type { VoiceRequest } from "@/lib/ai/voice";
 import { ingestBankText } from "@/lib/bank/ingest";
@@ -9,7 +9,7 @@ import { askNext } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { openThread } from "@/lib/conversation/thread";
 import { actionsMayNeedCare, converse, OUTAGE_INTRO, type TurnDeps } from "@/lib/conversation/turn";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import type { ActionContext } from "@/lib/finance/action-router";
 import { MemoryLoanStore } from "@/lib/finance/loans";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
@@ -124,7 +124,7 @@ describe("a turn", () => {
 
   it("asks the same payment again when the answer to it can't be read", async () => {
     const { deps, ctx, owner, now } = setup(() => {
-      throw new AiError("invalid", "DeepSeek returned empty JSON.");
+      throw new AiError("invalid", "Claude returned empty JSON.");
     });
     const ingest = { bank: deps.bank!, ledger: ctx.store, now, createId: deps.createId };
     await ingestBankText(ingest, owner, ELLEN, { channel: "mac" });
@@ -136,7 +136,7 @@ describe("a turn", () => {
 
   it("keeps the payment question open with its buttons while the model is down", async () => {
     const { deps, ctx, owner, now } = setup(() => {
-      throw new AiError("unavailable", "DeepSeek failed with status 503.");
+      throw new AiError("unavailable", "Claude failed with status 503.");
     });
     const ingest = { bank: deps.bank!, ledger: ctx.store, now, createId: deps.createId };
     await ingestBankText(ingest, owner, ELLEN, { channel: "mac" });

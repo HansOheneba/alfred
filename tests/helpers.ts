@@ -13,7 +13,7 @@ export function settings(overrides: Partial<AppSettings> = {}): AppSettings {
   return {
     telegramBotToken: "123456:telegram-test-token",
     webhookSecret: "test-webhook-secret",
-    deepseek: { apiKey: "sk-test-key", model: "deepseek-flash" },
+    ai: { apiKey: "sk-test-key", model: "claude-haiku-5-5", strongModel: "claude-sonnet-5-5" },
     google: null,
     supabase: null,
     authorizedUserIds: [42],

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MemoryMessageLog } from "@/lib/accounts/messages";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER } from "@/lib/config";
 import { createLookup } from "@/lib/conversation/lookups";
@@ -48,7 +48,7 @@ describe("a question that needs a lookup", () => {
       return request.lookups?.length ? final(request) : { type: "look_up", queries: [{ tool: "transactions", text: "shoprite", category: null, type: "expense", from: "2026-10-01", to: "2026-10-31", person: null }] };
     });
     const deps: StudioDeps = {
-      settings: { deepseek: { apiKey: "synthetic-only", model: "unused" }, google: null,
+      settings: { ai: { apiKey: "synthetic-only", model: "unused", strongModel: "unused" }, google: null,
         supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
         authorizedUserIds: [42], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "auto" },
       store, messages: new MemoryMessageLog(), bank: new MemoryBankStore(), loans: new MemoryLoanStore(), learning, interpret, now: () => NOW,

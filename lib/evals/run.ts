@@ -1,5 +1,5 @@
 import { MemoryMessageLog } from "@/lib/accounts/messages";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import type { Voice } from "@/lib/ai/voice";
 import { ingestBankText } from "@/lib/bank/ingest";
 import { MemoryBankStore } from "@/lib/bank/store";

@@ -57,7 +57,7 @@ describe.skipIf(!existsSync(modulePath))("bot commands, UI rules and bot reports
     const commandDeps = createAccountRuleBotDeps(dbSettings);
     expect(await handleAccountRuleBotCommand("/rule list", OWNER, CHAT, commandDeps)).toContain("UI Grocery");
     const store = createSupabaseFinanceStore(dbSettings), base = settings(); let serial = 0;
-    const deps: StudioDeps = { settings: { ...base, deepseek: base.deepseek!, supabase: dbSettings }, store, accountRuleCommands: commandDeps, now: () => new Date(NOW), createId: () => RULE, createActionId: () => "synthetic-action", nextUpdateId: () => ++serial,
+    const deps: StudioDeps = { settings: { ...base, ai: base.ai!, supabase: dbSettings }, store, accountRuleCommands: commandDeps, now: () => new Date(NOW), createId: () => RULE, createActionId: () => "synthetic-action", nextUpdateId: () => ++serial,
       interpret: async () => ({ type: "get_spending_summary", period: "this_month", detail: "by_category" }) };
     const result = await handleProfileTurn({ ...profile(), profileId: OWNER }, { text: "What are my spending categories?", clientId: "synthetic-same-database-report" }, deps);
     expect(result.text).toContain("UI Grocery"); expect(result.text).toContain("10.00");

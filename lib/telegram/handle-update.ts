@@ -5,7 +5,7 @@ import { createSupabasePreferenceManagementStore, type PreferenceManagementStore
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
 import { ConfigError } from "@/lib/errors";
 import { logError } from "@/lib/log";
-import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
+import { interpretMessage, type InterpretRequest } from "@/lib/ai/model";
 import { createVoice, intentOf, type Voice } from "@/lib/ai/voice";
 import { applyLabel, bankAccess } from "@/lib/bank/ingest";
 import { labelChoiceText, reviewRow, labelFromCode, parseLabelCallback, questionFor } from "@/lib/bank/notify";
@@ -114,7 +114,7 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
   }
 
   const photo = pickPhoto(message.photo);
-  if (!message.text?.trim() && photo && deps.readPhoto && deps.store && deps.settings.deepseek) {
+  if (!message.text?.trim() && photo && deps.readPhoto && deps.store && deps.settings.ai) {
     return handlePhoto(update, photo.file_id, message.caption ?? "", actor, profile, deps);
   }
   if (!message.text?.trim()) {
@@ -153,7 +153,7 @@ async function handleMessage(update: TelegramUpdate, deps: HandlerDeps): Promise
     await deps.telegram.sendMessage(actor.chatId, "Finance storage is not configured yet.");
     return { httpStatus: 200 };
   }
-  if (!deps.settings.deepseek) {
+  if (!deps.settings.ai) {
     await deps.telegram.sendMessage(actor.chatId, "The language model isn't configured yet.");
     return { httpStatus: 200 };
   }
@@ -430,16 +430,16 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
         : null,
     telegram: createTelegramClient(settings.telegramBotToken, fetchImpl),
     interpret: (request) => {
-      if (!settings.deepseek) {
-        throw new ConfigError("Missing required environment variable: DEEPSEEK_API_KEY");
+      if (!settings.ai) {
+        throw new ConfigError("Missing required environment variable: ANTHROPIC_API_KEY");
       }
-      return interpretMessage(settings.deepseek, request, fetchImpl);
+      return interpretMessage(settings.ai, request, fetchImpl);
     },
     now: () => new Date(),
     rateLimiter: settings.supabase ? new DbRateLimiter(settings.supabase, LIMITS.rateLimit, LIMITS.rateWindowMs) : sharedLimiter,
     accounts,
     messages: settings.supabase ? createSupabaseMessageLog(settings.supabase) : null,
-    voice: settings.deepseek ? createVoice(settings.deepseek, fetchImpl) : null,
+    voice: settings.ai ? createVoice(settings.ai, fetchImpl) : null,
     bank: settings.supabase ? createSupabaseBankStore(settings.supabase) : null,
     loans: settings.supabase ? createSupabaseLoanStore(settings.supabase) : null,
     investments: settings.supabase ? createSupabaseInvestmentStore(settings.supabase) : null,
@@ -447,10 +447,10 @@ export function createHandlerDeps(settings: AppSettings, fetchImpl?: typeof fetc
     notebook: settings.supabase ? createSupabaseNotebookStore(settings.supabase) : null,
     learning: settings.supabase ? createSupabaseLearningLog(settings.supabase) : null,
     accountRuleCommands: settings.supabase ? createAccountRuleBotDeps(settings.supabase) : null,
-    readPhoto: settings.deepseek
+    readPhoto: settings.ai
       ? async (fileId) => {
           const bytes = await downloadTelegramFile(settings.telegramBotToken, fileId, fetchImpl);
-          return readImageText({ bytes, mime: "image/jpeg", deepseek: settings.deepseek, google: settings.google }, fetchImpl);
+          return readImageText({ bytes, mime: "image/jpeg", ai: settings.ai, google: settings.google }, fetchImpl);
         }
       : null,
     bankScreenshot: settings.supabase ? (owner, image) => bankScreenshotReply(settings.supabase!, owner, image) : null,

@@ -77,8 +77,8 @@ describe("reading texts from banks without rules", () => {
   });
 
   it("reads the model's JSON and survives a bad answer", async () => {
-    const fake = (body: string) => (async () => new Response(JSON.stringify({ choices: [{ message: { content: body }, finish_reason: "stop" }] }))) as unknown as typeof fetch;
-    const settings = { apiKey: "test", model: "deepseek-test" };
+    const fake = (body: string) => (async () => Response.json({ id: "msg_test", type: "message", role: "assistant", model: "claude-haiku-5-5", content: [{ type: "text", text: body }], stop_reason: "end_turn", stop_sequence: null, usage: { input_tokens: 1, output_tokens: 1 } })) as unknown as typeof fetch;
+    const settings = { apiKey: "test", model: "claude-haiku-5-5", strongModel: "claude-sonnet-5-5" };
     const good = createUnknownTextReader(settings, fake(JSON.stringify({ alerts: [alert()] })));
     expect((await good(text, options)).map((item) => item.amount)).toEqual(["250.00"]);
     const bad = createUnknownTextReader(settings, fake("not json"));

@@ -140,14 +140,14 @@ Related messages may be linked to existing entries, and duplicates may be skippe
 Unfamiliar payments may remain under **Needs a label** instead of creating the
 main entry immediately. This is financial ingestion, not merely a notification.
 
-For unfamiliar eligible texts, the backend's configured DeepSeek reader may
+For unfamiliar eligible texts, the backend's configured Claude reader may
 receive the sender and up to 1,200 message characters to interpret the alert.
 That model fallback can apply to Absa, PaySmall, T-Cash/VF-Cash and StanChart;
 MobileMoney and Hubtel use the backend's known-sender rule path. Sender selection
 therefore also controls which providers' unfamiliar text can reach the model.
 The local fixed Alfred URL does not prevent this downstream model processing.
 
-DeepSeek parsing requires the backend's model configuration. Telegram delivery
+Claude parsing requires the backend's model configuration. Telegram delivery
 requires a configured backend bot and a linked, locked chat for the intended
 account. Source presence or configuration booleans do not establish production
 availability, a successful model request or actual delivery. Review the intended

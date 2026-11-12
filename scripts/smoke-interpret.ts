@@ -1,15 +1,15 @@
 import { loadEnvFile } from "node:process";
 
-import { interpretMessage } from "@/lib/ai/deepseek";
+import { readModel } from "@/lib/env";
+import { interpretMessage } from "@/lib/ai/model";
 
 loadEnvFile();
 
 async function main(): Promise<void> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  const model = process.env.DEEPSEEK_MODEL;
-  if (!apiKey || !model) throw new Error("DeepSeek is not configured");
+  const settings = readModel();
+  if (!settings) throw new Error("ANTHROPIC_API_KEY is not set");
   const action = await interpretMessage(
-    { apiKey, model },
+    settings,
     {
       text: "I spent GH₵45 on lunch",
       timezone: "Africa/Accra",

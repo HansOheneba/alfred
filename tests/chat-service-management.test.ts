@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MemoryMessageLog } from "@/lib/accounts/messages";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { converse } from "@/lib/conversation/turn";
 import { applyFollowUp } from "@/lib/finance/conversation";
 import { buildSystemPrompt } from "@/lib/ai/prompts";

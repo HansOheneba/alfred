@@ -18,7 +18,7 @@ function webDeps(
   let updates = 1_000;
   return {
     settings: {
-      deepseek: base.deepseek!,
+      ai: base.ai!,
       google: null,
       supabase: {
         projectRef: ALFRED_SUPABASE_PROJECT_REF,

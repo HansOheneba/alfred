@@ -18,7 +18,7 @@ vi.mock("@/lib/supabase/connection", () => ({ query: (...args: unknown[]) => har
 const owner = "00000000-0000-4000-8000-000000000010", returnOwner = "00000000-0000-4000-8000-000000000011";
 // The only query transport is the embedded database below. These settings cannot connect to a real project.
 const database = { projectRef: "synthetic", host: "synthetic.invalid", user: "synthetic", database: "postgres", password: "" } as unknown as SupabaseSettings;
-const settings: StudioSettings = { deepseek: { apiKey: "", model: "unused" }, google: null, supabase: database, authorizedUserIds: [], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "always" };
+const settings: StudioSettings = { ai: { apiKey: "", model: "unused", strongModel: "unused" }, google: null, supabase: database, authorizedUserIds: [], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "always" };
 const profile = (profileId: string): UserProfile => ({ profileId, telegramUserId: null, spreadsheetId: "", preferredName: "Synthetic review", timezone: "Africa/Accra", currency: "GHS", communicationPreference: "concise" });
 let db: PGlite;
 beforeAll(async () => {

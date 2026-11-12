@@ -141,7 +141,7 @@ describe("account-rule routing before AI", () => {
       expect(await telegram.store.listPendingActions(OWNER)).toEqual([]);
       const web = telegramHarness();
       const interpret = vi.fn(async () => { throw new Error("A future rule request must not reach AI"); });
-      const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], deepseek: settings().deepseek! }, store: web.store, interpret, now: () => NOW, createId: web.deps.createId, createActionId: web.deps.createActionId };
+      const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], ai: settings().ai! }, store: web.store, interpret, now: () => NOW, createId: web.deps.createId, createActionId: web.deps.createActionId };
       const reply = await handleProfileTurn(profile(), { text, clientId: `numeric-rule-guidance-${index}` }, deps);
       expect(reply.text).toContain("/rule accounts");
       expect(interpret).not.toHaveBeenCalled();
@@ -166,7 +166,7 @@ describe("account-rule routing before AI", () => {
       expect(telegram.telegram.sent[0].text).not.toContain("/rule accounts");
       const web = telegramHarness();
       const webInterpret = vi.fn(async () => action);
-      const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], deepseek: settings().deepseek! }, store: web.store, interpret: webInterpret, now: () => NOW, createId: web.deps.createId, createActionId: web.deps.createActionId };
+      const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], ai: settings().ai! }, store: web.store, interpret: webInterpret, now: () => NOW, createId: web.deps.createId, createActionId: web.deps.createActionId };
       const reply = await handleProfileTurn(profile(), { text: item.text, clientId: `transaction-rule-routing-${index}` }, deps);
       expect(webInterpret).toHaveBeenCalledOnce();
       expect((await web.store.listTransactions(OWNER)).map(row => ({ type: row.type, amount: row.amount }))).toEqual([{ type: item.kind, amount: item.amount }]);
@@ -174,7 +174,7 @@ describe("account-rule routing before AI", () => {
     }
   });
   it("routes Telegram commands without an LLM configured, persists claims and rejects unlinked owners", async () => {
-    const rules = botFixture(), h = telegramHarness({ accountRuleCommands: rules.deps, settings: settings({ deepseek: null }) });
+    const rules = botFixture(), h = telegramHarness({ accountRuleCommands: rules.deps, settings: settings({ ai: null }) });
     const update = textUpdate(9001, 42, ADD); await runUpdate(update, h.deps); await runUpdate(update, h.deps);
     expect(h.interpret.calls).toBe(0); expect(rules.pending.size).toBe(1); expect(h.telegram.sent[0].text).toContain("Nothing is saved yet"); expect(h.telegram.sent[0].buttons).toBeUndefined(); expect(h.telegram.sent[1].text).toBe(h.telegram.sent[0].text);
     await runUpdate(textUpdate(9002, 42, `/rule confirm ${rules.latestToken()}`), h.deps); expect(rules.state().rules).toHaveLength(1); expect(h.interpret.calls).toBe(0);
@@ -185,7 +185,7 @@ describe("account-rule routing before AI", () => {
   });
   it("routes web chat through the same deterministic command and scopes tokens to that chat", async () => {
     const rules = botFixture(), h = telegramHarness(); let updates = 10000;
-    const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], deepseek: settings().deepseek! }, store: h.store, interpret: vi.fn(async () => { throw new Error("AI must not be called"); }), now: () => NOW, createId: h.deps.createId, createActionId: h.deps.createActionId, nextUpdateId: () => ++updates, accountRuleCommands: rules.deps };
+    const deps: StudioDeps = { settings: { ...settings(), supabase: {} as StudioDeps["settings"]["supabase"], ai: settings().ai! }, store: h.store, interpret: vi.fn(async () => { throw new Error("AI must not be called"); }), now: () => NOW, createId: h.deps.createId, createActionId: h.deps.createActionId, nextUpdateId: () => ++updates, accountRuleCommands: rules.deps };
     const response = await handleProfileTurn(profile(), { text: ADD, clientId: "account-rule-web-01" }, deps); expect(response.text).toContain("Nothing is saved yet"); const token = rules.latestToken();
     expect(await send(rules, `/rule confirm ${token}`)).toContain("not available");
     const saved = await handleProfileTurn(profile(), { text: `/rule confirm ${token}`, clientId: "account-rule-web-02" }, deps); expect(saved.text).toContain("Account rule saved"); expect(rules.state().rules).toHaveLength(1); expect(deps.interpret).not.toHaveBeenCalled();

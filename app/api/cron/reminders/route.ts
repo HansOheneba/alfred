@@ -1,4 +1,3 @@
-import { checkModelBalance } from "@/lib/ai/balance";
 import { createSupabaseAccountDirectory } from "@/lib/accounts/supabase-directory";
 import { createSupabaseMessageLog } from "@/lib/accounts/supabase-messages";
 import { askHeldQuestions, telegramChatFor } from "@/lib/bank/notify";
@@ -47,9 +46,7 @@ export async function GET(request: Request): Promise<Response> {
       logError("investments_daily", error);
       return { prices: 0, reminded: 0 };
     });
-    // Warns before the model runs out of credit, not after people's messages fail.
-    const balance = await checkModelBalance(process.env.DEEPSEEK_API_KEY?.trim());
-    return Response.json({ ok: true, sent: result.sent, asked, ...investments, modelBalance: balance.state });
+    return Response.json({ ok: true, sent: result.sent, asked, ...investments });
   } catch (error) {
     logError("reminders", error);
     return Response.json({ ok: false }, { status: 500 });

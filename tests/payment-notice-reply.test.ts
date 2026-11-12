@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 
 import { clientTurnUpdateId, MemoryMessageLog, type ChatMessageRecord } from "@/lib/accounts/messages";
 import { chatChoiceSchema, chatTextSchema } from "@/lib/accounts/chat-request";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { applyResolved, chooseLabel, currentQuestion, waitingPayments } from "@/lib/bank/reply";
 import { applyLabel } from "@/lib/bank/ingest";
 import { MemoryBankStore, type BankMessage, type NewBankMessage } from "@/lib/bank/store";
@@ -27,7 +27,7 @@ function setup(reply?: (request: InterpretRequest) => InterpretedAction | Promis
   let sequence = 0;
   const deps: StudioDeps = {
     settings: {
-      deepseek: { apiKey: "synthetic-only", model: "unused" }, google: null,
+      ai: { apiKey: "synthetic-only", model: "unused", strongModel: "unused" }, google: null,
       supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
       authorizedUserIds: [42], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "auto",
     },

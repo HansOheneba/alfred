@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from "vitest";
 
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { ingestBankText } from "@/lib/bank/ingest";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { LIMITS } from "@/lib/config";
@@ -258,7 +258,7 @@ describe("waiting bank payments in the conversation", () => {
       return { type: "label_payments", answers: [{ items: [1], action: "category", category: "Gift", description: null }] };
     });
     await runUpdate(textUpdate(501, 42, "Grace was a gift"), deps);
-    expect(requests[0].model).toBe("deepseek-v4-pro");
+    expect(requests[0].strong).toBe(true);
     expect(requests[0].waiting?.lines.join("\n")).toContain("IN GH₵125.00 from Grace Oppong");
     expect(telegram.sent.at(-1)?.text).toContain("Filed GH₵125.00 under Gift. I'll file Grace Oppong as Gift from now on.");
     expect(telegram.sent.at(-1)?.text).toContain("Last one: GH₵39.00 to Rose Asare");
@@ -281,7 +281,7 @@ describe("waiting bank payments in the conversation", () => {
       },
     });
     await runUpdate(textUpdate(503, 42, "hi"), deps);
-    expect(requests[0].model).toBeUndefined();
+    expect(requests[0].strong).toBe(false);
     expect(requests[0].waiting).toBeNull();
   });
 });

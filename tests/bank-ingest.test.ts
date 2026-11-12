@@ -210,7 +210,7 @@ describe("telegram label buttons", () => {
 
   it("reads a screenshot sent to the bot and replies with what it filed", async () => {
     const { deps, telegram } = harness({
-      readPhoto: async () => ({ text: RUKAYA, kind: "bank_sms", engine: "deepseek" }),
+      readPhoto: async () => ({ text: RUKAYA, kind: "bank_sms", engine: "claude" }),
       bankScreenshot: async (_owner, image) => `Read: ${image.text.slice(0, 20)}`,
     });
     await runUpdate(

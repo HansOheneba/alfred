@@ -1,8 +1,8 @@
 import { z } from "zod";
 
-import { chatCompletion } from "@/lib/ai/deepseek";
+import { chatCompletion } from "@/lib/ai/model";
 import { builderFor, personaLines, type Channel } from "@/lib/ai/persona";
-import { DASHBOARD_URL, type DeepSeekSettings, type UserProfile } from "@/lib/config";
+import { DASHBOARD_URL, type ModelSettings, type UserProfile } from "@/lib/config";
 import type { Delivery } from "@/lib/finance/action-router";
 import type { ChatCue } from "@/lib/finance/context";
 import type { FinanceAction } from "@/lib/finance/schemas";
@@ -92,7 +92,7 @@ function chatSystem(request: VoiceRequest): string {
   ].join("\n");
 }
 
-export function createVoice(settings: DeepSeekSettings, fetchImpl: typeof fetch = fetch): Voice {
+export function createVoice(settings: ModelSettings, fetchImpl: typeof fetch = fetch): Voice {
   return async (request) => {
     if (request.intent === "chat") {
       const content = await chatCompletion(
@@ -101,7 +101,7 @@ export function createVoice(settings: DeepSeekSettings, fetchImpl: typeof fetch 
           { role: "system", content: chatSystem(request) },
           { role: "user", content: `${request.userText}\n\n(A plain draft you can improve on: ${request.draft})` },
         ],
-        { temperature: 0.85, maxTokens: 300, timeoutMs: 10_000 },
+        { maxTokens: 300, timeoutMs: 10_000 },
         fetchImpl,
       );
       const parsed = replySchema.safeParse(JSON.parse(content));
@@ -126,7 +126,7 @@ export function createVoice(settings: DeepSeekSettings, fetchImpl: typeof fetch 
         { role: "system", content: system },
         { role: "user", content: `User's message:\n${request.userText}\n\nFacts:\n${request.draft}` },
       ],
-      { temperature: 0.6, maxTokens: 700, timeoutMs: 10_000 },
+      { maxTokens: 700, timeoutMs: 10_000 },
       fetchImpl,
     );
     const parsed = replySchema.safeParse(JSON.parse(content));

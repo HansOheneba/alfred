@@ -62,10 +62,10 @@ export async function ingestBankMessages(
   });
 }
 
-/** The model reader for unfamiliar banks, or null when DeepSeek isn't configured. */
+/** The model reader for unfamiliar banks, or null when Claude isn't configured. */
 function unknownReader() {
   try {
-    return createUnknownTextReader(getStudioSettings().deepseek);
+    return createUnknownTextReader(getStudioSettings().ai);
   } catch {
     return null;
   }
