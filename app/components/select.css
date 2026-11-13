@@ -16,6 +16,10 @@
 .alfred-select-trigger[aria-expanded=true] .alfred-select-chevron { transform:rotate(180deg); }
 .alfred-select-dialog { position:fixed; inset:auto; top:var(--select-top,auto); bottom:var(--select-bottom,auto); left:var(--select-left,12px); inline-size:var(--select-width,280px); max-inline-size:calc(100vw - 24px); max-block-size:min(var(--select-max-height,360px),calc(100dvh - 24px)); margin:0; padding:6px; overflow:hidden; border:1px solid var(--line); border-radius:16px; background:var(--surface); color:var(--ink); box-shadow:0 12px 36px rgb(16 24 40 / .16),0 2px 8px rgb(16 24 40 / .06); }
 .alfred-select-dialog[open] { display:flex; flex-direction:column; }
+/* The menu grows from the side of the trigger it opened on. */
+@media(prefers-reduced-motion:no-preference) { .alfred-select-dialog[open] { transform-origin:var(--select-origin,top center); animation:alfred-select-enter var(--dur-base) var(--ease-out); } }
+@keyframes alfred-select-sheet { from { opacity:0; transform:translateY(32px); } to { opacity:1; transform:none; } }
+@keyframes alfred-select-enter { from { opacity:0; transform:scale(.95); } to { opacity:1; transform:none; } }
 .alfred-select-dialog::backdrop { background:transparent; }
 .alfred-select-menuHeader { display:none; }
 .alfred-select-sheetHandle { display:none; }
@@ -33,6 +37,7 @@
 .alfred-select-empty { padding:20px 12px; color:var(--muted); font-size:14px; text-align:center; }
 .alfred-select-group { padding:12px 12px 6px; color:var(--muted); font-size:12px; font-weight:600; }
 @media(max-width:720px) {
+ .alfred-select-dialog[open] { transform-origin:bottom center; animation-name:alfred-select-sheet; animation-duration:var(--dur-slow); }
  .alfred-select-dialog { inset:auto 0 0; inline-size:100%; max-inline-size:100%; max-block-size:calc(88dvh - env(safe-area-inset-top)); padding:0 12px max(12px,env(safe-area-inset-bottom)); border-radius:24px 24px 0 0; border-bottom:0; }
  .alfred-select-dialog::backdrop { background:var(--scrim,rgb(8 19 21 / .4)); backdrop-filter:blur(2px); }
  .alfred-select-sheetHandle { display:block; flex:none; inline-size:40px; block-size:4px; margin:10px auto 0; border-radius:999px; background:var(--line-strong); }
@@ -44,3 +49,4 @@
 }
 @media(prefers-reduced-motion:no-preference) { .alfred-select-trigger,.alfred-select-option { transition:background-color 120ms ease,border-color 120ms ease; } }
 @media(forced-colors:active) { .alfred-select-trigger,.alfred-select-dialog { border-color:ButtonText; } .alfred-select-option[aria-selected=true] { outline:2px solid Highlight; outline-offset:-2px; } .alfred-select-chevron,.alfred-select-check { background:ButtonText; } }
+@media(prefers-reduced-motion:reduce) { .alfred-select-dialog[open] { animation:none; } }

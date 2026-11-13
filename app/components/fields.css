@@ -186,7 +186,8 @@ input.alfred-input[type="file"],
   mask: url("/icons/input-check.svg") center / 14px 14px no-repeat;
   visibility: hidden;
 }
-:where(.alfred-app, .auth-screen) input[type="checkbox"]:checked::after { visibility: visible; }
+:where(.alfred-app, .auth-screen) input[type="checkbox"]:checked::after { visibility: visible; animation: alfred-check-in var(--dur-fast) var(--ease-out); }
+@keyframes alfred-check-in { from { transform: scale(.5); opacity: 0; } to { transform: none; opacity: 1; } }
 :where(.alfred-app, .auth-screen) input[type="checkbox"]:indeterminate::after { visibility: visible; mask: none; inline-size: 10px; block-size: 2px; border-radius: 1px; }
 :where(.alfred-app, .auth-screen) input[type="radio"]:not([hidden], .sr-only) {
   border-radius: 50%;
@@ -196,6 +197,7 @@ input.alfred-input[type="file"],
 @keyframes alfred-shake { 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 @media (prefers-reduced-motion: reduce) {
   .alfred-input, :where(.alfred-app input, .alfred-app select, .alfred-app textarea) { transition: none; animation: none; }
+  :where(.alfred-app, .auth-screen) input[type="checkbox"]:checked::after { animation: none; }
 }
 @media (forced-colors: active) {
   :where(.alfred-app, .auth-screen) input:is([type="checkbox"], [type="radio"]):not([hidden], .sr-only),
