@@ -13,6 +13,8 @@
   color:var(--ink);
   box-shadow:0 24px 80px rgb(0 0 0 / .2);
 }
+/* Dialogs grow in from slightly smaller, never from nothing. */
+.alfred-dialog[open] { animation:alfred-dialog-enter var(--dur-base) var(--ease-out); }
 .alfred-dialog::backdrop { background:var(--scrim,rgb(8 19 21 / .48)); backdrop-filter:blur(4px); }
 .alfred-dialog-surface { display:flex; flex-direction:column; min-height:0; max-height:inherit; }
 .alfred-sheet-handle { display:none; flex-shrink:0; width:40px; height:4px; margin:10px auto 0; border-radius:999px; background:var(--line-strong); }
@@ -26,7 +28,7 @@
 .alfred-dialog-actionGroup { display:flex; justify-content:flex-end; align-items:center; flex-wrap:wrap; gap:8px; }
 @media(max-width:720px) {
   .alfred-dialog { inset:auto 0 0; margin:0; width:100%; max-height:calc(100dvh - max(12px,env(safe-area-inset-top))); border:1px solid var(--line); border-bottom:0; border-radius:24px 24px 0 0; }
-  .alfred-dialog[open] { animation:alfred-sheet-enter 180ms ease-out; }
+  .alfred-dialog[open] { animation:alfred-sheet-enter var(--dur-slow) var(--ease-out); }
   .alfred-dialog .alfred-sheet-handle { display:block; }
   .alfred-dialog-header { padding:12px 20px 16px; }
   .alfred-dialog-header > button { width:44px; height:44px; }
@@ -34,5 +36,6 @@
   .alfred-dialog-actions { padding-bottom:max(16px,env(safe-area-inset-bottom)); }
   .alfred-dialog-actionGroup { align-items:stretch; }
 }
-@keyframes alfred-sheet-enter { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+@keyframes alfred-dialog-enter { from { opacity:0; transform:scale(.96); } to { opacity:1; transform:none; } }
+@keyframes alfred-sheet-enter { from { opacity:0; transform:translateY(32px); } to { opacity:1; transform:translateY(0); } }
 @media(prefers-reduced-motion:reduce) { .alfred-dialog[open] { animation:none; } }

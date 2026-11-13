@@ -57,20 +57,33 @@
 .alfred-production-chat-thinking i:nth-child(2) { animation-delay: .15s; }
 .alfred-production-chat-thinking i:nth-child(3) { animation-delay: .3s; }
 /* What Alfred is doing right now; each new step fades in over the last. */
-.alfred-production-chat-thinking > .alfred-production-chat-step { display: inline; gap: 0; color: var(--muted); font-size: 0.86rem; animation: alfred-step-in .25s ease-out both; }
+.alfred-production-chat-thinking > .alfred-production-chat-step { display: inline; gap: 0; color: var(--muted); font-size: 0.86rem; animation: alfred-step-in var(--dur-base) var(--ease-out) both; }
 @keyframes alfred-step-in { from { opacity: 0; transform: translateY(2px); } to { opacity: 1; transform: none; } }
 /* A chart or answers arriving after the reply's words. */
-.alfred-production-chat-assistantContent > figure, .alfred-production-chat-assistantContent > .alfred-chat-answers { animation: alfred-step-in .3s ease-out both; }
-@media (prefers-reduced-motion: reduce) { .alfred-production-chat-thinking > .alfred-production-chat-step, .alfred-production-chat-assistantContent > figure, .alfred-production-chat-assistantContent > .alfred-chat-answers { animation: none; } }
-.alfred-production-chat-error { max-width: 800px; margin: 16px auto 0; padding: 12px; border: 1px solid var(--danger); border-radius: 12px; color: var(--danger); font-size: 14px; line-height: 24px; }
+/* Staged: the words first, then a chart, then the answer chips, each a beat after the last. */
+.alfred-production-chat-assistantContent > figure { animation: alfred-step-in var(--dur-base) var(--ease-out) 60ms both; }
+.alfred-production-chat-assistantContent > .alfred-chat-answers { animation: alfred-step-in var(--dur-base) var(--ease-out) 120ms both; }
+/* Chips cascade 30ms apart, capped so the eighth onwards arrive together. */
+.alfred-chat-answers-chips > .alfred-chat-answer-chip { animation: alfred-step-in var(--dur-base) var(--ease-out) both; animation-delay: calc(120ms + var(--i, 0) * 30ms); }
+.alfred-chat-answers-chips > .alfred-chat-answer-chip:nth-child(2) { --i: 1; }
+.alfred-chat-answers-chips > .alfred-chat-answer-chip:nth-child(3) { --i: 2; }
+.alfred-chat-answers-chips > .alfred-chat-answer-chip:nth-child(4) { --i: 3; }
+.alfred-chat-answers-chips > .alfred-chat-answer-chip:nth-child(5) { --i: 4; }
+.alfred-chat-answers-chips > .alfred-chat-answer-chip:nth-child(6) { --i: 5; }
+.alfred-chat-answers-chips > .alfred-chat-answer-chip:nth-child(7) { --i: 6; }
+.alfred-chat-answers-chips > .alfred-chat-answer-chip:nth-child(n+8) { --i: 7; }
+@media (prefers-reduced-motion: reduce) { .alfred-production-chat-thinking > .alfred-production-chat-step, .alfred-production-chat-assistantContent > figure, .alfred-production-chat-assistantContent > .alfred-chat-answers, .alfred-chat-answers-chips > .alfred-chat-answer-chip, .alfred-production-chat-error { animation: none; } .alfred-chat-answer-chip:active, .alfred-production-chat-quickActions :is(button,a):active { transform: none; } }
+.alfred-production-chat-error { animation: alfred-shake 300ms var(--ease-out); max-width: 800px; margin: 16px auto 0; padding: 12px; border: 1px solid var(--danger); border-radius: 12px; color: var(--danger); font-size: 14px; line-height: 24px; }
 .alfred-production-chat-followUps { display: flex; gap: 8px; overflow-x: auto; padding: 8px 4px 12px; }
 .alfred-production-chat-followUps button { white-space: nowrap; flex-shrink: 0; }
 /* Tap-to-answer chips inside Alfred's payment question: every option visible, so they wrap rather than scroll. */
 .alfred-chat-answers { display: grid; gap: 10px; margin-top: 16px; }
 .alfred-chat-answers-chips { display: flex; flex-wrap: wrap; gap: 8px; }
-.alfred-chat-answer-chip { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; max-width: 100%; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 13px; line-height: 20px; font-weight: 500; text-align: center; text-decoration: none; overflow-wrap: anywhere; cursor: pointer; transition: background-color .15s, border-color .15s, color .15s; }
+.alfred-chat-answer-chip { display: inline-flex; align-items: center; justify-content: center; gap: 6px; min-height: 36px; max-width: 100%; padding: 6px 14px; border: 1px solid var(--line); border-radius: 999px; background: var(--surface); color: var(--ink); font-size: 13px; line-height: 20px; font-weight: 500; text-align: center; text-decoration: none; overflow-wrap: anywhere; cursor: pointer; position: relative; transition: background-color .15s, border-color .15s, color .15s, transform var(--dur-fast) var(--ease-out); }
+/* The chip looks 36px tall but takes taps across 44px. */
+.alfred-chat-answer-chip::after { content: ""; position: absolute; inset: -4px 0; }
 .alfred-chat-answer-chip:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); background: var(--accent-soft); color: var(--accent-strong); }
-.alfred-chat-answer-chip:active { transform: translateY(1px); }
+.alfred-chat-answer-chip:active { transform: scale(0.97); }
 .alfred-chat-answer-chip[data-kind="suggested"] { border-color: var(--accent); background: var(--accent); color: var(--accent-ink); }
 .alfred-chat-answer-chip[data-kind="suggested"]:hover { background: var(--accent-strong); border-color: var(--accent-strong); color: var(--accent-ink); }
 @media (max-width: 600px) {
@@ -207,7 +220,8 @@
 .alfred-production-chat-welcome h2 > span { color:color-mix(in srgb,var(--ink) 72%,var(--muted)); }
 .alfred-production-chat-welcome p { max-width:560px; margin:8px auto 0; color:var(--muted); font-size:16px; line-height:24px; }
 .alfred-production-chat-quickActions { display:grid; grid-template-columns:repeat(3,minmax(0,1fr)); gap:12px; margin-bottom:32px; padding:4px; }
-.alfred-production-chat-quickActions :is(button,a) { --action-tone:var(--accent); display:flex; flex-direction:column; align-items:flex-start; gap:12px; min-width:0; min-height:144px; padding:20px; border:1px solid color-mix(in srgb,var(--action-tone) 14%,var(--line)); border-radius:20px; background:color-mix(in srgb,var(--action-tone) 6%,var(--surface)); color:var(--ink); text-align:left; transition:background 160ms,border-color 160ms,box-shadow 160ms; }
+.alfred-production-chat-quickActions :is(button,a) { --action-tone:var(--accent); display:flex; flex-direction:column; align-items:flex-start; gap:12px; min-width:0; min-height:144px; padding:20px; border:1px solid color-mix(in srgb,var(--action-tone) 14%,var(--line)); border-radius:20px; background:color-mix(in srgb,var(--action-tone) 6%,var(--surface)); color:var(--ink); text-align:left; transition:background 160ms,border-color 160ms,box-shadow 160ms,transform var(--dur-fast) var(--ease-out); }
+.alfred-production-chat-quickActions :is(button,a):active { transform:scale(.98); }
 .alfred-production-chat-quickActions [data-tone="expense"] { --action-tone:var(--outgoing); }
 .alfred-production-chat-quickActions [data-tone="income"] { --action-tone:var(--income); }
 .alfred-production-chat-quickActions [data-tone="account"] { --action-tone:#aa8446; }

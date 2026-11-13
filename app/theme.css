@@ -8,6 +8,13 @@
  */
 
 :root {
+  /* Motion: ease-out for entrances and responses, ease-in-out for things already on screen moving. */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+  --dur-fast: 150ms; /* press, hover */
+  --dur-base: 200ms; /* popovers, dialogs, content arriving */
+  --dur-slow: 280ms; /* sheets */
+
   /* Surfaces */
   --bg: #fcfcfe; /* page canvas */
   --surface: #ffffff; /* cards, dock, dialogs */

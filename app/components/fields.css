@@ -54,6 +54,8 @@
   &::placeholder { color: var(--muted); opacity: 1; }
   &:focus { border-color: var(--field-focus-border); outline: none; box-shadow: var(--field-shadow), 0 0 0 4px var(--field-focus-ring); }
   &[aria-invalid="true"] {
+    /* A short shake as a field turns invalid, so the error can't be missed. */
+    animation: alfred-shake 300ms var(--ease-out);
     border-color: var(--field-error-border);
     padding-inline-end: 42px;
     background-image: url("/icons/input-alert.svg");
@@ -191,8 +193,9 @@ input.alfred-input[type="file"],
   &:checked::after { content: ""; inline-size: 8px; block-size: 8px; border-radius: 50%; background: var(--accent); }
 }
 
+@keyframes alfred-shake { 20% { transform: translateX(-4px); } 40% { transform: translateX(4px); } 60% { transform: translateX(-3px); } 80% { transform: translateX(2px); } }
 @media (prefers-reduced-motion: reduce) {
-  .alfred-input, :where(.alfred-app input, .alfred-app select, .alfred-app textarea) { transition: none; }
+  .alfred-input, :where(.alfred-app input, .alfred-app select, .alfred-app textarea) { transition: none; animation: none; }
 }
 @media (forced-colors: active) {
   :where(.alfred-app, .auth-screen) input:is([type="checkbox"], [type="radio"]):not([hidden], .sr-only),
