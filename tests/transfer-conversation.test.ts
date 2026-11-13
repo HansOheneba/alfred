@@ -198,7 +198,7 @@ describe("transfer replies through the real studio turn", () => {
     };
     const interpret = vi.fn(async () => ({ type: "chat" as const, message: "A separate topic." }));
     const deps: StudioDeps = {
-      settings: { deepseek: { apiKey: "synthetic-only", model: "unused" }, google: null,
+      settings: { ai: { apiKey: "synthetic-only", model: "unused", strongModel: "unused" }, google: null,
         supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
         authorizedUserIds: [42], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "auto" },
       bank, store, messages, interpret, transferConversations: service, now: () => now,

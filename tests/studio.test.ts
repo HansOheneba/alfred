@@ -20,7 +20,7 @@ function studioDeps(interpret: StudioDeps["interpret"], store = new MemoryFinanc
   let actions = 0;
   return {
     settings: {
-      deepseek: base.deepseek!,
+      ai: base.ai!,
       google: base.google,
       supabase: {
         projectRef: ALFRED_SUPABASE_PROJECT_REF,
@@ -44,8 +44,9 @@ function studioDeps(interpret: StudioDeps["interpret"], store = new MemoryFinanc
 }
 
 const ENV_KEYS = [
-  "DEEPSEEK_API_KEY",
-  "DEEPSEEK_MODEL",
+  "ANTHROPIC_API_KEY",
+  "ALFRED_MODEL",
+  "ALFRED_STRONG_MODEL",
   "GOOGLE_SERVICE_ACCOUNT_EMAIL",
   "GOOGLE_PRIVATE_KEY",
   "GOOGLE_SHEETS_SPREADSHEET_ID",
@@ -62,23 +63,21 @@ describe("studio console", () => {
     for (const key of ENV_KEYS) delete process.env[key];
   });
 
-  it("loads DeepSeek and the Alfred database without a Telegram webhook secret", () => {
-    process.env.DEEPSEEK_API_KEY = "sk-studio-test";
-    process.env.DEEPSEEK_MODEL = "deepseek-flash";
+  it("loads Claude and the Alfred database without a Telegram webhook secret", () => {
+    process.env.ANTHROPIC_API_KEY = "sk-studio-test";
     process.env.SUPABASE_URL = "https://jcenaxceqynywmottkxu.supabase.co";
     process.env.SUPABASE_DB_PASSWORD = "test-password";
     process.env.AUTHORIZED_TELEGRAM_USER_IDS = "42,77";
     delete process.env.TELEGRAM_WEBHOOK_SECRET;
     const loaded = getStudioSettings();
     expect(loaded.authorizedUserIds).toEqual([42, 77]);
-    expect(loaded.deepseek.model).toBe("deepseek-flash");
+    expect(loaded.ai).toEqual({ apiKey: "sk-studio-test", model: "claude-haiku-5-5", strongModel: "claude-sonnet-5-5" });
     expect(loaded.supabase.projectRef).toBe(ALFRED_SUPABASE_PROJECT_REF);
     expect(loaded.supabase.host).toBe(ALFRED_SUPABASE_HOST);
   });
 
   it("refuses a Supabase URL for a different project", () => {
-    process.env.DEEPSEEK_API_KEY = "sk-studio-test";
-    process.env.DEEPSEEK_MODEL = "deepseek-flash";
+    process.env.ANTHROPIC_API_KEY = "sk-studio-test";
     process.env.SUPABASE_URL = "https://otherexampleproject.supabase.co";
     process.env.SUPABASE_DB_PASSWORD = "test-password";
     process.env.AUTHORIZED_TELEGRAM_USER_IDS = "42";

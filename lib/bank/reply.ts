@@ -19,12 +19,6 @@ import { PAYMENT_NOTICE_STAYS_PENDING } from "./notice-policy";
 const UNDO_WINDOW_MS = 30 * 60_000;
 /** How many waiting payments the model sees at once, oldest first. */
 const MAX_LISTED = 40;
-/**
- * Turns with payments waiting use the stronger model: matching many payments
- * to a loose sentence makes the small one guess, e.g. filing every unnamed
- * payment as "office snacks".
- */
-export const LABEL_MODEL = "deepseek-v4-pro";
 
 /** One instruction from the person: these payments get this label. */
 export type ResolvedLabel = { messageIds: string[]; label: Label };

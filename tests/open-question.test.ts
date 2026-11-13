@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MemoryMessageLog } from "@/lib/accounts/messages";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { openThread } from "@/lib/conversation/thread";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER } from "@/lib/config";
 import { MemoryFinanceStore } from "@/lib/finance/memory-store";
@@ -25,7 +25,7 @@ function setup(reply: (request: InterpretRequest) => InterpretedAction) {
   let sequence = 0;
   const deps: StudioDeps = {
     settings: {
-      deepseek: { apiKey: "synthetic-only", model: "unused" }, google: null,
+      ai: { apiKey: "synthetic-only", model: "unused", strongModel: "unused" }, google: null,
       supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
       authorizedUserIds: [42], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "auto",
     },

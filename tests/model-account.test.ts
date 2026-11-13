@@ -1,13 +1,12 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { checkModelBalance } from "@/lib/ai/balance";
-import { interpretMessage } from "@/lib/ai/deepseek";
+import { interpretMessage } from "@/lib/ai/model";
 import { alertOperator, resetOperatorAlerts } from "@/lib/ai/operator-alert";
 import { AiError } from "@/lib/errors";
 import { FALLBACKS } from "@/lib/learning/review";
 import { AI_ACCOUNT_TEXT, userFacingError } from "@/lib/telegram/messages";
 
-const settings = { apiKey: "sk-test-key", model: "deepseek-flash" };
+const settings = { apiKey: "sk-test-key", model: "claude-haiku-5-5", strongModel: "claude-sonnet-5-5" };
 const request = {
   text: "Paid 12 cedis for a taxi, cash",
   timezone: "Africa/Accra",
@@ -21,19 +20,31 @@ beforeEach(() => resetOperatorAlerts());
 afterEach(() => vi.restoreAllMocks());
 
 describe("model provider refusing Alfred's account", () => {
+  const apiError = (status: number, message = "error") => Response.json({ type: "error", error: { type: "invalid_request_error", message } }, { status });
+
   it.each([401, 402, 403])("reads HTTP %i as an account problem and doesn't retry it", async (status) => {
     vi.spyOn(console, "error").mockImplementation(() => {});
-    const fetchImpl = vi.fn(async () => new Response("{}", { status }));
+    const fetchImpl = vi.fn(async () => apiError(status));
     const error = await interpretMessage(settings, request, fetchImpl as typeof fetch).catch((caught: unknown) => caught);
     expect(error).toBeInstanceOf(AiError);
     expect((error as AiError).code).toBe("account");
     expect(fetchImpl).toHaveBeenCalledTimes(1);
   });
 
-  it("logs out-of-credit under its own event", async () => {
+  it("logs Claude's low-credit 400 as out of credit, and doesn't retry it", async () => {
     const log = vi.spyOn(console, "error").mockImplementation(() => {});
-    await interpretMessage(settings, request, (async () => new Response("{}", { status: 402 })) as typeof fetch).catch(() => {});
+    const fetchImpl = vi.fn(async () => apiError(400, "Your credit balance is too low to access the Anthropic API. Please go to Plans & Billing to upgrade or purchase credits."));
+    const caught = await interpretMessage(settings, request, fetchImpl as typeof fetch).catch((thrown: unknown) => thrown);
+    expect((caught as AiError).code).toBe("account");
+    expect(fetchImpl).toHaveBeenCalledTimes(1);
     expect(log.mock.calls.map((call) => JSON.parse(String(call[0])).event)).toContain("ai_out_of_credit");
+  });
+
+  it("keeps an ordinary bad request apart from running out of credit", async () => {
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    const fetchImpl = vi.fn(async () => apiError(400, "messages: roles must alternate"));
+    const caught = await interpretMessage(settings, request, fetchImpl as typeof fetch).catch((thrown: unknown) => thrown);
+    expect((caught as AiError).code).not.toBe("account");
   });
 
   it("tells the person plainly, without 'try again in a minute'", () => {
@@ -78,39 +89,5 @@ describe("operator alert", () => {
     expect(await alertOperator("ai_out_of_credit", "x", { env: operatorEnv, fetchImpl })).toBe(false);
     expect(await alertOperator("ai_out_of_credit", "x", { env: operatorEnv, fetchImpl })).toBe(false);
     expect(fetchImpl).toHaveBeenCalledTimes(2);
-  });
-});
-
-describe("daily balance check", () => {
-  const balance = (available: boolean, total: string) => vi.fn(async (url: string) =>
-    url.includes("deepseek")
-      ? Response.json({ is_available: available, balance_infos: [{ currency: "USD", total_balance: total, granted_balance: "0.00", topped_up_balance: total }] })
-      : new Response("{}", { status: 200 }));
-
-  beforeEach(() => {
-    vi.spyOn(console, "info").mockImplementation(() => {});
-    vi.spyOn(console, "error").mockImplementation(() => {});
-  });
-
-  it("is quiet with plenty of credit", async () => {
-    const fetchImpl = balance(true, "8.40");
-    expect(await checkModelBalance("sk-test", { fetchImpl: fetchImpl as unknown as typeof fetch, env: operatorEnv })).toEqual({ state: "ok", usd: 8.4 });
-    expect(fetchImpl).toHaveBeenCalledTimes(1);
-  });
-
-  it("warns the operator when credit is low", async () => {
-    const fetchImpl = balance(true, "0.40");
-    expect((await checkModelBalance("sk-test", { fetchImpl: fetchImpl as unknown as typeof fetch, env: operatorEnv })).state).toBe("low");
-    expect(String(fetchImpl.mock.calls[1][0])).toContain("api.telegram.org");
-  });
-
-  it("calls an unavailable account empty", async () => {
-    const fetchImpl = balance(false, "0.00");
-    expect((await checkModelBalance("sk-test", { fetchImpl: fetchImpl as unknown as typeof fetch, env: operatorEnv })).state).toBe("empty");
-  });
-
-  it("reports unknown instead of throwing when the check fails", async () => {
-    const fetchImpl = vi.fn(async () => new Response("nope", { status: 500 }));
-    expect(await checkModelBalance("sk-test", { fetchImpl: fetchImpl as unknown as typeof fetch, env: operatorEnv })).toEqual({ state: "unknown", usd: null });
   });
 });

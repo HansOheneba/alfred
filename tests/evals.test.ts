@@ -1,13 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { ALFRED_SUPABASE_HOST, ALFRED_SUPABASE_PROJECT_REF, ALFRED_SUPABASE_USER, type StudioSettings } from "@/lib/config";
 import { evalCaseSchema, loadCases } from "@/lib/evals/cases";
 import { isDeadEnd, runCase, summarize } from "@/lib/evals/run";
 import type { InterpretedAction } from "@/lib/finance/schemas";
 
 const SETTINGS: StudioSettings = {
-  deepseek: { apiKey: "synthetic-only", model: "unused" }, google: null,
+  ai: { apiKey: "synthetic-only", model: "unused", strongModel: "unused" }, google: null,
   supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
   authorizedUserIds: [42], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "auto",
 } as StudioSettings;

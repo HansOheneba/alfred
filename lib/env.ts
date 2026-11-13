@@ -5,8 +5,10 @@ import {
   ALFRED_SUPABASE_USER,
   DEFAULT_CURRENCY,
   DEFAULT_TIMEZONE,
+  DEFAULT_MODEL,
+  DEFAULT_STRONG_MODEL,
   type AppSettings,
-  type DeepSeekSettings,
+  type ModelSettings,
   type GoogleSettings,
   type StudioSettings,
   type SupabaseSettings,
@@ -54,16 +56,17 @@ export function normalizePrivateKey(value: string): string {
   return key.replace(/\\n/g, "\n");
 }
 
-function readDeepSeek(): DeepSeekSettings | null {
-  const apiKey = optional("DEEPSEEK_API_KEY");
-  const model = optional("DEEPSEEK_MODEL");
-  if (!apiKey && !model) return null;
-  if (!apiKey) throw new ConfigError("Missing required environment variable: DEEPSEEK_API_KEY");
-  if (!model) throw new ConfigError("Missing required environment variable: DEEPSEEK_MODEL");
-  if (!/^[A-Za-z0-9._-]{1,64}$/.test(model)) {
-    throw new ConfigError("DEEPSEEK_MODEL contains unsupported characters.");
-  }
-  return { apiKey, model };
+const MODEL_ID = /^[A-Za-z0-9._-]{1,64}$/;
+
+/** Claude settings. ANTHROPIC_API_KEY is required; the two model names have defaults. */
+export function readModel(): ModelSettings | null {
+  const apiKey = optional("ANTHROPIC_API_KEY");
+  if (!apiKey) return null;
+  const model = optional("ALFRED_MODEL") || DEFAULT_MODEL;
+  const strongModel = optional("ALFRED_STRONG_MODEL") || DEFAULT_STRONG_MODEL;
+  if (!MODEL_ID.test(model)) throw new ConfigError("ALFRED_MODEL contains unsupported characters.");
+  if (!MODEL_ID.test(strongModel)) throw new ConfigError("ALFRED_STRONG_MODEL contains unsupported characters.");
+  return { apiKey, model, strongModel };
 }
 
 function readGoogle(): GoogleSettings | null {
@@ -165,7 +168,7 @@ export function getSettings(): AppSettings {
   return {
     telegramBotToken,
     webhookSecret,
-    deepseek: readDeepSeek(),
+    ai: readModel(),
     google: readGoogle(),
     supabase: readSupabase(),
     ...readPreferences(),
@@ -177,23 +180,23 @@ export function isStudioEnabled(): boolean {
 }
 
 export function getStudioSettings(): StudioSettings {
-  const deepseek = readDeepSeek();
+  const ai = readModel();
   const supabase = readSupabase();
-  if (!deepseek) throw new ConfigError("Missing required environment variable: DEEPSEEK_API_KEY");
+  if (!ai) throw new ConfigError("Missing required environment variable: ANTHROPIC_API_KEY");
   if (!supabase) throw new ConfigError("Missing required environment variable: SUPABASE_URL");
   const preferences = readPreferences();
-  return { deepseek, google: readGoogle(), supabase, ...preferences };
+  return { ai, google: readGoogle(), supabase, ...preferences };
 }
 
 export function readPublicStatus(): {
   telegram: boolean;
-  deepseek: boolean;
+  ai: boolean;
   sheets: boolean;
   authorizationConfigured: boolean;
 } {
   return {
     telegram: Boolean(process.env.TELEGRAM_BOT_TOKEN && process.env.TELEGRAM_WEBHOOK_SECRET),
-    deepseek: Boolean(process.env.DEEPSEEK_API_KEY && process.env.DEEPSEEK_MODEL),
+    ai: Boolean(process.env.ANTHROPIC_API_KEY?.trim()),
     sheets: Boolean(
       process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL &&
         process.env.GOOGLE_PRIVATE_KEY &&

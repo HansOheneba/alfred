@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MemoryMessageLog, type ChatMessageRecord } from "@/lib/accounts/messages";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { waitingPayments } from "@/lib/bank/reply";
 import { MemoryBankStore } from "@/lib/bank/store";
 import { interpretWithContext } from "@/lib/finance/context";

@@ -16,7 +16,7 @@ function deps(store = new MemoryFinanceStore(), overrides: Partial<StudioDeps> =
   let id = 0;
   return {
     settings: {
-      deepseek: { apiKey: "synthetic-only", model: "synthetic-only" },
+      ai: { apiKey: "synthetic-only", model: "synthetic-only", strongModel: "synthetic-only" },
       google: null,
       supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
       authorizedUserIds: [42], currency: "GHS", timezone: "Africa/Accra", confirmTransactions: "auto",

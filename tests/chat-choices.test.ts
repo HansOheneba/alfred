@@ -79,7 +79,7 @@ async function webSetup() {
   const interpret = vi.fn(async () => { throw new Error("Choice submission must not call a model"); });
   const deps: StudioDeps = {
     settings: {
-      deepseek: { apiKey: "synthetic-only", model: "unused" }, google: null,
+      ai: { apiKey: "synthetic-only", model: "unused", strongModel: "unused" }, google: null,
       supabase: { projectRef: ALFRED_SUPABASE_PROJECT_REF, host: ALFRED_SUPABASE_HOST, user: ALFRED_SUPABASE_USER, database: "postgres", password: "synthetic-only" },
       authorizedUserIds: [42, 43], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "auto",
     },

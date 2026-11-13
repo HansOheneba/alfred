@@ -8,7 +8,7 @@ vi.mock("@/lib/supabase/connection", () => ({ query: (...args: unknown[]) => io.
 vi.mock("@/lib/supabase/session", () => ({ getAuthUser: () => io.auth() }));
 vi.mock("@/lib/env", () => ({ getStudioSettings: () => ({
   supabase: { projectRef: "fictional-project", host: "fixture.invalid", user: "fictional", database: "postgres", password: "synthetic-only" },
-  deepseek: { apiKey: "synthetic-only", model: "unused" }, google: null,
+  ai: { apiKey: "synthetic-only", model: "unused", strongModel: "unused" }, google: null,
   authorizedUserIds: [], timezone: "Africa/Accra", currency: "GHS", confirmTransactions: "always",
 }) }));
 vi.mock("next/headers", () => ({ cookies: async () => ({ get: () => undefined }) }));

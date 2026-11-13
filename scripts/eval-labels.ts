@@ -1,7 +1,7 @@
 import { loadEnvFile } from "node:process";
 
-import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
-import { LABEL_MODEL } from "@/lib/bank/reply";
+import { readModel } from "@/lib/env";
+import { interpretMessage, type InterpretRequest } from "@/lib/ai/model";
 import { actionsOf, type FinanceAction } from "@/lib/finance/schemas";
 
 /**
@@ -41,7 +41,7 @@ const CASES: Case[] = [
     request: {
       text: "By the way the 1000 from Mitch was a loan to me, so I owe him",
       waiting: { lines: MITCH_WAITING, current: 1 },
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => labelled(action, "borrowed", [2]),
   },
@@ -57,7 +57,7 @@ const CASES: Case[] = [
         { role: "user", body: "By the way the 1000 from Mitch was a loan to me, so I owe him" },
         { role: "assistant", body: "Marked GH₵1,000.00 from Mitch Ivan Abakah as paying you back. Mitch Ivan Abakah has paid you back in full." },
       ],
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => labelled(action, "borrowed", [2]),
   },
@@ -98,7 +98,7 @@ const CASES: Case[] = [
         lines: ["1. OUT GH₵40.50 to Benjamin Debrah · Thu 29 Oct, 17:30", "2. OUT GH₵12.00 to Adisah Anabzo · Thu 29 Oct, 12:10"],
         current: 2,
       },
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => labelled(action, "category", [1]),
   },
@@ -113,7 +113,7 @@ const CASES: Case[] = [
         ],
         current: 2,
       },
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => (action.type === "ignore_account" && action.account.endsWith("0543") ? null : `got ${action.type}${action.type === "ignore_account" ? ` ${action.account}` : ""}`),
   },
@@ -128,7 +128,7 @@ const CASES: Case[] = [
         ],
         current: 1,
       },
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => labelled(action, "skip", [1]),
   },
@@ -142,7 +142,7 @@ const CASES: Case[] = [
         ],
         current: 1,
       },
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => labelled(action, "category", [1]),
   },
@@ -192,7 +192,7 @@ const CASES: Case[] = [
       text: "the 1130 to risevest was me investing",
       waiting: { lines: ["1. OUT GH₵1,130.00 to Risevest Technologies · Sun 25 Oct, 10:12", "2. OUT GH₵40.00 to Benjamin Debrah · Sat 24 Oct, 17:30"], current: 2 },
       investments: ["Risevest (US stocks, USD)"],
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => labelled(action, "investment", [1]),
   },
@@ -211,7 +211,7 @@ const CASES: Case[] = [
     request: {
       text: "the 500 to Annette was my house contribution for November",
       waiting: { lines: ["1. OUT GH₵500.00 to Annette Akushika Kwashie · Fri 30 Oct, 17:58"], current: 1 },
-      model: LABEL_MODEL,
+      strong: true,
     },
     check: (action) => {
       if (action.type !== "label_payments") return `got ${action.type}`;
@@ -225,14 +225,13 @@ const CASES: Case[] = [
 const RUNS = Number(process.env.EVAL_RUNS ?? 2);
 
 async function main(): Promise<void> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  const model = process.env.DEEPSEEK_MODEL;
-  if (!apiKey || !model) throw new Error("DeepSeek is not configured");
+  const settings = readModel();
+  if (!settings) throw new Error("ANTHROPIC_API_KEY is not set");
   let failures = 0;
   for (const item of CASES) {
     for (let run = 1; run <= RUNS; run += 1) {
       const action = await interpretMessage(
-        { apiKey, model },
+        settings,
         { timezone: "Africa/Accra", currency: "GHS", now: new Date("2026-10-29T17:50:00.000Z"), recent: [], preferredName: "Hans", ...item.request },
       );
       // With several actions, the case passes if any one of them is right.

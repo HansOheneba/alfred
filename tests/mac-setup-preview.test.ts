@@ -32,13 +32,13 @@ describe("simple Mac setup explanation", () => {
     const details = html.slice(html.indexOf("<details"), html.indexOf("</details>") + 10);
     expect(details).toContain("<summary");
     expect(details).toContain("Providers, privacy and setup details");
-    expect(details).toContain("DeepSeek");
+    expect(details).toContain("Anthropic");
     expect(details).toContain("separately from the new chat and push choices");
     expect(details).toContain("macOS 27 only");
     expect(details).toContain("Apple silicon");
     expect(details).toContain("not a list of every payment provider");
     expect(details).toContain("no filter can promise");
-    expect(html.slice(0, html.indexOf("<details"))).not.toContain("DeepSeek");
+    expect(html.slice(0, html.indexOf("<details"))).not.toContain("Anthropic");
   });
   it("distinguishes pre-Start history from paused-period catch-up and older notices", () => {
     const html = renderToStaticMarkup(createElement(MacAutomationCard));

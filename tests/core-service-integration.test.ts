@@ -21,7 +21,7 @@ function fixtures(action: InterpretedAction) {
   preferences.notifications.set("42", { revision: "notifications:0", values: { paymentMentions: false, outgoingMentions: false, paymentPush: false, paymentPreview: false, billReminders: false, weeklyOverview: false } });
   const interpret = vi.fn(async () => action);
   const deps: StudioDeps = {
-    settings: { deepseek: { apiKey: "fictional-only", model: "fixture" }, google: null, supabase: { host: ALFRED_SUPABASE_HOST, projectRef: ALFRED_SUPABASE_PROJECT_REF, user: ALFRED_SUPABASE_USER, database: "postgres", password: "fictional-only" }, authorizedUserIds: [42], currency: "GHS", timezone: "Africa/Accra", confirmTransactions: "auto" },
+    settings: { ai: { apiKey: "fictional-only", model: "fixture", strongModel: "fixture" }, google: null, supabase: { host: ALFRED_SUPABASE_HOST, projectRef: ALFRED_SUPABASE_PROJECT_REF, user: ALFRED_SUPABASE_USER, database: "postgres", password: "fictional-only" }, authorizedUserIds: [42], currency: "GHS", timezone: "Africa/Accra", confirmTransactions: "auto" },
     store, bills, accountManagement, preferences, interpret, now: () => NOW,
     nextUpdateId: () => ++update, messages: new MemoryMessageLog(),
     createId: () => `00000000-0000-4000-8000-${String(++sequence).padStart(12, "0")}`,

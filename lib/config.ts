@@ -24,10 +24,15 @@ export type GoogleSettings = {
   spreadsheetId: string;
 };
 
-export type DeepSeekSettings = {
+/** Claude models Alfred calls: `model` for everyday turns, `strongModel` for turns that need more care. */
+export type ModelSettings = {
   apiKey: string;
   model: string;
+  strongModel: string;
 };
+
+export const DEFAULT_MODEL = "claude-haiku-5-5";
+export const DEFAULT_STRONG_MODEL = "claude-sonnet-5-5";
 
 export const ALFRED_SUPABASE_PROJECT_REF = "jcenaxceqynywmottkxu";
 export const ALFRED_SUPABASE_HOST = "aws-0-eu-west-1.pooler.supabase.com";
@@ -44,7 +49,7 @@ export type SupabaseSettings = {
 export type AppSettings = {
   telegramBotToken: string;
   webhookSecret: string;
-  deepseek: DeepSeekSettings | null;
+  ai: ModelSettings | null;
   google: GoogleSettings | null;
   supabase: SupabaseSettings | null;
   authorizedUserIds: number[];
@@ -54,7 +59,7 @@ export type AppSettings = {
 };
 
 export type StudioSettings = {
-  deepseek: DeepSeekSettings;
+  ai: ModelSettings;
   google: GoogleSettings | null;
   supabase: SupabaseSettings;
   authorizedUserIds: number[];

@@ -1,7 +1,9 @@
 import { loadEnvFile } from "node:process";
 
 import { MemoryMessageLog } from "@/lib/accounts/messages";
-import { interpretMessage } from "@/lib/ai/deepseek";
+import type { ModelSettings } from "@/lib/config";
+import { readModel } from "@/lib/env";
+import { interpretMessage } from "@/lib/ai/model";
 import { createVoice } from "@/lib/ai/voice";
 import { bankAccess, ingestBankText, type IngestDeps } from "@/lib/bank/ingest";
 import { MemoryBankStore } from "@/lib/bank/store";
@@ -127,7 +129,7 @@ const OWNER = {
 
 const RUNS = Number(process.env.EVAL_RUNS ?? 1);
 
-async function play(script: Script, settings: { apiKey: string; model: string }): Promise<string[]> {
+async function play(script: Script, settings: ModelSettings): Promise<string[]> {
   const bank = new MemoryBankStore();
   const notebook = new MemoryNotebookStore();
   bank.notebook = notebook;
@@ -177,14 +179,13 @@ async function play(script: Script, settings: { apiKey: string; model: string })
 }
 
 async function main(): Promise<void> {
-  const apiKey = process.env.DEEPSEEK_API_KEY;
-  const model = process.env.DEEPSEEK_MODEL;
-  if (!apiKey || !model) throw new Error("DeepSeek is not configured");
+  const settings = readModel();
+  if (!settings) throw new Error("ANTHROPIC_API_KEY is not set");
   const failures: string[] = [];
   for (const script of SCRIPTS) {
     for (let run = 1; run <= RUNS; run += 1) {
       console.log(`${script.name}${RUNS > 1 ? ` (run ${run})` : ""}`);
-      failures.push(...(await play(script, { apiKey, model })));
+      failures.push(...(await play(script, settings)));
     }
   }
   console.log(failures.length ? `\n${failures.length} failed:\n${failures.join("\n")}` : "\nall passed");

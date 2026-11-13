@@ -1,5 +1,5 @@
 import { clientTurnUpdateId, isClientMessageId, isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import type { Channel } from "@/lib/ai/persona";
 import { intentOf, keepsFacts, voiceDelivery, type Voice } from "@/lib/ai/voice";
 import type { IngestDeps } from "@/lib/bank/ingest";
@@ -7,7 +7,6 @@ import {
   applyResolved,
   askAgain,
   askNextReply,
-  LABEL_MODEL,
   isLabelUndo,
   groundedPaymentLabel,
   proposableLabel,
@@ -205,7 +204,10 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     people,
     about,
     investments,
-    model: waiting || sort || actionsMayNeedCare(text) ? LABEL_MODEL : undefined,
+    // Payments waiting, a sort, or wording that may need care go to the stronger model: matching
+    // many payments to a loose sentence makes the small one guess, e.g. filing every unnamed
+    // payment as "office snacks".
+    strong: Boolean(waiting || sort || actionsMayNeedCare(text)),
     progress: step,
     open: (history) => {
       open = openThread({ history: noticeFocus === undefined ? history : [], waiting, pending, now: ctx.now });
@@ -238,7 +240,7 @@ async function converseTurn(text: string, ctx: ActionContext, deps: TurnDeps, op
     if (asked) ({ action, context, cue, unread, lookedUp, found } = await interpretWithContext(request(`Yes, go ahead with what you asked: "${asked}"${text.trim().length > 12 ? ` (${text.trim()})` : ""}`)));
   }
   seen.actions = [...Array.from({ length: lookedUp ?? 0 }, () => "look_up"), ...actionsOf(action).map((item) => item.type)];
-  seen.model = waiting || sort || actionsMayNeedCare(text) ? LABEL_MODEL : "default";
+  seen.model = waiting || sort || actionsMayNeedCare(text) ? "strong" : "default";
   logInfo("interpreted", { userId: ctx.profile.profileId, action: action.type === "several" ? action.actions.map((item) => item.type).join("+") : action.type });
 
   // A reply that couldn't be read, or that came while the model was down, most likely answers the

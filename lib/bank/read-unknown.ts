@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import { chatCompletion } from "@/lib/ai/deepseek";
+import { chatCompletion } from "@/lib/ai/model";
 import { cardMerchant, type ParsedBankMessage } from "@/lib/bank/parse";
-import type { DeepSeekSettings } from "@/lib/config";
+import type { ModelSettings } from "@/lib/config";
 import { canonicalizeAmount } from "@/lib/finance/money";
 import { logError } from "@/lib/log";
 
@@ -132,7 +132,7 @@ export function checkAlert(text: string, alert: ModelAlert, options: { sender: s
   };
 }
 
-export function createUnknownTextReader(settings: DeepSeekSettings, fetchImpl?: typeof fetch): UnknownTextReader {
+export function createUnknownTextReader(settings: ModelSettings, fetchImpl?: typeof fetch): UnknownTextReader {
   return async (text, options) => {
     try {
       const content = await chatCompletion(
@@ -141,7 +141,7 @@ export function createUnknownTextReader(settings: DeepSeekSettings, fetchImpl?: 
           { role: "system", content: PROMPT },
           { role: "user", content: JSON.stringify({ sender: options.sender ?? "", text: text.slice(0, 1200) }) },
         ],
-        { temperature: 0, maxTokens: 700 },
+        { maxTokens: 700 },
         fetchImpl,
       );
       const parsed = answerSchema.safeParse(JSON.parse(content));

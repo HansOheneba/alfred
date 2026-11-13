@@ -7,7 +7,7 @@ import { createSupabasePreferenceManagementStore, type PreferenceManagementStore
 import { createSupabaseLearningLog, type LearningLog } from "@/lib/learning/log";
 import { authorizeUser } from "@/lib/security/authorization";
 import { claimUpdate, completeUpdate } from "@/lib/security/idempotency";
-import { interpretMessage, type InterpretRequest } from "@/lib/ai/deepseek";
+import { interpretMessage, type InterpretRequest } from "@/lib/ai/model";
 import { createVoice, type Voice } from "@/lib/ai/voice";
 import { createSupabaseNotebookStore, type NotebookStore } from "@/lib/notebook/store";
 import { createSupabasePeopleStore, payeeNamesFrom, type PeopleStore } from "@/lib/people/store";
@@ -379,7 +379,7 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
     preferences: createSupabasePreferenceManagementStore(settings.supabase),
     settings,
     store: createSupabaseFinanceStore(settings.supabase),
-    interpret: (request) => interpretMessage(settings.deepseek, request),
+    interpret: (request) => interpretMessage(settings.ai, request),
     now: () => new Date(),
     createId: newTransactionId,
     createActionId: newActionId,
@@ -388,7 +388,7 @@ export function createStudioDeps(settings: StudioSettings): StudioDeps {
       return Date.now() * 1000 + sequence;
     },
     messages: createSupabaseMessageLog(settings.supabase),
-    voice: createVoice(settings.deepseek),
+    voice: createVoice(settings.ai),
     bank: createSupabaseBankStore(settings.supabase),
     loans: createSupabaseLoanStore(settings.supabase),
     investments: createSupabaseInvestmentStore(settings.supabase),

@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 
 import { MemoryMessageLog } from "@/lib/accounts/messages";
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import { MemorySorter, groundedOutcome, nextGroup, sortGroups, type SortGroup } from "@/lib/conversation/sorting";
 import { converse } from "@/lib/conversation/turn";
 import type { ActionContext } from "@/lib/finance/action-router";

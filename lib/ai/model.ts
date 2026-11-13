@@ -1,8 +1,8 @@
-import { z } from "zod";
+import Anthropic from "@anthropic-ai/sdk";
 
 import type { Channel } from "@/lib/ai/persona";
-import { buildSystemPrompt, type RecentTransaction } from "@/lib/ai/prompts";
-import { LIMITS, type DeepSeekSettings } from "@/lib/config";
+import { buildSystemPromptParts, type RecentTransaction } from "@/lib/ai/prompts";
+import { LIMITS, type ModelSettings } from "@/lib/config";
 import { alertOperator } from "@/lib/ai/operator-alert";
 import { AiError } from "@/lib/errors";
 import { logError } from "@/lib/log";
@@ -10,19 +10,6 @@ import type { CategoryRecord } from "@/lib/finance/types";
 import type { ConversationContext } from "@/lib/finance/conversation";
 import { zonedYmd } from "@/lib/finance/dates";
 import { parseModelOutput, type InterpretedAction } from "@/lib/finance/schemas";
-
-const completionSchema = z.object({
-  choices: z
-    .array(
-      z.object({
-        finish_reason: z.string().nullable().optional(),
-        message: z.object({
-          content: z.string().nullable().optional(),
-        }),
-      }),
-    )
-    .min(1),
-});
 
 export type InterpretRequest = {
   /** Optional management adapters available for this owner/channel; availability is checked again by the server. */
@@ -57,19 +44,19 @@ export type InterpretRequest = {
   lookups?: { query: string; lines: string[] }[];
   /** How many more lookup rounds the model may ask for; 0 means answer now. */
   lookupsLeft?: number;
-  /** A model to use instead of the configured one, for turns that need more care. */
-  model?: string;
+  /** Use the stronger model, for turns that need more care. */
+  strong?: boolean;
 };
 
 export async function interpretMessage(
-  settings: DeepSeekSettings,
+  settings: ModelSettings,
   request: InterpretRequest,
   fetchImpl: typeof fetch = fetch,
-  /** Which model answers. DeepSeek unless the evals compare another one. */
+  /** Which completion answers; tests and evals can swap it. */
   complete: Completion = chatCompletion,
 ): Promise<InterpretedAction> {
   const today = zonedYmd(request.now, request.timezone);
-  const system = buildSystemPrompt({
+  const [stable, perTurn] = buildSystemPromptParts({
     services: request.services,
     today,
     timezone: request.timezone,
@@ -92,9 +79,9 @@ export async function interpretMessage(
     lookups: request.lookups,
     lookupsLeft: request.lookupsLeft,
   });
-  const turnSettings = request.model ? { ...settings, model: request.model } : settings;
+  const turnSettings = request.strong ? { ...settings, model: settings.strongModel } : settings;
   const userText = request.text.slice(0, LIMITS.maxUserTextChars);
-  const messages: ChatMessage[] = [{ role: "system", content: system }, ...conversationTurns(request.history ?? []), { role: "user", content: userText }];
+  const messages: ChatMessage[] = [{ role: "system", content: stable }, { role: "system", content: perTurn }, ...conversationTurns(request.history ?? []), { role: "user", content: userText }];
   let first = "";
   try {
     first = await complete(turnSettings, messages, {}, fetchImpl);
@@ -114,9 +101,7 @@ export async function interpretMessage(
         },
       ]
     : messages;
-  // JSON mode now and then returns nothing at all; the identical request at temperature 0
-  // tends to come back empty again, so an empty retry is nudged off that path.
-  const retry = await attempt(turnSettings, retryMessages, { temperature: first ? 0 : 0.3 }, today, fetchImpl, complete);
+  const retry = await attempt(turnSettings, retryMessages, {}, today, fetchImpl, complete);
   if (retry.success) return retry.data;
   // A last try on the everyday model, when this turn asked for a different one.
   if (turnSettings.model !== settings.model) {
@@ -124,10 +109,10 @@ export async function interpretMessage(
     if (fallback.success) return fallback.data;
   }
   // The schema issue (field paths and messages, never the user's words) is what the logs need to explain a fallback.
-  throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);
+  throw new AiError("invalid", `Claude returned an invalid finance action (${retry.issue}).`);
 }
 
-/** DeepSeek being down or too slow, as opposed to a reply that couldn't be used. */
+/** Claude being down or too slow, as opposed to a reply that couldn't be used. */
 function outage(error: unknown): error is AiError {
   return error instanceof AiError && (error.code === "unavailable" || error.code === "timeout");
 }
@@ -139,15 +124,15 @@ export const OUTAGE_PAUSE_MS = 800;
 const SECOND_TRY_MS = 15_000;
 
 /**
- * One more try after DeepSeek failed or timed out: on the everyday model when
+ * One more try after Claude failed or timed out: on the everyday model when
  * the turn asked for a stronger one, otherwise the same model after a short
  * pause. A timeout on the everyday model already used most of the time
  * budget, so it isn't retried.
  */
 async function afterOutage(
   error: AiError,
-  settings: DeepSeekSettings,
-  turnSettings: DeepSeekSettings,
+  settings: ModelSettings,
+  turnSettings: ModelSettings,
   messages: ChatMessage[],
   today: string,
   fetchImpl: typeof fetch,
@@ -157,14 +142,14 @@ async function afterOutage(
   if (!switching) await new Promise((resolve) => setTimeout(resolve, OUTAGE_PAUSE_MS));
   const retry = await attempt(settings, messages, { timeoutMs: SECOND_TRY_MS }, today, fetchImpl);
   if (retry.success) return retry.data;
-  throw new AiError("invalid", `DeepSeek returned an invalid finance action (${retry.issue}).`);
+  throw new AiError("invalid", `Claude returned an invalid finance action (${retry.issue}).`);
 }
 
 /** One completion read as a finance action; an unreadable reply comes back as an issue instead of throwing. */
 async function attempt(
-  settings: DeepSeekSettings,
+  settings: ModelSettings,
   messages: ChatMessage[],
-  options: { temperature?: number; timeoutMs?: number },
+  options: { timeoutMs?: number },
   today: string,
   fetchImpl: typeof fetch,
   complete: Completion = chatCompletion,
@@ -204,73 +189,109 @@ export function conversationTurns(history: { role: "user" | "assistant"; body: s
   return turns;
 }
 
-/** Statuses that mean the provider refused Alfred's account (no credit, bad key), not a passing outage. */
-const ACCOUNT_STATUSES = new Set([401, 402, 403]);
-
-/** One model call returning the reply text; chatCompletion is DeepSeek's. */
+/** One model call returning the reply text; chatCompletion is Claude's. */
 export type Completion = typeof chatCompletion;
 
+/** How the reply must look, added after every system prompt: the callers parse it as JSON. */
+const JSON_ONLY = "Reply with exactly one JSON object and nothing else: no prose, no code fences.";
+
+/**
+ * Thinking off where the model allows it: the replies are
+ * short JSON, and thinking would add cost and seconds to every turn. Haiku 5.5
+ * takes "disabled"; Sonnet 5.5 rejects it and turns thinking off with
+ * "between_tools" (with no tools, it never thinks). Other models keep their default.
+ */
+function thinkingFor(model: string): Anthropic.ThinkingConfigParam | undefined {
+  if (model.startsWith("claude-sonnet-5-5")) return { type: "between_tools" };
+  if (model.startsWith("claude-haiku")) return { type: "disabled" };
+  return undefined;
+}
+
+/** Claude has no image_url parts: a data URL becomes a base64 image block. */
+function contentFor(content: ChatMessage["content"]): string | Anthropic.ContentBlockParam[] {
+  if (typeof content === "string") return content;
+  return content.map((part): Anthropic.ContentBlockParam => {
+    if (part.type === "text") return { type: "text", text: part.text };
+    const match = /^data:(image\/(?:png|jpeg|gif|webp));base64,(.+)$/.exec(part.image_url.url);
+    if (!match) return { type: "image", source: { type: "url", url: part.image_url.url } };
+    return { type: "image", source: { type: "base64", media_type: match[1] as "image/png", data: match[2] } };
+  });
+}
+
+function textOf(content: ChatMessage["content"]): string {
+  return typeof content === "string" ? content : content.flatMap((part) => (part.type === "text" ? [part.text] : [])).join("\n");
+}
+
+/** Out of credit: Claude answers 400 "credit balance is too low", not 402. */
+function outOfCredit(error: InstanceType<typeof Anthropic.APIError>): boolean {
+  return error.status === 402 || (error.status === 400 && /credit balance/i.test(error.message));
+}
+
+async function refuseAccount(status: number | undefined, credit: boolean): Promise<never> {
+  const error = new AiError("account", `Claude refused Alfred's account with status ${status ?? "unknown"}.`);
+  const event = credit ? "ai_out_of_credit" : "ai_key_rejected";
+  logError(event, error);
+  await alertOperator(event, credit
+    ? "Claude is out of credit. Alfred can't read chat messages until the Anthropic account is topped up."
+    : `Claude rejected Alfred's API key (HTTP ${status ?? "unknown"}). Alfred can't read chat messages until ANTHROPIC_API_KEY is fixed.`);
+  throw error;
+}
+
 export async function chatCompletion(
-  settings: DeepSeekSettings,
+  settings: ModelSettings,
   messages: ChatMessage[],
-  options: { temperature?: number; maxTokens?: number; timeoutMs?: number },
+  options: { maxTokens?: number; timeoutMs?: number },
   fetchImpl: typeof fetch = fetch,
 ): Promise<string> {
-  let response: Response;
+  // The base URL is fixed so a proxy configured for other tools on this machine can't redirect the calls.
+  // Retries are Alfred's own (see interpretMessage), so the SDK makes exactly one attempt.
+  const client = new Anthropic({ apiKey: settings.apiKey, baseURL: "https://api.anthropic.com", fetch: fetchImpl, maxRetries: 0 });
+  // System messages become system blocks, each cached: the first is the long, stable part.
+  const systemTexts = messages.filter((message) => message.role === "system").map((message) => textOf(message.content));
+  const system: Anthropic.TextBlockParam[] = [...systemTexts, JSON_ONLY].map((text, index, all) => ({
+    type: "text",
+    text,
+    // At most two cache breakpoints: after the stable part and after the whole system prompt.
+    ...(index === 0 || (index === all.length - 1 && all.length > 1) ? { cache_control: { type: "ephemeral" as const } } : {}),
+  }));
+  const turns: Anthropic.MessageParam[] = messages
+    .filter((message) => message.role !== "system")
+    .map((message) => ({ role: message.role as "user" | "assistant", content: contentFor(message.content) }));
+  // The conversation must open with the person; earlier history can start with Alfred.
+  if (turns[0]?.role === "assistant") turns.unshift({ role: "user", content: "(Earlier in our conversation.)" });
+  const thinking = thinkingFor(settings.model);
+
+  let response: Anthropic.Message;
   try {
-    response = await fetchImpl("https://api.deepseek.com/chat/completions", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${settings.apiKey}`,
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
+    response = await client.messages.create(
+      {
         model: settings.model,
-        messages,
-        response_format: { type: "json_object" },
-        thinking: { type: "disabled" },
-        temperature: options.temperature ?? 0,
         max_tokens: options.maxTokens ?? LIMITS.maxModelTokens,
-      }),
-      signal: AbortSignal.timeout(options.timeoutMs ?? LIMITS.aiTimeoutMs),
-    });
+        system,
+        messages: turns,
+        ...(thinking ? { thinking } : {}),
+      },
+      { timeout: options.timeoutMs ?? LIMITS.aiTimeoutMs },
+    );
   } catch (error) {
-    if (error instanceof Error && error.name === "TimeoutError") {
-      throw new AiError("timeout", "DeepSeek timed out.");
-    }
-    if (error instanceof Error && error.name === "AbortError") {
-      throw new AiError("timeout", "DeepSeek timed out.");
-    }
-    throw new AiError("unavailable", "DeepSeek could not be reached.");
+    if (error instanceof Anthropic.APIConnectionTimeoutError) throw new AiError("timeout", "Claude timed out.");
+    if (error instanceof Anthropic.RateLimitError) throw new AiError("rate_limit", "Claude rate limited the request.");
+    if (error instanceof Anthropic.AuthenticationError || error instanceof Anthropic.PermissionDeniedError) return refuseAccount(error.status, false);
+    if (error instanceof Anthropic.APIError && outOfCredit(error)) return refuseAccount(error.status, true);
+    if (error instanceof Anthropic.APIConnectionError) throw new AiError("unavailable", "Claude could not be reached.");
+    if (error instanceof Anthropic.APIError) throw new AiError("unavailable", `Claude failed with status ${error.status ?? "unknown"}.`);
+    // A body that times out while it is read surfaces as the fetch's own timeout.
+    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) throw new AiError("timeout", "Claude timed out.");
+    throw new AiError("unavailable", "Claude could not be reached.");
   }
 
-  if (response.status === 429) throw new AiError("rate_limit", "DeepSeek rate limited the request.");
-  if (ACCOUNT_STATUSES.has(response.status)) {
-    const error = new AiError("account", `DeepSeek refused Alfred's account with status ${response.status}.`);
-    const event = response.status === 402 ? "ai_out_of_credit" : "ai_key_rejected";
-    logError(event, error);
-    await alertOperator(event, response.status === 402
-      ? "DeepSeek is out of credit (HTTP 402). Alfred can't read chat messages until it's topped up."
-      : `DeepSeek rejected Alfred's API key (HTTP ${response.status}). Alfred can't read chat messages until the key is fixed.`);
-    throw error;
-  }
-  if (!response.ok) throw new AiError("unavailable", `DeepSeek failed with status ${response.status}.`);
-
-  // The time limit also covers reading the body, so a slow reply can time out here too.
-  let body: unknown;
-  try {
-    body = await response.json();
-  } catch (error) {
-    if (error instanceof Error && (error.name === "TimeoutError" || error.name === "AbortError")) throw new AiError("timeout", "DeepSeek timed out.");
-    throw new AiError("invalid", "DeepSeek returned an unexpected payload.");
-  }
-  const parsed = completionSchema.safeParse(body);
-  if (!parsed.success) throw new AiError("invalid", "DeepSeek returned an unexpected payload.");
-  const choice = parsed.data.choices[0];
-  if (choice.finish_reason === "length") {
-    throw new AiError("invalid", "DeepSeek truncated the finance action.");
-  }
-  const content = choice.message.content?.trim() ?? "";
-  if (!content || content.length > 12_000) throw new AiError("invalid", "DeepSeek returned empty JSON.");
+  if (response.stop_reason === "refusal") throw new AiError("invalid", "Claude declined the request.");
+  if (response.stop_reason === "max_tokens") throw new AiError("invalid", "Claude truncated the finance action.");
+  const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("").trim();
+  // Claude has no JSON mode here, so take the object out of anything wrapped around it.
+  const start = text.indexOf("{"), end = text.lastIndexOf("}");
+  if (start === -1 || end <= start) throw new AiError("invalid", "Claude returned empty JSON.");
+  const content = text.slice(start, end + 1);
+  if (content.length > 12_000) throw new AiError("invalid", "Claude returned too much JSON.");
   return content;
 }

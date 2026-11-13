@@ -346,6 +346,6 @@ Before live use, review and approve each applicable step:
 Forwarding sends selected text/sender/time to the fixed Alfred ingestion URL.
 Alfred stores recognized alerts and may update fees, income/expenses and other
 financial records under its existing rules. Unfamiliar eligible alerts may use
-configured DeepSeek parsing. Pending local outbox bodies are private and removed
+configured Claude (Anthropic) parsing. Pending local outbox bodies are private and removed
 from the active outbox after acknowledgment; this is not a claim of forensic
 removal from filesystem snapshots or backups.

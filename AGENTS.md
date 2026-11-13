@@ -31,10 +31,10 @@ Before the final response, run one reporting pass. If candidates remain, from th
 
 ## Model credit is real money: be sparing
 
-Alfred's DeepSeek key is paid from the owner's own account, and the app, CI and local runs all share it. On 2026-11-05 eval runs on PR pushes spent about 35 days' worth of normal app use in one day and emptied the account, so chat stopped working for everyone.
+Alfred's Claude key (`ANTHROPIC_API_KEY`) is paid from the owner's own Anthropic account, and the app, CI and local runs all share it. On 2026-11-05, when Alfred still ran on DeepSeek, eval runs on PR pushes spent about 35 days' worth of normal app use in one day and emptied the account, so chat stopped working for everyone.
 
 - Don't run `npm run evals` (or anything else that calls the real model) unless the change needs it. One run is about 130 requests. Never loop it or raise `EVAL_RUNS`, and don't run it to "double-check" after tests already pass.
 - Test model-facing code with mocked `fetch` in vitest first; that costs nothing.
 - CI evals run only when a PR has the `run-evals` label, weekly, or by hand. Add the label once, when a PR that changes how Alfred understands people (`lib/ai`, `lib/conversation`, `lib/finance`, `lib/bank/reply.ts`, `lib/studio`, `evals/`) is ready for review. New pushes don't re-run it.
-- `deepseek-v4-pro` costs about 4x `deepseek-flash` per token and was most of the spend. Don't send more turns to it, add model calls per turn, or grow the system prompt without saying so in the PR.
-- If a model call fails with 402, the account is out of credit: stop and tell the owner rather than retrying.
+- Everyday turns use `claude-haiku-5-5` ($0.10/$0.50 per million input/output tokens); turns that need care use `claude-sonnet-5-5` ($2/$10), 20x the price. Don't send more turns to the strong model, add model calls per turn, or grow the system prompt without saying so in the PR. The system prompt is cached in two parts (`buildSystemPromptParts`); keep anything that changes per message out of the first part, or every turn pays full price for it.
+- If a model call fails with "credit balance is too low" (HTTP 400) or 402, the account is out of credit: stop and tell the owner rather than retrying.

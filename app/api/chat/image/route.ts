@@ -52,7 +52,7 @@ export async function POST(request: Request): Promise<Response> {
     if (existing.some((item) => item.role === "assistant")) return Response.json({ ok: true, messages: existing.map(present), ledgerChanged: existing.find((item) => item.role === "assistant")?.ledgerChanged ?? true });
     await messages.append({ ownerId: profile.profileId, role: "user", body: "📷 Screenshot", channel: "web", clientId });
 
-    const read = await readImageText({ bytes: Buffer.from(await image.arrayBuffer()), mime, deepseek: settings.deepseek, google: settings.google });
+    const read = await readImageText({ bytes: Buffer.from(await image.arrayBuffer()), mime, ai: settings.ai, google: settings.google });
     if (!read.text) {
       await messages.append({ ownerId: profile.profileId, role: "assistant", body: "I couldn't make out any text in that image. A sharper screenshot usually does it.", channel: "web", clientId, ledgerChanged: false });
       return Response.json({ ok: true, messages: await thread(), ledgerChanged: false });

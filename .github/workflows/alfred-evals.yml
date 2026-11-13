@@ -1,11 +1,11 @@
 name: Alfred conversation evals
 
 # Plays the conversations in evals/cases through Alfred with the real model,
-# on in-memory books, and checks what got saved. Each run costs real DeepSeek
+# on in-memory books, and checks what got saved. Each run costs real Claude
 # credit (about 130 requests), so it runs only when asked: when a PR gets the
 # `run-evals` label, once a week, or by hand. Pushing again doesn't re-run it;
 # remove and re-add the label, or run the workflow by hand. Skips cleanly when
-# the DEEPSEEK_API_KEY secret isn't set.
+# the ANTHROPIC_API_KEY secret isn't set.
 on:
   pull_request:
     types: [labeled]
@@ -31,8 +31,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     env:
-      DEEPSEEK_API_KEY: ${{ secrets.DEEPSEEK_API_KEY }}
-      DEEPSEEK_MODEL: ${{ vars.DEEPSEEK_MODEL || 'deepseek-flash' }}
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
       EVAL_RUNS: ${{ github.event.inputs.runs || '1' }}
       EVAL_MIN_PASS: "0.85"
       # The runner only builds settings; it never connects to a database.

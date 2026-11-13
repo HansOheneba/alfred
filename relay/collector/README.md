@@ -329,10 +329,10 @@ unfamiliar payments may await a label. This is financial ingestion, not only a
 notification.
 
 The backend may send the sender and up to 1,200 characters of unfamiliar eligible
-alerts to DeepSeek. The inspected known-sender rule bypasses that model fallback
+alerts to Anthropic's Claude. The inspected known-sender rule bypasses that model fallback
 for MobileMoney and Hubtel; it may apply to unfamiliar alerts from the other
 approved labels. Before live setup, each user must review and approve the
-selected-provider forwarding and possible DeepSeek parsing for their own
+selected-provider forwarding and possible Claude parsing for their own
 account. Approval from another account or a development session is not consent
 for a new user.
 

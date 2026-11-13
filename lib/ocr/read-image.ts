@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-import { chatCompletion } from "@/lib/ai/deepseek";
-import type { DeepSeekSettings, GoogleSettings } from "@/lib/config";
+import { chatCompletion } from "@/lib/ai/model";
+import type { ModelSettings, GoogleSettings } from "@/lib/config";
 import { getGoogleAccessToken, VISION_SCOPE } from "@/lib/google/auth";
 import { logError } from "@/lib/log";
 
@@ -9,7 +9,7 @@ export type ImageText = {
   text: string;
   /** What the image looked like: bank or mobile money texts, a receipt, or something else. */
   kind: "bank_sms" | "receipt" | "other";
-  engine: "deepseek" | "google-vision";
+  engine: "claude" | "google-vision";
 };
 
 export const MAX_IMAGE_BYTES = 4 * 1024 * 1024;
@@ -28,7 +28,7 @@ const TRANSCRIBE = [
   "Never invent text you cannot read. If nothing is legible, return an empty text.",
 ].join("\n");
 
-async function withDeepSeek(settings: DeepSeekSettings, bytes: Buffer, mime: string, fetchImpl: typeof fetch): Promise<ImageText> {
+async function withClaude(settings: ModelSettings, bytes: Buffer, mime: string, fetchImpl: typeof fetch): Promise<ImageText> {
   const content = await chatCompletion(
     settings,
     [
@@ -41,11 +41,11 @@ async function withDeepSeek(settings: DeepSeekSettings, bytes: Buffer, mime: str
         ],
       },
     ],
-    { temperature: 0, maxTokens: 3000, timeoutMs: 40_000 },
+    { maxTokens: 3000, timeoutMs: 40_000 },
     fetchImpl,
   );
   const parsed = transcriptSchema.parse(JSON.parse(content));
-  return { text: parsed.text.trim(), kind: parsed.kind, engine: "deepseek" };
+  return { text: parsed.text.trim(), kind: parsed.kind, engine: "claude" };
 }
 
 async function withGoogleVision(settings: GoogleSettings, bytes: Buffer, fetchImpl: typeof fetch): Promise<ImageText> {
@@ -64,22 +64,22 @@ async function withGoogleVision(settings: GoogleSettings, bytes: Buffer, fetchIm
 }
 
 /**
- * Reads the text in a screenshot or photo. DeepSeek reads images as part of
+ * Reads the text in a screenshot or photo. Claude reads images as part of
  * Alfred's normal model; Google Cloud Vision is the backup when it's set up
  * (GOOGLE_VISION_ENABLED=true and the Sheets service account has Vision access).
  */
 export async function readImageText(
-  input: { bytes: Buffer; mime: string; deepseek: DeepSeekSettings | null; google: GoogleSettings | null },
+  input: { bytes: Buffer; mime: string; ai: ModelSettings | null; google: GoogleSettings | null },
   fetchImpl: typeof fetch = fetch,
 ): Promise<ImageText> {
   const errors: unknown[] = [];
-  if (input.deepseek) {
+  if (input.ai) {
     try {
-      const result = await withDeepSeek(input.deepseek, input.bytes, input.mime, fetchImpl);
+      const result = await withClaude(input.ai, input.bytes, input.mime, fetchImpl);
       if (result.text) return result;
     } catch (error) {
       errors.push(error);
-      logError("ocr_deepseek", error);
+      logError("ocr_claude", error);
     }
   }
   if (input.google && process.env.GOOGLE_VISION_ENABLED === "true") {
@@ -91,5 +91,5 @@ export async function readImageText(
     }
   }
   if (errors.length > 0) throw new Error("No image reader could read that image.");
-  return { text: "", kind: "other", engine: "deepseek" };
+  return { text: "", kind: "other", engine: "claude" };
 }

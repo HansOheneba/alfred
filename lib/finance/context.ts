@@ -1,4 +1,4 @@
-import type { InterpretRequest } from "@/lib/ai/deepseek";
+import type { InterpretRequest } from "@/lib/ai/model";
 import type { Channel } from "@/lib/ai/persona";
 import { isPaymentNoticeIntent, type ChatMessageRecord, type MessageLog } from "@/lib/accounts/messages";
 import type { UserProfile } from "@/lib/config";
@@ -34,7 +34,8 @@ export async function interpretWithContext(input: {
   about?: string[];
   /** The user's investments, one per line. */
   investments?: string[];
-  model?: string;
+  /** Use the stronger model for this turn. */
+  strong?: boolean;
   /** Runs the model's lookups for this person; without it the model answers from what's in its prompt. */
   lookup?: (queries: LookupQuery[]) => Promise<{ query: string; lines: string[] }[]>;
   /** Works out what's open in the conversation from its recent messages. */
@@ -113,7 +114,7 @@ export async function interpretWithContext(input: {
       people: input.people,
       about: input.about,
       investments: input.investments,
-      model: input.model,
+      strong: input.strong,
       open,
       lookups,
       lookupsLeft,

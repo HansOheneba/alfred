@@ -1,8 +1,7 @@
 import { writeFile } from "node:fs/promises";
 import { loadEnvFile } from "node:process";
 
-import { interpretMessage } from "@/lib/ai/deepseek";
-import { claudeCompletion } from "@/lib/ai/claude";
+import { interpretMessage } from "@/lib/ai/model";
 import { createVoice } from "@/lib/ai/voice";
 import { getStudioSettings } from "@/lib/env";
 import { loadCases } from "@/lib/evals/cases";
@@ -27,8 +26,8 @@ const MIN_PASS = Number(process.env.EVAL_MIN_PASS ?? 0.8);
 const CONCURRENCY = 4;
 
 async function main(): Promise<void> {
-  if (!process.env.DEEPSEEK_API_KEY || !process.env.DEEPSEEK_MODEL) {
-    console.log("DEEPSEEK_API_KEY and DEEPSEEK_MODEL are not set, so the evals were skipped.");
+  if (!process.env.ANTHROPIC_API_KEY?.trim()) {
+    console.log("ANTHROPIC_API_KEY is not set, so the evals were skipped.");
     return;
   }
   // Evals run on in-memory books. A fake database password means no code path can reach the real database.
@@ -37,13 +36,8 @@ async function main(): Promise<void> {
   const cases = (await loadCases()).filter((item) => !only || item.id.includes(only));
   const queue = cases.flatMap((item) => Array.from({ length: RUNS }, () => item));
   const results: CaseResult[] = [];
-  // EVAL_CLAUDE_MODEL compares a Claude model on the same conversations; the voice stays DeepSeek so only understanding changes.
-  const claudeModel = process.env.EVAL_CLAUDE_MODEL?.trim();
-  const claudeKey = process.env.CLAUDE_API_KEY?.trim();
-  if (claudeModel && !claudeKey) throw new Error("EVAL_CLAUDE_MODEL needs CLAUDE_API_KEY.");
-  const complete = claudeModel ? claudeCompletion(claudeModel, { apiKey: claudeKey!, effort: (process.env.EVAL_CLAUDE_EFFORT as "low" | "medium" | "high" | undefined) ?? "low" }) : undefined;
-  const brain = { interpret: (request: Parameters<typeof interpretMessage>[1]) => interpretMessage(settings.deepseek, request, fetch, complete), voice: createVoice(settings.deepseek) };
-  const label = claudeModel ? `${claudeModel} (${process.env.EVAL_CLAUDE_EFFORT ?? "low"} effort)` : `${settings.deepseek.model} (pro for payment turns)`;
+  const brain = { interpret: (request: Parameters<typeof interpretMessage>[1]) => interpretMessage(settings.ai, request), voice: createVoice(settings.ai) };
+  const label = `${settings.ai.model} (${settings.ai.strongModel} for payment turns)`;
   await Promise.all(Array.from({ length: CONCURRENCY }, async () => {
     for (let next = queue.shift(); next; next = queue.shift()) {
       const result = await runCase(next, settings, brain);
