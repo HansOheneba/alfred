@@ -217,7 +217,7 @@
  .alfred-accounts-modalBody { padding:20px 20px max(20px,env(safe-area-inset-bottom)); }
  .alfred-accounts-modal form > footer { bottom:-20px; margin-inline:-20px; padding:16px 20px max(16px,env(safe-area-inset-bottom)); }
 }
-@keyframes alfred-accounts-sheet-enter { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+@keyframes alfred-accounts-sheet-enter { from { opacity:0; transform:translateY(32px); } to { opacity:1; transform:translateY(0); } }
 @media(prefers-reduced-motion:reduce) { .alfred-accounts-modal { animation:none; } }
 @media(max-width:720px) {
  .alfred-accounts :is(button,a,summary) { min-width:44px; }

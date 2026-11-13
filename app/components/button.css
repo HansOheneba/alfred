@@ -20,8 +20,10 @@
   text-decoration: none;
   vertical-align: middle;
   cursor: pointer;
-  transition: background-color 150ms, border-color 150ms, color 150ms;
+  transition: background-color 150ms, border-color 150ms, color 150ms, transform var(--dur-fast) var(--ease-out);
 }
+/* Pressing gives way slightly, so a tap feels received. */
+.alfred-button:active:not(:disabled):not([aria-disabled="true"]) { transform: scale(0.97); }
 .alfred-button--sm { padding-inline: 12px; }
 .alfred-button--icon { width: 44px; height: 44px; padding: 0; flex-shrink: 0; }
 .alfred-button > svg { width: 20px; height: 20px; flex-shrink: 0; }
@@ -43,4 +45,4 @@
   .alfred-buttonGroup--mobileStack { display:flex; flex-direction:column; align-items:stretch; inline-size:100%; }
   .alfred-buttonGroup--mobileStack > .alfred-button:not(.alfred-button--icon) { inline-size:100%; flex:none; }
 }
-@media(prefers-reduced-motion:reduce) { .alfred-button { transition: none; } }
+@media(prefers-reduced-motion:reduce) { .alfred-button { transition: none; } .alfred-button:active:not(:disabled):not([aria-disabled="true"]) { transform: none; } }
