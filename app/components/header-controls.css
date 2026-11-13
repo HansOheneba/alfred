@@ -4,4 +4,4 @@
 .alfred-headerControls .alfred-headerControl[aria-pressed="true"] { background:var(--surface); color:var(--accent); box-shadow:0 1px 3px rgb(16 24 40 / .08); }
 .alfred-headerControls .alfred-headerControl:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
 .alfred-headerControl svg { inline-size:20px; block-size:20px; flex:none; }
-@media (prefers-reduced-motion:no-preference) { .alfred-headerControl { transition:background-color 120ms ease,color 120ms ease; } }
+@media (prefers-reduced-motion:no-preference) { .alfred-headerControl { transition:background-color 120ms ease,color 120ms ease,transform var(--dur-fast) var(--ease-out); } }

@@ -115,7 +115,7 @@ export function Select({ children, value, defaultValue, onChange, onInvalid, onF
     const below = window.innerHeight - box.bottom - 20;
     const above = box.top - 20;
     const down = below >= Math.min(260, above);
-    setPosition({ "--select-left": `${Math.max(12, Math.min(box.left, window.innerWidth - width - 12))}px`, "--select-width": `${width}px`, "--select-top": down ? `${box.bottom + 8}px` : "auto", "--select-bottom": down ? "auto" : `${window.innerHeight - box.top + 8}px`, "--select-max-height": `${Math.max(120, down ? below : above)}px` } as CSSProperties);
+    setPosition({ "--select-left": `${Math.max(12, Math.min(box.left, window.innerWidth - width - 12))}px`, "--select-width": `${width}px`, "--select-top": down ? `${box.bottom + 8}px` : "auto", "--select-bottom": down ? "auto" : `${window.innerHeight - box.top + 8}px`, "--select-max-height": `${Math.max(120, down ? below : above)}px`, "--select-origin": down ? "top center" : "bottom center" } as CSSProperties);
     setQuery(searchable && start && start !== "first" && start !== "last" ? start : "");
     const initial = start === "last" ? nextSelectOption(options, 0, -1) : start === "first" ? nextSelectOption(options, -1, 1) : typeof start === "string" ? findSelectTypeahead(options, selectedIndex, start) : selectedIndex;
     setActive(initial >= 0 && !options[initial]?.disabled ? initial : nextSelectOption(options, -1, 1));

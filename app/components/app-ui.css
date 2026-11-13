@@ -52,7 +52,11 @@ html[data-theme="dark"] .alfred-app {
 .alfred-ui-skip { position: fixed; left: 16px; top: -80px; z-index: 80; padding: 12px; background: var(--surface); border: 2px solid var(--accent); border-radius: 8px; }
 .alfred-ui-skip:focus { top: 8px; }
 .alfred-ui-dock { position: fixed; left: 50%; bottom: max(20px,env(safe-area-inset-bottom)); transform: translateX(-50%); z-index: 40; display: flex; gap: 4px; padding: 8px; border-radius: 20px; border: 1px solid var(--line); background: var(--surface); box-shadow: 0 10px 36px #153b2924; }
-.alfred-ui-dock :is(a,.alfred-chatNav-trigger) { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 12px; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; transition: color 150ms,background 150ms; }
+.alfred-ui-dock :is(a,.alfred-chatNav-trigger) { display: flex; align-items: center; justify-content: center; gap: 8px; min-height: 44px; padding: 0 16px; border-radius: 12px; color: var(--muted); font-size: 14px; font-weight: 500; white-space: nowrap; transition: color 150ms,background 150ms,transform var(--dur-fast) var(--ease-out); }
+/* Dock items give way on press; the icon lands with a small squash when it becomes the current page. */
+.alfred-ui-dock :is(a,.alfred-chatNav-trigger):active { transform: scale(.95); }
+.alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"] svg { animation: alfred-dock-land 240ms var(--ease-out); }
+@keyframes alfred-dock-land { 0% { transform: translateY(-2px); } 55% { transform: scale(1.08,.9); } 100% { transform: none; } }
 .alfred-ui-dock svg { width: 16px; height: 16px; flex-shrink: 0; }
 .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"] { color: var(--accent); background: var(--accent-soft); }
 .alfred-ui-dock :is(a,.alfred-chatNav-trigger):hover { background: var(--surface-2); color: var(--ink); }
@@ -212,7 +216,7 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
   .alfred-ui-metricHint { font-size: 12px; }
   .alfred-ui-transactions section > div:has(> input) { grid-template-columns: 1fr; }
 }
-@media (prefers-reduced-motion: reduce) { .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { transition: none; } }
+@media (prefers-reduced-motion: reduce) { .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { transition: none; } .alfred-ui-dock :is(a,.alfred-chatNav-trigger):active { transform: none; } .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"] :is(svg) , .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"]::before { animation: none; } }
 
 .alfred-ui-summary .alfred-weekly-comparison { grid-column: 1 / -1; align-self: start; }
 
@@ -273,7 +277,8 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
   .alfred-ui-dock { left:0; bottom:0; transform:none; width:100%; max-width:none; min-height:calc(64px + env(safe-area-inset-bottom)); padding:4px 4px calc(4px + env(safe-area-inset-bottom)); gap:0; border-radius:0; border:0; box-shadow:0 -1px 0 var(--line); }
   .alfred-ui-dock :is(a,.alfred-chatNav-trigger) { min-height:56px; border-radius:8px; }
   .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"] { background:transparent; position:relative; color:var(--accent); }
-  .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"]::before { content:""; position:absolute; top:0; left:calc(50% - 12px); width:24px; height:4px; border-radius:0 0 4px 4px; background:var(--accent); }
+  .alfred-ui-dock :is(a,.alfred-chatNav-trigger)[aria-current="page"]::before { content:""; position:absolute; top:0; left:calc(50% - 12px); width:24px; height:4px; border-radius:0 0 4px 4px; background:var(--accent); animation:alfred-dock-indicator var(--dur-base) var(--ease-out); }
+  @keyframes alfred-dock-indicator { from { transform:scaleX(.3); opacity:0; } to { transform:none; opacity:1; } }
   .alfred-ui-pageShell { padding-bottom:calc(88px + env(safe-area-inset-bottom)); }
   .alfred-app-chat .alfred-ui-fill > .alfred-ui-main { padding-bottom:calc(64px + env(safe-area-inset-bottom)); }
   .alfred-chat-viewport[data-keyboard-open="true"] .alfred-ui-dock { visibility:hidden; pointer-events:none; }
@@ -296,10 +301,11 @@ html[data-theme="dark"] .alfred-ui-metric[data-kind="income"] { --metric-ink: va
 
 /* Wider screens navigate from the top bar, as desktop apps do; the bottom tab bar is for phones only. */
 .alfred-ui-topNav { display:flex; align-items:center; gap:4px; min-width:0; }
-.alfred-ui-topNav :is(a,.alfred-chatNav-trigger) { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:0 12px; border-radius:10px; color:var(--muted); font-size:14px; line-height:20px; font-weight:500; white-space:nowrap; transition:color 150ms,background 150ms; }
+.alfred-ui-topNav :is(a,.alfred-chatNav-trigger) { display:inline-flex; align-items:center; gap:8px; min-height:44px; padding:0 12px; border-radius:10px; color:var(--muted); font-size:14px; line-height:20px; font-weight:500; white-space:nowrap; transition:color 150ms,background 150ms,transform var(--dur-fast) var(--ease-out); }
+.alfred-ui-topNav :is(a,.alfred-chatNav-trigger):active { transform:scale(.97); }
 .alfred-ui-topNav :is(a,.alfred-chatNav-trigger):hover { background:var(--surface-2); color:var(--ink); }
 .alfred-ui-topNav :is(a,.alfred-chatNav-trigger)[aria-current="page"] { color:var(--accent); background:var(--accent-soft); }
-@media (prefers-reduced-motion: reduce) { .alfred-ui-topNav :is(a,.alfred-chatNav-trigger) { transition:none; } }
+@media (prefers-reduced-motion: reduce) { .alfred-ui-topNav :is(a,.alfred-chatNav-trigger) { transition:none; } .alfred-ui-topNav :is(a,.alfred-chatNav-trigger):active { transform:none; } }
 @media (min-width:761px) {
   .alfred-ui-dock { display:none; }
   .alfred-ui-pageShell { padding-bottom:32px; }
