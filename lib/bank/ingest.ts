@@ -678,6 +678,7 @@ export function bankAccess(bank: BankStore, notebook: NotebookStore | null | und
   return {
     ignoreAccount: notebook ? (account, note) => ignoreAccount(bank, notebook, ownerId, account, note) : null,
     balances: () => bank.latestBalances(ownerId),
+    waiting: async () => (await bank.listMessages(ownerId, "needs_label")).map((item) => ({ direction: item.direction, amount: item.amount, currency: item.currency, occurredAt: item.occurredAt })),
   };
 }
 

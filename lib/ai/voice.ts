@@ -139,6 +139,9 @@ export function createVoice(settings: ModelSettings, fetchImpl: typeof fetch = f
  * Rewords a factual reply in Alfred's voice. Falls back to the server's own
  * text when the voice is off, fails, or mentions a figure the server didn't.
  */
+/** The spending note on bank payments still waiting for a category, which rewording must not drop. */
+const KEPT_NOTE = /\n\n\d+ bank payments? \([^)]*\) (?:is|are) still waiting for a category and (?:isn't|aren't) included\.$/;
+
 export async function voiceDelivery(
   voice: Voice | null | undefined,
   action: FinanceAction,
@@ -147,14 +150,18 @@ export async function voiceDelivery(
 ): Promise<Delivery> {
   const chat = action.type === "chat";
   if (!voice || delivery.kind !== "text" || (!chat && !VOICED.has(action.type))) return delivery;
+  // A note the reply must keep word for word stays out of the rewording and is added back after it.
+  const kept = delivery.text.match(KEPT_NOTE);
+  const draft = kept ? delivery.text.slice(0, kept.index) : delivery.text;
+  const withNote = (text: string) => (kept ? `${text}${kept[0]}` : text);
   // Only chat needs what's open in the conversation; facts are reworded on their own, so nothing else creeps in.
   const state = chat ? request.state : undefined;
-  const source = `${delivery.text}\n${request.userText}\n${chat ? `${request.cue?.snapshot ?? ""}\n${nowLine(request.profile.timezone)}\n${(state ?? []).join("\n")}` : ""}`;
+  const source = `${draft}\n${request.userText}\n${chat ? `${request.cue?.snapshot ?? ""}\n${nowLine(request.profile.timezone)}\n${(state ?? []).join("\n")}` : ""}`;
   // A rewording that slips in a figure the server didn't give gets one more try before the plain text is used.
   for (let attempt = 1; attempt <= 2; attempt += 1) {
     try {
-      const reply = await voice({ ...request, state, draft: delivery.text, intent: action.type, topic: chat ? (action.topic ?? "other") : undefined });
-      if (keepsFacts(reply, source) && !inventsClaims(reply, delivery.text, chat)) return { ...delivery, text: reply };
+      const reply = await voice({ ...request, state, draft, intent: action.type, topic: chat ? (action.topic ?? "other") : undefined });
+      if (keepsFacts(reply, source) && !inventsClaims(reply, draft, chat)) return { ...delivery, text: withNote(reply) };
       logInfo("voice_rejected", { intent: action.type, attempt });
     } catch (error) {
       logError("voice", error);

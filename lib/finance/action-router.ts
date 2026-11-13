@@ -19,7 +19,7 @@ import {
   type DateRange,
   type RelativePeriod,
 } from "@/lib/finance/dates";
-import { formatMinor } from "@/lib/finance/money";
+import { formatMinor, toMinor } from "@/lib/finance/money";
 import { budgetMath } from "@/lib/finance/budgets";
 import { chartSummary, drawChart } from "@/lib/finance/charts";
 import { buildInsights } from "@/lib/finance/insights";
@@ -114,6 +114,8 @@ export type BankAccess = {
   /** Leaves an account's texts out from now on, noting why; returns how many waiting payments from it were skipped. */
   ignoreAccount: ((account: string, note: string) => Promise<number>) | null;
   balances(): Promise<BankBalance[]>;
+  /** Bank payments still waiting for a category; they aren't in spending totals until labelled. */
+  waiting?(): Promise<{ direction: "in" | "out"; amount: string; currency: string; occurredAt: string }[]>;
 };
 
 export async function handleAction(action: FinanceAction, ctx: ActionContext): Promise<Delivery> {
@@ -465,12 +467,40 @@ async function spendingSummary(
     top.forEach((item, index) => lines.push(`${index + 1}. ${oneLine(item)}`));
     return remember(lines.join("\n"), queryContext(resolved.range, category, "largest", rows[0]?.transactionId ?? null));
   }
-  const text = await spokenSpend(ctx, resolved.range, rows, category, today, detail);
+  const spoken = await spokenSpend(ctx, resolved.range, rows, category, today, detail);
+  const note = category ? null : await waitingNote(ctx, resolved.range);
+  const text = note ? `${spoken}\n\n${note}` : spoken;
   return remember(
     text,
     queryContext(resolved.range, category, detail === "by_category" ? "by_category" : "total", rows.length === 1 ? rows[0].transactionId : null),
     category ? undefined : categoryChart(rows, ctx.profile.currency),
   );
+}
+
+/**
+ * Bank payments out in the range that still wait for a category, which the
+ * total leaves out, so a low figure doesn't pass for the whole story.
+ */
+async function waitingNote(ctx: ActionContext, range: DateRange): Promise<string | null> {
+  if (!ctx.bank?.waiting) return null;
+  let waiting: Awaited<ReturnType<NonNullable<BankAccess["waiting"]>>>;
+  try {
+    waiting = await ctx.bank.waiting();
+  } catch {
+    return null;
+  }
+  const inPeriod = waiting.filter((item) => {
+    if (item.direction !== "out") return false;
+    const date = zonedYmd(new Date(item.occurredAt), ctx.profile.timezone);
+    return date >= range.start && date <= range.end;
+  });
+  if (inPeriod.length === 0) return null;
+  const totals = new Map<string, number>();
+  for (const item of inPeriod) totals.set(item.currency, (totals.get(item.currency) ?? 0) + toMinor(item.amount));
+  const amounts = [...totals].map(([currency, minor]) => formatMinor(minor, currency)).join(" and ");
+  return inPeriod.length === 1
+    ? `1 bank payment (${amounts}) is still waiting for a category and isn't included.`
+    : `${inPeriod.length} bank payments (${amounts}) are still waiting for a category and aren't included.`;
 }
 
 function queryContext(
